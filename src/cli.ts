@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
+import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
+import type { OidcProvider } from './auth/OidcSignIn.js';
+import { startMockOidcProvider } from './testing/mockOidcProvider.js';
 
 async function main(): Promise<void> {
     let options;
@@ -23,6 +26,9 @@ async function main(): Promise<void> {
     reporter.addListener((_timestamp, category, message, details) => {
         process.stderr.write(`[magnetic] ${category} ${message}${details === undefined ? '' : ` ${JSON.stringify(details)}`}\n`);
     });
+    const providers: OidcProvider[] = options.linkedIn === undefined ? [] : [linkedInProvider(options.linkedIn.clientId, options.linkedIn.clientSecret, { pkce: options.linkedIn.pkce })];
+    const mock = options.mockProvider ? await startMockOidcProvider() : undefined;
+    if (mock !== undefined) providers.push({ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret });
     const server = await startMagnetic({
         dataDir: options.dataDir,
         host: options.host,
@@ -31,15 +37,22 @@ async function main(): Promise<void> {
         report: reporter.report,
         devUsers: options.devUsers,
         starter: options.starter,
-        ...(options.runtimeDir !== undefined && { runtimeDir: options.runtimeDir })
+        ...(options.runtimeDir !== undefined && { runtimeDir: options.runtimeDir }),
+        ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
+        providers,
+        allowHttpProviders: mock !== undefined
     });
+    for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);
     process.stderr.write(`magnetic: ${server.origin}  data in ${options.dataDir}\n`);
 
     let stopping = false;
     const stop = (): void => {
         if (stopping) return;
         stopping = true;
-        void server.stop().finally(() => process.exit(0));
+        void server
+            .stop()
+            .then(() => mock?.stop())
+            .finally(() => process.exit(0));
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);

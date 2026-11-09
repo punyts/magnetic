@@ -4,9 +4,9 @@ Magnetic is an AI app builder on StateUI. People sign in, describe an app, and w
 StateUI app. They can look at its state, edit it by hand, and share it. The design is in
 `docs/design/magnetic-v1.md` in the workspace.
 
-This is stage M1: the multi-user server. People sign in, each person gets a workspace of their own, and their apps
-run live behind their session. Sign-in with LinkedIn (M2), the shell and the agent (M3), the state view (M4), the
-editor (M5) and sharing (M6) come next.
+This is stage M2: the multi-user server (M1), with sign-in through LinkedIn or any OpenID Connect provider. Each person
+gets a workspace of their own, and their apps run live behind their session. The shell and the agent (M3), the state
+view (M4), the editor (M5) and sharing (M6) come next.
 
 ## Run it
 
@@ -14,8 +14,25 @@ From the workspace:
 
 ```bash
 npm run magnetic:build   # the libraries Magnetic uses, Magnetic itself and the runtime bundle
-npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob
+npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob and a mock provider
 ```
+
+Open it at `http://127.0.0.1:4300/`, not `localhost`: the provider sends the browser back to the origin the server
+listens on, and a cookie set on one host is not sent to the other.
+
+### Sign in with LinkedIn
+
+1. Make an app at the LinkedIn developer portal and add the product "Sign In with LinkedIn using OpenID Connect".
+2. Under Auth, add the redirect URL `<public origin>/auth/linkedin/callback`. Locally that is
+   `http://127.0.0.1:4300/auth/linkedin/callback`. The server prints it when it starts.
+3. Start the server with the app's client id and primary client secret in the environment:
+
+```bash
+MAGNETIC_LINKEDIN_CLIENT_ID=... MAGNETIC_LINKEDIN_CLIENT_SECRET=... npm run magnetic
+```
+
+Keep the same LinkedIn app for the life of the server. LinkedIn gives each person a different subject in each app, so
+a new app would make everyone a new user.
 
 Or on its own:
 
@@ -32,6 +49,10 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
 | `--dev-user <name>` | `MAGNETIC_DEV_USERS` (comma-separated) | none | A test user who signs in with a button and no provider; repeat for more. Loopback hosts only |
 | `--starter <kind>` | `MAGNETIC_STARTER` | `showcase` | What a new workspace holds: the component showcase, or `none` |
 | `--runtime-dir <dir>` | `MAGNETIC_RUNTIME_DIR` | the bundle in `@punyts/stateui-app` | The built StateUI runtime bundle |
+| `--public-origin <url>` | `MAGNETIC_PUBLIC_ORIGIN` | the address it listens on | The origin people reach the server at. Redirect URIs are `<origin>/auth/<provider>/callback`, and cookies are `Secure` when it is HTTPS |
+| `--mock-provider` | `MAGNETIC_MOCK_PROVIDER=true` | off | Also runs a mock OpenID Connect provider that signs anyone in as a test person. Loopback hosts only |
+| | `MAGNETIC_LINKEDIN_CLIENT_ID`, `MAGNETIC_LINKEDIN_CLIENT_SECRET` | none | LinkedIn's client. Environment only, so the secret stays out of the process list |
+| | `MAGNETIC_LINKEDIN_PKCE` | `true` | `false` sends no PKCE challenge to LinkedIn |
 
 ## How it works
 
@@ -56,8 +77,20 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - A session lasts 30 days.
   - Signing out ends the session and closes that session's view sockets (1008 `Signed out`). Other sessions of the
     same user stay open.
-- **Without a session**, a page request (`/` or an app) is redirected to `/signin`, and any other request, sockets
-  included, is refused with 401.
+- **Signing in with a provider** (`OidcSignIn`, on `openid-client`):
+  - `GET /auth/<provider>` starts the authorization code flow with state, nonce and PKCE (S256), and scopes
+    `openid profile email`.
+  - The sign-in's random key goes in the cookie `magnetic_signin` (`Path=/auth`, 10 minutes). The state, nonce and
+    verifier stay on the server.
+  - `GET /auth/<provider>/callback` is accepted once, from that browser only. This stops login CSRF.
+  - The ID token is checked against the provider's published keys, along with its issuer, audience, expiry and
+    nonce. openid-client leaves the signature check off by default for tokens from the token endpoint; Magnetic
+    turns it on.
+  - The identity is `<provider>:<sub>`. The name, the verified email and an HTTPS picture come from the ID token and
+    userinfo.
+  - A failed sign-in shows the sign-in page again with the reason, and no session.
+- **Without a session**, a page request is redirected to `/signin?next=<path>`, and every way of signing in returns
+  to that path. Only plain paths of this server are followed. Any other request, sockets included, is refused with 401.
 - **Development users.** `--dev-user alice` offers a "Sign in as alice" button, signing in as the identity
   `dev:alice`. A server bound to an address other than loopback refuses to start with development users.
 - **Logic other people wrote.** Every app's logic runs in its authority on the server, as in stateui-mcp: rules,
@@ -84,9 +117,17 @@ console.log(magnetic.origin);
 await magnetic.stop();
 ```
 
-`startMagnetic` returns `{ origin, port, runtimePort, accounts, sessions, workspaces, stop }`. The options also take
-`starter`, `runtimeDir`, `chunk3dDir`, `browser` (a stand-in headless browser, for tests), `logicLimits`,
-`socketMessagesPerSecond`, `workspaces` (`idleMs`, `max`) and `secureCookies`.
+`startMagnetic` returns `{ origin, port, runtimePort, accounts, sessions, workspaces, signIn, stop }`. The options
+also take:
+- `providers`, such as `[linkedInProvider(id, secret)]`;
+- `publicOrigin`;
+- `allowHttpProviders`, for a mock provider on loopback;
+- `starter`, `runtimeDir` and `chunk3dDir`;
+- `browser`, a stand-in headless browser for tests;
+- `logicLimits`, `socketMessagesPerSecond` and `workspaces` (`idleMs`, `max`);
+- `secureCookies`.
+
+`startMockOidcProvider()` starts the mock provider the tests use.
 
 ## Not yet
 
@@ -100,5 +141,5 @@ await magnetic.stop();
 
 ```bash
 npm run build
-npm test        # vitest: accounts, sessions, workspaces and the server over HTTP and WebSockets
+npm test        # vitest: accounts, sessions, workspaces, the options, provider sign-in against the mock provider, and the server over HTTP and WebSockets
 ```

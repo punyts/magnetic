@@ -6,6 +6,11 @@ export interface CliOptions {
     devUsers: string[];
     starter: 'showcase' | 'none';
     runtimeDir: string | undefined;
+    publicOrigin: string | undefined;
+    /** Runs a mock OpenID Connect provider beside the server, to try the provider sign-in without LinkedIn */
+    mockProvider: boolean;
+    /** LinkedIn's client, from the environment only so the secret stays out of the process list */
+    linkedIn: { clientId: string; clientSecret: string; pkce: boolean } | undefined;
     help: boolean;
 }
 
@@ -27,6 +32,18 @@ Options:
   --starter <kind>       What a new workspace holds: showcase or none
                          (env MAGNETIC_STARTER, default showcase)
   --runtime-dir <dir>    The built StateUI runtime bundle (env MAGNETIC_RUNTIME_DIR)
+  --public-origin <url>  The origin people reach the server at, such as https://magnetic.example
+                         (env MAGNETIC_PUBLIC_ORIGIN, default the address it listens on). Redirect
+                         URIs are <origin>/auth/<provider>/callback; cookies are Secure when it is HTTPS
+
+Sign in with LinkedIn (environment only):
+  MAGNETIC_LINKEDIN_CLIENT_ID      The client id of the LinkedIn app
+  MAGNETIC_LINKEDIN_CLIENT_SECRET  Its primary client secret
+  MAGNETIC_LINKEDIN_PKCE           false to send no PKCE challenge (default true)
+
+  --mock-provider        Also run a mock OpenID Connect provider on loopback that signs anyone in
+                         as a test person, to try the provider flow (env MAGNETIC_MOCK_PROVIDER=true).
+                         Loopback hosts only
   -h, --help             Show this help
 `;
 
@@ -45,6 +62,28 @@ const parseDevUser = (text: string): string => {
     return text;
 };
 
+const parseOrigin = (text: string): string => {
+    let url: URL;
+    try {
+        url = new URL(text);
+    } catch {
+        throw new UsageError(`Invalid public origin: ${text}`);
+    }
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.origin !== text.replace(/\/+$/, '')) throw new UsageError(`Invalid public origin: ${text} (a scheme and host, such as https://magnetic.example)`);
+    return url.origin;
+};
+
+/** LinkedIn's client from the environment: both the id and the secret, or neither */
+const parseLinkedIn = (env: Readonly<Record<string, string | undefined>>): CliOptions['linkedIn'] => {
+    const clientId = env['MAGNETIC_LINKEDIN_CLIENT_ID']?.trim() ?? '';
+    const clientSecret = env['MAGNETIC_LINKEDIN_CLIENT_SECRET']?.trim() ?? '';
+    if (clientId === '' && clientSecret === '') return undefined;
+    if (clientId === '' || clientSecret === '') throw new UsageError('Set both MAGNETIC_LINKEDIN_CLIENT_ID and MAGNETIC_LINKEDIN_CLIENT_SECRET');
+    const pkce = env['MAGNETIC_LINKEDIN_PKCE'];
+    if (pkce !== undefined && pkce !== 'true' && pkce !== 'false') throw new UsageError(`Invalid MAGNETIC_LINKEDIN_PKCE: ${pkce} (true or false)`);
+    return { clientId, clientSecret, pkce: pkce !== 'false' };
+};
+
 const parseStarter = (text: string): 'showcase' | 'none' => {
     if (text !== 'showcase' && text !== 'none') throw new UsageError(`Invalid starter: ${text}`);
     return text;
@@ -58,6 +97,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let runtimePort = env['MAGNETIC_RUNTIME_PORT'] !== undefined ? parsePort(env['MAGNETIC_RUNTIME_PORT']) : undefined;
     let starter = env['MAGNETIC_STARTER'] !== undefined ? parseStarter(env['MAGNETIC_STARTER']) : 'showcase';
     let runtimeDir = env['MAGNETIC_RUNTIME_DIR'];
+    let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
+    const linkedIn = parseLinkedIn(env);
+    let mockProvider = env['MAGNETIC_MOCK_PROVIDER'] === 'true';
     const envUsers = (env['MAGNETIC_DEV_USERS'] ?? '')
         .split(',')
         .map((name) => name.trim())
@@ -99,6 +141,12 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--runtime-dir':
                 runtimeDir = value();
                 break;
+            case '--public-origin':
+                publicOrigin = parseOrigin(value());
+                break;
+            case '--mock-provider':
+                mockProvider = true;
+                break;
             case '-h':
             case '--help':
                 help = true;
@@ -107,5 +155,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 throw new UsageError(`Unknown option: ${argument}`);
         }
     }
-    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, help };
+    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, help };
 }

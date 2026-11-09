@@ -2,6 +2,17 @@
 
 ## 0.1.0 (unreleased)
 
+- **M2, LinkedIn sign-in.**
+  - `OidcSignIn` signs people in with OpenID Connect providers through `openid-client`, using the authorization code
+    flow with state, nonce and PKCE. The ID token's signature is checked against the provider's keys.
+  - `linkedInProvider` is LinkedIn's preset, set with `MAGNETIC_LINKEDIN_CLIENT_ID` and
+    `MAGNETIC_LINKEDIN_CLIENT_SECRET`.
+  - A sign-in in flight is bound to its browser by the cookie `magnetic_signin`, and its callback is accepted once.
+  - **Back to where they were:** a page request without a session goes to `/signin?next=<path>`, and signing in
+    returns there.
+  - `--public-origin` sets the redirect URIs. Cookies are `Secure` when the public origin is HTTPS.
+  - `--mock-provider` runs a mock provider beside the server, on loopback only. `npm run magnetic` turns it on.
+
 - **M1, the multi-user server.**
   - `startMagnetic` and the `magnetic` CLI embed the stateui-mcp browser endpoint with one workspace per signed-in
     user (`Workspaces`). Each workspace has its own folder and owner id, opens on first use, and closes when it has

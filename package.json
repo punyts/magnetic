@@ -33,7 +33,9 @@
     "license": "MIT",
     "dependencies": {
         "@punyts/core": "^1.0.0",
-        "@punyts/stateui-mcp": "^0.1.0"
+        "@punyts/stateui-mcp": "^0.1.0",
+        "openid-client": "^6.8.9",
+        "jose": "^6.2.17"
     },
     "devDependencies": {
         "@types/node": "^26.1.1",

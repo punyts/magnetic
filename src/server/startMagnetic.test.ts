@@ -98,7 +98,7 @@ describe('Magnetic', () => {
             expect(home.status).toBe(303);
             expect(home.headers.get('location')).toBe('/signin');
             expect(app.status).toBe(303);
-            expect(app.headers.get('location')).toBe('/signin');
+            expect(app.headers.get('location')).toBe(`/signin?next=${encodeURIComponent(`/apps/${aliceApp}`)}`);
         });
 
         it('should refuse anything else without a session with 401', async () => {

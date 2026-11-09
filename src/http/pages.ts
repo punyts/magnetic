@@ -20,6 +20,8 @@ ul.list li { border-bottom: 1px solid var(--line); padding: 0.75rem 0.25rem; dis
 ul.list a { color: var(--accent); }
 .who { display: flex; align-items: center; gap: 0.5rem; }
 .who img { width: 2rem; height: 2rem; border-radius: 50%; }
+.error { color: #c0392b; }
+@media (prefers-color-scheme: dark) { .error { color: #ff8a7a; } }
 .stack { display: grid; gap: 0.75rem; max-width: 20rem; }
 `;
 
@@ -44,19 +46,27 @@ export interface SignInPageOptions {
     readonly devUsers: readonly string[];
     /** The providers people sign in with, each a button that starts its flow at `/auth/<name>` */
     readonly providers: readonly { readonly name: string; readonly label: string }[];
+    /** Where to go after signing in, a path of this server already made safe; default `/` */
+    readonly next?: string;
+    /** Why the last sign-in did not finish */
+    readonly error?: string;
 }
 
 /** `GET /signin` */
 export function signInPage(options: SignInPageOptions): string {
-    const providers = options.providers.map((provider) => `<a class="button primary" href="/auth/${escapeHtml(provider.name)}">${escapeHtml(provider.label)}</a>`).join('\n');
+    const next = options.next ?? '/';
+    const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
+    const nextField = next === '/' ? '' : `<input type="hidden" name="next" value="${escapeHtml(next)}">`;
+    const providers = options.providers.map((provider) => `<a class="button primary" href="/auth/${escapeHtml(provider.name)}${escapeHtml(query)}">${escapeHtml(provider.label)}</a>`).join('\n');
     const dev = options.devUsers
-        .map((name) => `<form class="inline" method="post" action="/signin/dev"><input type="hidden" name="user" value="${escapeHtml(name)}"><button type="submit">Sign in as ${escapeHtml(name)}</button></form>`)
+        .map((name) => `<form class="inline" method="post" action="/signin/dev"><input type="hidden" name="user" value="${escapeHtml(name)}">${nextField}<button type="submit">Sign in as ${escapeHtml(name)}</button></form>`)
         .join('\n');
     return page(
         'Sign in to Magnetic',
         [
             '<header><h1>Magnetic</h1></header>',
             '<p>Describe an app, and watch it being built.</p>',
+            options.error === undefined ? '' : `<p class="error" role="alert">${escapeHtml(options.error)}</p>`,
             `<div class="stack">${providers}</div>`,
             options.devUsers.length === 0 ? '' : `<h2>Development users</h2><p class="muted">Only a server on this machine offers these.</p><div class="stack">${dev}</div>`,
             options.providers.length === 0 && options.devUsers.length === 0 ? '<p class="muted">No way to sign in is set up on this server.</p>' : ''

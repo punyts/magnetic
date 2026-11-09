@@ -6,7 +6,9 @@ import type { Report } from '@punyts/core';
 import { Accounts } from '../accounts/Accounts.js';
 import type { User } from '../accounts/Accounts.js';
 import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
-import { readCookie, SESSION_COOKIE, sessionCookie } from '../http/cookies.js';
+import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
+import type { OidcProvider } from '../auth/OidcSignIn.js';
+import { httpOnlyCookie, readCookie, SESSION_COOKIE, sessionCookie, SIGN_IN_COOKIE } from '../http/cookies.js';
 import { appsPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
@@ -44,8 +46,17 @@ export interface MagneticOptions {
     readonly logicLimits?: AppLogicLimits;
     readonly socketMessagesPerSecond?: number;
     readonly workspaces?: WorkspacesOptions;
-    /** Marks the session cookie `Secure`; on whenever people reach the server over HTTPS */
+    /** Marks the cookies `Secure`; default on when `publicOrigin` is HTTPS */
     readonly secureCookies?: boolean;
+    /** The OpenID Connect providers people sign in with, such as `linkedInProvider(id, secret)` */
+    readonly providers?: readonly OidcProvider[];
+    /**
+     * The origin people reach the server at, such as `https://magnetic.example`; default the origin it listens on.
+     * Each provider's redirect URI is `<publicOrigin>/auth/<name>/callback`
+     */
+    readonly publicOrigin?: string;
+    /** Allows providers over plain HTTP, for a mock provider in tests. Loopback hosts only */
+    readonly allowHttpProviders?: boolean;
 }
 
 export interface RunningMagnetic {
@@ -55,11 +66,12 @@ export interface RunningMagnetic {
     readonly accounts: Accounts;
     readonly sessions: Sessions;
     readonly workspaces: Workspaces;
+    readonly signIn: OidcSignIn;
     /** Closes the server, the workspaces and their browsers. Safe to call twice */
     stop(): Promise<void>;
 }
 
-function redirect(response: ServerResponse, location: string, cookie?: string): void {
+function redirect(response: ServerResponse, location: string, cookie?: string | string[]): void {
     response.writeHead(303, { ...COMMON_HEADERS, Location: location, 'Cache-Control': 'no-store', ...(cookie !== undefined && { 'Set-Cookie': cookie }) });
     response.end();
 }
@@ -69,8 +81,9 @@ function redirect(response: ServerResponse, location: string, cookie?: string): 
  * post from a page whose referrer policy is `no-referrer`, which the same-origin check refuses: these pages send their
  * origin to themselves only (`same-origin`)
  */
-function sendPage(response: ServerResponse, html: string): void {
-    response.writeHead(200, {
+function sendPage(response: ServerResponse, html: string, status = 200, cookie?: string): void {
+    response.writeHead(status, {
+        ...(cookie !== undefined && { 'Set-Cookie': cookie }),
         ...COMMON_HEADERS,
         'Referrer-Policy': 'same-origin',
         'Content-Type': 'text/html; charset=utf-8',
@@ -102,6 +115,7 @@ async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
 export async function startMagnetic(options: MagneticOptions): Promise<RunningMagnetic> {
     const devUsers = options.devUsers ?? [];
     if (devUsers.length > 0 && !LOOPBACK.has(options.host.toLowerCase())) throw new Error('Development users are only offered on a loopback host');
+    if (options.allowHttpProviders === true && !LOOPBACK.has(options.host.toLowerCase())) throw new Error('Providers over HTTP are only allowed on a loopback host');
     const runtime = loadRuntimeBundle(
         options.runtimeDir,
         loadCatalogFile().components.map((component) => component.name)
@@ -111,6 +125,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const accounts = new Accounts(join(options.dataDir, 'accounts.json'));
     const sessions = new Sessions(join(options.dataDir, 'sessions.json'));
     let origin = '';
+    const publicOrigin = options.publicOrigin?.replace(/\/+$/, '');
+    const secure = options.secureCookies ?? publicOrigin?.startsWith('https://') ?? false;
+    const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
+    const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
+    const signInPageOf = (next: string, error?: string): string => signInPage({ devUsers, providers: providerButtons, next, ...(error !== undefined && { error }) });
     const workspaces = new Workspaces(
         {
             open: async (userId) => {
@@ -149,7 +168,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
 
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
-        if (who === undefined) return { refuse: 401, location: '/signin' };
+        if (who === undefined) {
+            const next = safeNext(request.url);
+            return { refuse: 401, location: next === '/' ? '/signin' : `/signin?next=${encodeURIComponent(next)}` };
+        }
         const services = await workspaces.get(who.user.id);
         const key = Sessions.keyOf(who.token);
         const answer: HttpTenant = {
@@ -173,9 +195,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     async function routes(request: IncomingMessage, response: ServerResponse): Promise<boolean> {
-        const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        const path = url.pathname;
         const method = request.method ?? 'GET';
-        const cookie = (token: string, maxAge: number): string => sessionCookie(token, { maxAge, secure: options.secureCookies === true });
+        const cookie = (token: string, maxAge: number): string => sessionCookie(token, { maxAge, secure });
 
         if (method === 'GET' && path === '/assets/magnetic.css') {
             response.writeHead(200, { ...COMMON_HEADERS, 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
@@ -183,15 +206,44 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (method === 'GET' && path === '/signin') {
-            if ((await signedIn(request)) !== undefined) redirect(response, '/');
-            else sendPage(response, signInPage({ devUsers, providers: [] }));
+            const next = safeNext(url.searchParams.get('next'));
+            if ((await signedIn(request)) !== undefined) redirect(response, next);
+            else sendPage(response, signInPageOf(next));
             return true;
         }
         if (method === 'POST' && path === '/signin/dev') {
-            const name = (await readForm(request)).get('user');
+            const form = await readForm(request);
+            const name = form.get('user');
             if (name === null || !devUsers.includes(name)) throw new HttpError(403, 'Not a development user of this server', 'forbidden');
             const user = await accounts.signIn({ provider: 'dev', subject: name }, { name });
-            redirect(response, '/', cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
+            redirect(response, safeNext(form.get('next')), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
+            return true;
+        }
+        const auth = /^\/auth\/([a-z][a-z0-9-]{0,31})(\/callback)?$/.exec(path);
+        if (method === 'GET' && auth !== null && signIn.has(auth[1] as string)) {
+            const name = auth[1] as string;
+            const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure, path: '/auth' });
+            if (auth[2] === undefined) {
+                let started;
+                try {
+                    started = await signIn.start(name, url.searchParams.get('next') ?? '/');
+                } catch (error) {
+                    options.report.info('Sign-in could not start', { provider: name, error: error instanceof Error ? error.message : String(error) });
+                    sendPage(response, signInPageOf(safeNext(url.searchParams.get('next')), 'The sign-in provider could not be reached. Please try again in a moment.'), 502);
+                    return true;
+                }
+                redirect(response, started.url, pendingCookie(started.key, 10 * 60));
+                return true;
+            }
+            try {
+                const done = await signIn.finish(name, readCookie(request, SIGN_IN_COOKIE), url.search);
+                const user = await accounts.signIn(done.identity, done.profile);
+                redirect(response, done.next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
+            } catch (error) {
+                if (!(error instanceof SignInError)) throw error;
+                options.report.info('Sign-in did not finish', { provider: name, error: error.message });
+                sendPage(response, signInPageOf('/', error.message), 400, pendingCookie('', 0));
+            }
             return true;
         }
         if (method === 'POST' && path === '/signout') {
@@ -231,7 +283,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     origin = http.origin.replace('//0.0.0.0', '//127.0.0.1').replace('//[::]', '//[::1]');
     const sweep = setInterval(() => void workspaces.sweep(), 60_000);
     sweep.unref();
-    options.report.info('Magnetic started', { origin, dataDir: options.dataDir, devUsers: devUsers.length });
+    options.report.info('Magnetic started', { origin, dataDir: options.dataDir, devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
 
     let stopped = false;
     return {
@@ -241,6 +293,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         accounts,
         sessions,
         workspaces,
+        signIn,
         stop: async () => {
             if (stopped) return;
             stopped = true;
