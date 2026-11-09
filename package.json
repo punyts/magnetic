@@ -1,0 +1,45 @@
+{
+    "name": "@punyts/magnetic",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Magnetic: an AI app builder on StateUI, with sign-in, one workspace per user and live apps over WebSockets",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "bin": {
+        "magnetic": "dist/cli.js"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "CHANGELOG.md"
+    ],
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "vitest run",
+        "start": "node dist/cli.js"
+    },
+    "keywords": [
+        "punyts",
+        "stateui",
+        "app-builder"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@punyts/core": "^1.0.0",
+        "@punyts/stateui-mcp": "^0.1.0"
+    },
+    "devDependencies": {
+        "@types/node": "^26.1.1",
+        "@types/ws": "^8.18.1",
+        "typescript": "^5.9.3",
+        "vitest": "^4.1.10",
+        "ws": "^8.21.1"
+    }
+}
