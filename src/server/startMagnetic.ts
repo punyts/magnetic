@@ -13,13 +13,16 @@ import type { BudgetLimits } from '../agent/Budgets.js';
 import { Chats } from '../agent/Chats.js';
 import { agentSystemPrompt } from '../agent/instructions.js';
 import { AGENT_MODELS, modelChoice } from '../agent/models.js';
+import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
+import { HOME_APP, HomeApps } from '../home/HomeApp.js';
+import type { HomeCard } from '../home/HomeApp.js';
 import type { User } from '../accounts/Accounts.js';
 import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
 import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
 import type { OidcProvider } from '../auth/OidcSignIn.js';
 import { httpOnlyCookie, readCookie, SESSION_COOKIE, sessionCookie, SIGN_IN_COOKIE } from '../http/cookies.js';
-import { appsPage, linkPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
+import { linkPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
 import type { SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
@@ -109,6 +112,8 @@ export interface RunningMagnetic {
     readonly turns: AgentTurns;
     readonly budgets: Budgets;
     readonly grants: Grants;
+    /** Each person's "Your apps" */
+    readonly homes: HomeApps;
     /** Closes the server, the workspaces and their browsers. Safe to call twice */
     stop(): Promise<void>;
 }
@@ -245,6 +250,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         return found;
     };
+    /** Each person's "Your apps", made with the tools the agent uses */
+    const homes = new HomeApps(toolsOf, join(options.dataDir, 'users'));
     let system: string | undefined;
     const budgets = new Budgets(join(options.dataDir, 'budgets.json'), options.agent?.budgets ?? DEFAULT_BUDGETS);
     const turns = new AgentTurns({
@@ -379,6 +386,38 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return found;
     }
 
+    /** The runtime origin as the browser of a request reaches it */
+    function runtimeOriginOf(request: IncomingMessage): string {
+        return `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
+    }
+
+    /** Sends a page that runs an app: its frame comes from the runtime origin */
+    function sendHostPage(request: IncomingMessage, response: ServerResponse, html: string): void {
+        response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': hostPageCsp(runtimeOriginOf(request)), 'Cache-Control': 'no-store' });
+        response.end(html);
+    }
+
+    /** `GET /`: the person's "Your apps", with the lists written into its data first */
+    async function homeRoute(request: IncomingMessage, response: ServerResponse, user: User): Promise<void> {
+        const services = await workspaces.get(user.id);
+        const homeId = await homes.id(services, user.id);
+        const all = await services.instanceViews.list();
+        const changed = (at: Date): string => `Changed ${at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+        const apps: HomeCard[] = [...all]
+            .filter((app) => app.id !== homeId)
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+            .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt) }));
+        const shared: HomeCard[] = (await sharedApps(user.id)).map((app) => ({ id: app.appId, name: app.name, note: `${app.ownerName} · ${app.right === 'use' ? 'use' : 'view only'}` }));
+        await homes.show(services, user.id, { apps, shared });
+        const home = await services.instanceViews.find(homeId);
+        if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
+        sendHostPage(
+            request,
+            response,
+            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home) })
+        );
+    }
+
     /** `GET /s/<token>` and `POST /s/<token>/remix`: a share link */
     async function linkRoute(request: IncomingMessage, response: ServerResponse, method: string, token: string, remix: boolean): Promise<void> {
         const who = await signedIn(request);
@@ -492,12 +531,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 redirect(response, '/signin');
                 return true;
             }
-            const apps = await (await workspaces.get(who.user.id)).instanceViews.list();
-            sendPage(response, appsPage({ user: who.user, apps, shared: await sharedApps(who.user.id) }));
+            await homeRoute(request, response, who.user);
             return true;
         }
         if (method === 'GET' && path === '/assets/shell.css') {
             sendAsset(response, 'text/css', SHELL_CSS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/home.css') {
+            sendAsset(response, 'text/css', HOME_CSS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/home.js') {
+            sendAsset(response, 'text/javascript', HOME_JS);
             return true;
         }
         if (method === 'GET' && path === '/assets/shell.js') {
@@ -507,6 +553,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (method === 'POST' && path === '/new') {
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const json = (request.headers.accept ?? '').includes('application/json');
             const services = await workspaces.get(who.user.id);
             const name = appNameOf((await readForm(request)).get('name') ?? '');
             const create = toolsOf(services).find((tool) => tool.name === 'ui_app_create');
@@ -514,12 +561,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
             if (outcome === undefined || outcome.isError || typeof created?.id !== 'string') {
                 const why = name === undefined ? 'Give the app a name that starts with a letter.' : typeof created?.message === 'string' ? created.message : 'The app could not be made.';
-                sendPage(response, appsPage({ user: who.user, apps: await services.instanceViews.list(), shared: await sharedApps(who.user.id), error: why }), 400);
+                if (json) sendJson(response, 400, { message: why });
+                else redirect(response, '/');
                 return true;
             }
-            redirect(response, `/edit/${encodeURIComponent(created.id)}`);
+            if (json) sendJson(response, 201, { id: created.id });
+            else redirect(response, `/edit/${encodeURIComponent(created.id)}`);
             return true;
         }
+        // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
+        const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
+        if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
         const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
@@ -533,6 +585,34 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return false;
     }
 
+    /** The page of an app, with the editor hidden (`editing` false) or shown */
+    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean): string {
+        return shellPage({
+            appId: app.id,
+            name: app.name,
+            runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
+            ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
+            namespace: services.instanceViews.namespace(app),
+            models: turns.models.map(modelChoice),
+            editing
+        });
+    }
+
+    /** `GET /apps/<appId>` of an app the person owns: the app, with the editor a key chord away. False for any other */
+    async function ownAppPage(request: IncomingMessage, response: ServerResponse, appId: string): Promise<boolean> {
+        const who = await signedIn(request);
+        if (who === undefined) return false;
+        const services = await workspaces.get(who.user.id);
+        const app = await services.instanceViews.find(appId);
+        if (app === undefined) return false;
+        if (app.name === HOME_APP) {
+            redirect(response, '/');
+            return true;
+        }
+        sendHostPage(request, response, appShellPage(request, services, app, false));
+        return true;
+    }
+
     /** The editor of one app: the page, its event stream, a new turn, and stop */
     async function editRoute(request: IncomingMessage, response: ServerResponse, method: string, appId: string, what: string | undefined): Promise<void> {
         const who = await signedIn(request);
@@ -544,12 +624,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const services = await workspaces.get(who.user.id);
         const app = await services.instanceViews.find(appId);
         if (app === undefined) throw new HttpError(404, 'No app with this id', 'not_found');
+        // "Your apps" is Magnetic's own: the agent does not change it
+        if (app.name === HOME_APP) {
+            if (what === undefined && method === 'GET') redirect(response, '/');
+            else sendJson(response, 404, { message: 'No app with this id.' });
+            return;
+        }
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            const runtimeOrigin = `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
-            const html = shellPage({ appId, name: app.name, runtimeUrl: `${runtimeOrigin}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(app), models: turns.models.map(modelChoice) });
-            response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': hostPageCsp(runtimeOrigin), 'Cache-Control': 'no-store' });
-            response.end(html);
+            sendHostPage(request, response, appShellPage(request, services, app, true));
             return;
         }
         if (what === '/events' && method === 'GET') {
@@ -661,6 +744,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         turns,
         budgets,
         grants,
+        homes,
         stop: async () => {
             if (stopped) return;
             stopped = true;

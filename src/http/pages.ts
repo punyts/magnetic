@@ -1,5 +1,4 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
-import type { User } from '../accounts/Accounts.js';
 
 /** The policy of Magnetic's own pages: its stylesheet, forms that post to itself, profile pictures over HTTPS */
 export const MAGNETIC_PAGE_CSP = ["default-src 'none'", "style-src 'self'", 'img-src https: data:', "form-action 'self'", "base-uri 'none'", "frame-ancestors 'none'"].join('; ');
@@ -77,52 +76,12 @@ export function signInPage(options: SignInPageOptions): string {
     );
 }
 
-export interface AppsPageOptions {
-    readonly user: User;
-    /** Why the last new app was not made */
-    readonly error?: string;
-    readonly apps: readonly { readonly id: string; readonly name: string; readonly updatedAt: Date }[];
-    /** The apps others shared with the user through links they opened */
-    readonly shared?: readonly SharedApp[];
-}
-
 /** An app another person shared with the user */
 export interface SharedApp {
     readonly appId: string;
     readonly name: string;
     readonly right: 'view' | 'use';
     readonly ownerName: string;
-}
-
-/** `GET /`: the signed-in user's apps */
-export function appsPage(options: AppsPageOptions): string {
-    const { user, apps } = options;
-    const picture = user.picture !== undefined && user.picture.startsWith('https://') ? `<img alt="" src="${escapeHtml(user.picture)}">` : '';
-    const rows = [...apps]
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-        .map((app) => `<li><a href="/edit/${escapeHtml(app.id)}">${escapeHtml(app.name)}</a><span class="muted"><a href="/apps/${escapeHtml(app.id)}">Open</a> · ${escapeHtml(app.updatedAt.toISOString().slice(0, 10))}</span></li>`)
-        .join('\n');
-    return page(
-        'Magnetic',
-        [
-            '<header>',
-            '<h1>Your apps</h1>',
-            `<div class="who">${picture}<span>${escapeHtml(user.name)}</span><form class="inline" method="post" action="/signout"><button type="submit">Sign out</button></form></div>`,
-            '</header>',
-            '<form class="new" method="post" action="/new"><label for="new-name">New app</label><input id="new-name" name="name" maxlength="60" placeholder="todo-list" required><button type="submit" class="primary">Create</button></form>',
-            options.error === undefined ? '' : `<p class="error" role="alert">${escapeHtml(options.error)}</p>`,
-            apps.length === 0 ? '<p class="muted">No apps yet.</p>' : `<ul class="list">\n${rows}\n</ul>`,
-            sharedSection(options.shared ?? [])
-        ].join('\n')
-    );
-}
-
-function sharedSection(shared: readonly SharedApp[]): string {
-    if (shared.length === 0) return '';
-    const rows = shared
-        .map((app) => `<li><a href="/apps/${escapeHtml(app.appId)}">${escapeHtml(app.name)}</a><span class="muted">${escapeHtml(app.ownerName)} · ${app.right === 'use' ? 'use' : 'view only'}</span></li>`)
-        .join('\n');
-    return `<h2>Shared with you</h2>\n<ul class="list">\n${rows}\n</ul>`;
 }
 
 export interface LinkPageOptions {

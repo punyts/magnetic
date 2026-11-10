@@ -12,7 +12,12 @@ export interface ShellPageOptions {
     readonly namespace: string;
     /** The models the person may pick, the default first; no menu when there is one or none */
     readonly models?: readonly { readonly id: string; readonly label: string }[];
+    /** True: the editor shows (`/edit/<appId>`); false: the app fills the window (`/apps/<appId>`) until Ctrl+Shift+E */
+    readonly editing: boolean;
 }
+
+/** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
+export const EDIT_KEY = 'mod+shift+e';
 
 const TOGGLE_LABELS: Record<(typeof CONTEXT_TOGGLES)[number], string> = { theme: 'Theme', layout: 'Layout', data: 'Data', logic: 'Logic', screens: 'Screens' };
 
@@ -41,7 +46,12 @@ export const FRAME_SIZES = [
 const sizeMenu = `<label class="hidden" for="frame-size">Frame size</label><select id="frame-size" title="The size of the app's frame">${FRAME_SIZES.map((size) => `<option value="${size.id}" data-width="${size.width}" data-height="${size.height}">${size.label}</option>`).join('')}</select>`;
 
 /**
- * `GET /edit/<appId>`: the app is a frame on a canvas that pans and zooms, and the editor floats on it: the name and
+ * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window, and Ctrl+Shift+E (Cmd+Shift+E on
+ * a Mac) lays the editor over it, and takes it away again, without loading the page again. The address follows.
+ * The app has the keyboard while it has the focus, so the host script asks the runtime for the chord
+ * (`data-host-keys`) and raises it on the page as `stateui:key`.
+ *
+ * With the editor, the app is a frame on a canvas that pans and zooms, and the editor floats on it: the name and
  * frame size at the top left, Share at the top right, the tools and context toggles on a rail at the left, the zoom at
  * the bottom right and a chat bar at the bottom centre that opens into the chat. The body carries what the StateUI host script
  * (`/assets/host.js`) reads to build the app frame, as `/apps/<appId>` does, so the app is live while the agent works
@@ -64,7 +74,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
         '<main class="board" id="board" aria-label="Canvas">',
         `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div></div></div>`,
         '</main>',
@@ -104,6 +114,7 @@ export function shellPage(options: ShellPageOptions): string {
         `${menu}<button type="submit" class="primary icon" id="send" title="Send (Enter)" aria-label="Send">${ICONS.send}</button></div>`,
         '</form>',
         '</aside>',
+        '<p class="hint" id="hint" role="status" hidden>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> to edit</p>',
         '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/host.js"></script>',
         '</body>',
@@ -211,6 +222,16 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .links input { font: inherit; font-size: 0.8rem; width: 100%; box-sizing: border-box; padding: 0.3rem; border-radius: 0.4rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
 .links .row button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
 .hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* Without the editor the app fills the window: no panels, no canvas */
+body.shell:not(.editing) .float, body.shell:not(.editing) .dock, body.shell:not(.editing) .artboard-label { display: none; }
+body.shell:not(.editing) .board { background: var(--paper); }
+body.shell:not(.editing) .world { transform: none !important; transition: none; }
+body.shell:not(.editing) .artboard { width: 100vw !important; height: 100vh !important; border-radius: 0; box-shadow: none; }
+.hint { position: fixed; z-index: 4; left: 50%; bottom: 1rem; transform: translateX(-50%); margin: 0; padding: 0.45rem 0.9rem; border-radius: 1rem; background: var(--ink); color: var(--paper); font: 0.85rem system-ui, sans-serif; box-shadow: var(--shadow); transition: opacity 0.4s; pointer-events: none; }
+.hint[hidden] { display: none; }
+.hint.gone { opacity: 0; }
+.hint kbd { font: inherit; font-weight: 600; }
+body.shell.editing .hint { display: none; }
 @media (max-width: 760px) {
   .rail, .rail .tools, .rail .shows { flex-direction: row; }
   .rail { top: 4rem; transform: none; max-width: calc(100vw - 1.5rem); overflow-x: auto; scrollbar-width: none; }
@@ -614,6 +635,7 @@ function setTool(name) { tool = name; showTool(); }
 for (const button of document.querySelectorAll('.tool')) button.addEventListener('click', () => setTool(button.dataset.tool));
 
 board.addEventListener('wheel', (event) => {
+    if (!editing()) return;
     event.preventDefault();
     const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1;
     if (event.ctrlKey || event.metaKey) {
@@ -636,6 +658,7 @@ function pinchState() {
 }
 
 board.addEventListener('pointerdown', (event) => {
+    if (!editing()) return;
     const onBackground = event.target === board || event.target === world;
     if (!(onBackground || event.target === shield || event.button === 1)) return;
     if (event.button !== 0 && event.button !== 1) return;
@@ -676,7 +699,8 @@ board.addEventListener('pointercancel', endDrag);
 function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
 
 document.addEventListener('keydown', (event) => {
-    if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') { event.preventDefault(); setEditing(!editing()); return; }
+    if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
     if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
     const keys = { v: () => setTool('use'), h: () => setTool('move'), '+': () => zoomCentre(view.zoom * 1.25), '=': () => zoomCentre(view.zoom * 1.25), '-': () => zoomCentre(view.zoom / 1.25), '0': () => zoomCentre(1), '1': () => fit(true) };
     const run = keys[event.key.toLowerCase()];
@@ -691,6 +715,36 @@ document.getElementById('zoom-fit').addEventListener('click', () => fit(true));
 zoomReset.addEventListener('click', () => zoomCentre(1));
 frameSize.addEventListener('change', () => setSize(frameSize.value, true));
 
+// The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app
+function editing() { return document.body.classList.contains('editing'); }
+
+let fitted = false;
+
+function setEditing(on) {
+    document.body.classList.toggle('editing', on);
+    history.replaceState(null, '', (on ? '/edit/' : '/apps/') + encodeURIComponent(appId) + location.search);
+    if (on) {
+        hideHint();
+        if (!fitted) { fitted = true; fit(false); } else render(false);
+        text.focus();
+    } else {
+        showShare(false);
+        if (spaceHeld) { spaceHeld = false; showTool(); }
+        const frame = artboard.querySelector('iframe');
+        if (frame) frame.focus();
+    }
+}
+
+addEventListener('stateui:key', (event) => { if (event.detail && event.detail.key === 'mod+shift+e') setEditing(!editing()); });
+
+// Without the editor, a hint says once in this browser how to open it
+const hint = document.getElementById('hint');
+if (/Mac|iPhone|iPad/.test(navigator.platform)) hint.querySelector('kbd').textContent = 'Cmd';
+function hideHint() { hint.classList.add('gone'); setTimeout(() => { hint.hidden = true; }, 400); }
+let hinted = false;
+try { hinted = localStorage.getItem('magnetic.hinted') === '1'; localStorage.setItem('magnetic.hinted', '1'); } catch { /* storage may be blocked */ }
+if (!editing() && !hinted) { hint.hidden = false; setTimeout(hideHint, 5000); }
+
 (function startCanvas() {
     let kept = null;
     try { kept = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch { /* storage may be blocked */ }
@@ -699,8 +753,10 @@ frameSize.addEventListener('change', () => setSize(frameSize.value, true));
         view.x = kept.x;
         view.y = kept.y;
         view.zoom = clampZoom(kept.zoom);
+        fitted = true;
         render(false);
-    } else {
+    } else if (editing()) {
+        fitted = true;
         fit(false);
     }
     showTool();

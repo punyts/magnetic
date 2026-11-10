@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import { homeOf } from '../testing/homeOf.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { MagneticOptions, RunningMagnetic } from './startMagnetic.js';
 
@@ -185,14 +186,15 @@ describe('Magnetic', () => {
     describe('workspaces', () => {
         it("should list only the signed-in user's apps", async () => {
             // Act
-            const aliceHome = await (await get(magnetic.origin, '/', alice)).text();
-            const bobHome = await (await get(magnetic.origin, '/', bob)).text();
+            const aliceHome = await homeOf(magnetic, alice);
+            const bobHome = await homeOf(magnetic, bob);
 
             // Assert
-            expect(aliceHome).toContain(`href="/apps/${aliceApp}"`);
-            expect(aliceHome).toContain('alice');
-            expect(bobHome).not.toContain(aliceApp);
-            expect(bobHome).toContain('No apps yet.');
+            expect(aliceHome.status).toBe(200);
+            expect(aliceHome.page).toContain('src="/assets/home.js"');
+            expect(aliceHome.apps.map((app) => app.id)).toEqual([aliceApp]);
+            expect(bobHome.apps).toEqual([]);
+            expect(bobHome.page).not.toContain(aliceApp);
         });
 
         it("should not find another user's app, page or socket", async () => {
@@ -286,10 +288,10 @@ describe('Magnetic limits', () => {
             const cookie = await signIn(magnetic.origin, 'bob');
 
             // Act
-            const home = await (await get(magnetic.origin, '/', cookie)).text();
+            const home = await homeOf(magnetic, cookie);
 
             // Assert
-            expect(home).toContain('component-showcase');
+            expect(home.apps.map((app) => app.name)).toEqual(['component-showcase']);
         } finally {
             await magnetic.stop();
             await rm(dataDir, { recursive: true, force: true });

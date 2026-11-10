@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import { homeOf } from '../testing/homeOf.js';
 import { REVOKED_MESSAGE, startMagnetic } from './startMagnetic.js';
 import type { RunningMagnetic } from './startMagnetic.js';
 
@@ -141,7 +142,7 @@ describe('Magnetic sharing', () => {
         const opened = await get(`/s/${link.token}`, bob);
         const page = await get(`/apps/${appId}`, bob);
         const owners = await get(`/apps/${appId}`, alice);
-        const home = await (await get('/', bob)).text();
+        const home = await homeOf(magnetic, bob);
 
         // Assert
         expect(opened.status).toBe(303);
@@ -150,8 +151,8 @@ describe('Magnetic sharing', () => {
         const mine = namespaceOf(await page.text());
         expect(mine).toContain(bobId);
         expect(mine).not.toBe(namespaceOf(await owners.text()));
-        expect(home).toContain('Shared with you');
-        expect(home).toContain(`href="/apps/${appId}"`);
+        expect(home.shared).toEqual([{ id: appId, name: 'tasks', note: 'alice · use' }]);
+        expect(home.apps).toEqual([]);
         // Someone who never opened the link still finds nothing
         expect((await get(`/apps/${appId}`, carol)).status).toBe(404);
     });

@@ -130,8 +130,9 @@ describe('Signing in with an OpenID Connect provider', () => {
         const session = await magnetic.sessions.find(cookies.get('magnetic_session'));
         const user = await magnetic.accounts.user(session?.userId as string);
         expect(user).toMatchObject({ name: 'Ada Lovelace', email: 'ada@example.com', picture: 'https://pictures.example/ada.jpg' });
-        const home = await (await get(`${magnetic.origin}/`, `magnetic_session=${cookies.get('magnetic_session')}`)).text();
-        expect(home).toContain('Ada Lovelace');
+        const home = await get(`${magnetic.origin}/`, `magnetic_session=${cookies.get('magnetic_session')}`);
+        expect(home.status).toBe(200);
+        expect(await home.text()).toContain('<title>Your apps');
     });
 
     it('should sign the same subject in as the same user and refresh their profile', async () => {

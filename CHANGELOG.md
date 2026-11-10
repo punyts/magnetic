@@ -2,6 +2,14 @@
 
 ## 0.1.0 (unreleased)
 
+- **Your apps is a StateUI app.** The home page is the app `your-apps` in each workspace: a grid of cards, one
+  per app and one per app shared with the person, a field and button to make an app, and Sign out. Magnetic
+  writes the lists into its data on each visit. A card opens the app at `/apps/<appId>`, full page, with no
+  editor. It is made again when Magnetic ships a new definition (a stamp in `users/<id>/magnetic/home.json`).
+- **Ctrl+Shift+E opens the editor on the app** (Cmd+Shift+E on a Mac), and again closes it. The canvas, the
+  panels and the chat come in over the app, which can then be panned and zoomed. The address switches between
+  `/apps/<appId>` and `/edit/<appId>` without a reload. The key works while the app has focus, as the runtime
+  hands it to the page. A hint shows it the first time an app is opened.
 - **The app is a frame on a canvas.** Instead of padding the app clear of the floating panels, the app sits in a
   frame (Desktop, Tablet or Phone) on a board that pans and zooms: scroll or drag the board to pan, Ctrl+scroll
   or pinch to zoom, the Move tool or Space to pan over the app, and a zoom control with Fit and 100%. The view

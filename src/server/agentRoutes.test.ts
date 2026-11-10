@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStateUiTools } from '@punyts/stateui-mcp';
@@ -140,6 +140,67 @@ describe('Agent turns', () => {
         expect(html).toContain('/assets/shell.js');
         expect(page.headers.get('content-security-policy')).toMatch(/frame-src http:\/\/127\.0\.0\.1:\d+/);
         expect((await fetch(`${magnetic.origin}/assets/shell.js`)).headers.get('content-type')).toMatch(/^text\/javascript/);
+    });
+
+    it('should open an own app with the editor hidden and the editor chord named, and the editor with it shown', async () => {
+        // Act
+        const app = await (await fetch(`${magnetic.origin}/apps/${appId}`, { headers: { Cookie: alice } })).text();
+        const editor = await (await fetch(`${magnetic.origin}/edit/${appId}`, { headers: { Cookie: alice } })).text();
+
+        // Assert
+        expect(app).toContain('<body class="view shell" data-host-keys="mod+shift+e"');
+        expect(app).toContain(`data-app-id="${appId}"`);
+        expect(editor).toContain('<body class="view shell editing" data-host-keys="mod+shift+e"');
+    });
+
+    it('should make an app for the home page with a JSON answer, refuse a bad name and keep the agent off Your apps', async () => {
+        // Arrange
+        const post = (name: string): Promise<Response> =>
+            fetch(`${magnetic.origin}/new`, { method: 'POST', redirect: 'manual', headers: { Cookie: alice, Origin: magnetic.origin, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ name }).toString() });
+        await fetch(`${magnetic.origin}/`, { headers: { Cookie: alice } });
+        const services = await magnetic.workspaces.get(aliceId);
+        const home = await magnetic.homes.id(services, aliceId);
+
+        // Act
+        const made = await post('Reading list');
+        const bad = await post('42');
+        const homeEditor = await fetch(`${magnetic.origin}/edit/${home}`, { redirect: 'manual', headers: { Cookie: alice } });
+        const homeApp = await fetch(`${magnetic.origin}/apps/${home}`, { redirect: 'manual', headers: { Cookie: alice } });
+        const homeTurn = await fetch(`${magnetic.origin}/edit/${home}/turns`, { method: 'POST', headers: { Cookie: alice, Origin: magnetic.origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Make it red' }) });
+
+        // Assert
+        expect(made.status).toBe(201);
+        const { id } = (await made.json()) as { id: string };
+        expect((await services.instanceViews.find(id))?.name).toBe('reading-list');
+        expect(bad.status).toBe(400);
+        expect(((await bad.json()) as { message: string }).message).toMatch(/starts with a letter/);
+        expect(homeEditor.status).toBe(303);
+        expect(homeEditor.headers.get('location')).toBe('/');
+        expect(homeApp.headers.get('location')).toBe('/');
+        expect(homeTurn.status).toBe(404);
+        expect((await magnetic.homes.read(services, aliceId)).apps.map((app) => app.id)).not.toContain(home);
+    });
+
+    it('should make Your apps again when it was made from an older definition', async () => {
+        // Arrange
+        const usersDir = join(dataDir, 'users');
+        const stampFile = join(usersDir, aliceId, 'magnetic', 'home.json');
+        const before = await magnetic.homes.id(await magnetic.workspaces.get(aliceId), aliceId);
+        await writeFile(stampFile, JSON.stringify({ stamp: 'older' }));
+        const later = await startMagnetic({ dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser, agent: { model } });
+
+        try {
+            // Act
+            const services = await later.workspaces.get(aliceId);
+            const after = await later.homes.id(services, aliceId);
+
+            // Assert
+            expect(after).not.toBe(before);
+            expect((await services.instanceViews.list()).filter((app) => app.name === 'your-apps')).toHaveLength(1);
+            expect(JSON.parse(await readFile(stampFile, 'utf8')).stamp).not.toBe('older');
+        } finally {
+            await later.stop();
+        }
     });
 
     it('should name apps in lower case words joined by dashes', () => {
