@@ -1,4 +1,5 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
+import { FAVICON_LINK } from './logo.js';
 
 export interface HomePageOptions {
     /** The id of the person's "Your apps" app */
@@ -23,6 +24,7 @@ export function homePage(options: HomePageOptions): string {
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         '<title>Your apps · Magnetic</title>',
+        FAVICON_LINK,
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/home.css">',
         '</head>',

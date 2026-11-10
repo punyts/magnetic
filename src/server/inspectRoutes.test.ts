@@ -112,6 +112,23 @@ describe("The editor's inspector routes", () => {
         expect(typeof body.icons).toBe('object');
         expect(await again.json()).toEqual(body);
         expect(script.headers.get('content-type')).toMatch(/^text\/javascript/);
+        expect(Object.keys((body as unknown as { paths: Record<string, string> }).paths)).toEqual(expect.arrayContaining(['tabs', 'crumbs', 'fields', 'remove', 'detail']));
+    });
+
+    it('should serve the logo, and give every page it as an icon, the sign-in page and the editor showing the mark', async () => {
+        // Act
+        const logo = await fetch(`${magnetic.origin}/assets/logo.svg`);
+        const signIn = await (await fetch(`${magnetic.origin}/signin`)).text();
+        const editor = await (await fetch(`${magnetic.origin}/edit/${appId}`, { headers: { Cookie: alice } })).text();
+
+        // Assert
+        expect(logo.status).toBe(200);
+        expect(logo.headers.get('content-type')).toBe('image/svg+xml');
+        expect(await logo.text()).toContain('<title>Magnetic</title>');
+        for (const page of [signIn, editor]) {
+            expect(page).toContain('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,');
+            expect(page).toContain('class="mark" aria-hidden="true"');
+        }
     });
 
     it('should answer a node with its settings, its children and its component, and no node for a path that is not one', async () => {

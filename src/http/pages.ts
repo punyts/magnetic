@@ -1,4 +1,5 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
+import { FAVICON_LINK, LOGO_MARK } from './logo.js';
 
 /** The policy of Magnetic's own pages: its stylesheet, forms that post to itself, profile pictures over HTTPS */
 export const MAGNETIC_PAGE_CSP = ["default-src 'none'", "style-src 'self'", 'img-src https: data:', "form-action 'self'", "base-uri 'none'", "frame-ancestors 'none'"].join('; ');
@@ -10,6 +11,8 @@ html, body { margin: 0; background: var(--paper); color: var(--ink); font-family
 main { max-width: 44rem; margin: 0 auto; padding: 2.5rem 1rem; }
 header { display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; margin-bottom: 2rem; }
 h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.01em; }
+h1.brand { display: flex; align-items: center; gap: 0.6rem; font-size: 1.75rem; }
+h1.brand .mark { width: 2.5rem; height: 2.5rem; }
 p.muted, .muted { color: var(--muted); }
 form.inline { display: inline; }
 button, a.button { font: inherit; padding: 0.5rem 0.9rem; border-radius: 0.5rem; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; text-decoration: none; }
@@ -35,6 +38,7 @@ function page(title: string, body: string): string {
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         `<title>${escapeHtml(title)}</title>`,
+        FAVICON_LINK,
         '<link rel="stylesheet" href="/assets/magnetic.css">',
         '</head>',
         `<body><main>${body}</main></body>`,
@@ -66,7 +70,7 @@ export function signInPage(options: SignInPageOptions): string {
     return page(
         'Sign in to Magnetic',
         [
-            '<header><h1>Magnetic</h1></header>',
+            `<header><h1 class="brand">${LOGO_MARK}Magnetic</h1></header>`,
             '<p>Describe an app, and watch it being built.</p>',
             options.error === undefined ? '' : `<p class="error" role="alert">${escapeHtml(options.error)}</p>`,
             `<div class="stack">${providers}</div>`,

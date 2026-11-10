@@ -8,7 +8,9 @@ Built so far: the multi-user server (M1), sign-in through LinkedIn or any OpenID
 and the agent (M3), and sharing (M6). Each person gets a workspace of their own, and their apps run live behind their
 session. Hosting (M7), the state view (M4) and the hand editor (M5) come next.
 
-The logo is in `brand/`: `logo.svg`, and PNGs at 512, 300 and 100 pixels.
+The logo is in `brand/`: `logo.svg`, and PNGs at 512, 300 and 100 pixels. Every page has it as its icon, the sign-in
+page and the editor show it, and the server serves the file at `/assets/logo.svg` (`src/http/logo.ts` holds a copy;
+keep the two the same).
 
 ## Run it
 
@@ -32,6 +34,7 @@ listens on, and a cookie set on one host is not sent to the other.
 ### Sign in with LinkedIn
 
 1. Make an app at the LinkedIn developer portal and add the product "Sign In with LinkedIn using OpenID Connect".
+   For the app logo, upload `brand/logo-300.png` (LinkedIn asks for a square image of at least 100 pixels).
 2. Under Auth, add the redirect URL `<public origin>/auth/linkedin/callback`. Locally that is
    `http://127.0.0.1:4300/auth/linkedin/callback`. The server prints it when it starts.
 3. Start the server with the app's client id and primary client secret in the environment:

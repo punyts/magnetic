@@ -26,6 +26,7 @@ import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
 import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
 import type { OidcProvider } from '../auth/OidcSignIn.js';
 import { httpOnlyCookie, readCookie, SESSION_COOKIE, sessionCookie, SIGN_IN_COOKIE } from '../http/cookies.js';
+import { LOGO_SVG } from '../http/logo.js';
 import { linkPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
 import type { SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
@@ -508,6 +509,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const method = request.method ?? 'GET';
         const cookie = (token: string, maxAge: number): string => sessionCookie(token, { maxAge, secure });
 
+        if (method === 'GET' && path === '/assets/logo.svg') {
+            response.writeHead(200, { ...COMMON_HEADERS, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
+            response.end(LOGO_SVG);
+            return true;
+        }
         if (method === 'GET' && path === '/assets/magnetic.css') {
             response.writeHead(200, { ...COMMON_HEADERS, 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
             response.end(MAGNETIC_CSS);

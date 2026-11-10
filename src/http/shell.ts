@@ -1,5 +1,6 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
 import { CONTEXT_TOGGLES } from '../agent/AgentTurns.js';
+import { FAVICON_LINK, LOGO_MARK } from './logo.js';
 
 export interface ShellPageOptions {
     readonly appId: string;
@@ -25,7 +26,6 @@ const TOGGLE_LABELS: Record<(typeof CONTEXT_TOGGLES)[number], string> = { theme:
 const svg = (path: string): string =>
     `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
 const ICONS = {
-    back: svg('<path d="M15 18l-6-6 6-6"/>'),
     close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
     chat: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
     send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>'),
@@ -72,6 +72,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         `<title>${escapeHtml(options.name)} · Magnetic</title>`,
+        FAVICON_LINK,
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
@@ -79,7 +80,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<main class="board" id="board" aria-label="Canvas">',
         `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div><div class="overlay" id="overlay" aria-hidden="true"></div></div></div>`,
         '</main>',
-        `<header class="float corner start"><a href="/" class="back" title="All your apps">${ICONS.back}<span class="hidden">Apps</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
+        `<header class="float corner start"><a href="/" class="back" title="All your apps">${LOGO_MARK}<span class="hidden">All your apps</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
         '<div class="float corner end"><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">Share</button></div>',
         '<nav class="float rail" aria-label="Tools">',
         `<div class="tools" role="group" aria-label="Pointer"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="Use the app (V)" aria-label="Use the app">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="Move the canvas (H, or hold Space)" aria-label="Move the canvas">${ICONS.hand}</button><button type="button" class="tool icon" data-tool="select" aria-pressed="false" title="Select a part of the app (S)" aria-label="Select a part of the app">${ICONS.select}</button></div>`,
@@ -174,6 +175,8 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .corner a { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; padding: 0.35rem 0.5rem; border-radius: 0.5rem; }
 .corner a:hover, .corner a:focus-visible { background: var(--soft); }
 .corner a.open { color: var(--accent); font-size: 0.9rem; }
+.corner a.back { padding: 0.2rem; }
+.corner .mark { width: 1.75rem; height: 1.75rem; display: block; }
 .rail { left: 0.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 0.35rem; padding: 0.35rem; }
 .rail .tools, .rail .shows { display: flex; flex-direction: column; gap: 0.25rem; }
 .rail .tools { align-items: center; padding-bottom: 0.35rem; border-bottom: 1px solid var(--line); }
