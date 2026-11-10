@@ -84,8 +84,8 @@ function listen(origin: string, appId: string, cookie: string, until: (event: Ag
     })();
 }
 
-const postTurn = (origin: string, appId: string, cookie: string, text: string, context: string[] = []): Promise<Response> =>
-    fetch(`${origin}/edit/${appId}/turns`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ text, context }) });
+const postTurn = (origin: string, appId: string, cookie: string, text: string, context: string[] = [], model?: string): Promise<Response> =>
+    fetch(`${origin}/edit/${appId}/turns`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ text, context, ...(model !== undefined && { model }) }) });
 
 /** Waits for the stream to have sent its first event, so a turn started after it is seen whole */
 async function opened(origin: string, appId: string, cookie: string, until: (event: AgentEvent) => boolean): Promise<{ all: Promise<AgentEvent[]> }> {
@@ -200,10 +200,11 @@ describe('Agent turns', () => {
 
         // The first request: the cached system prompt, the tools without the browser ones, the layout asked for
         const [first, second] = model.requests as [ModelRequest, ModelRequest];
-        expect(first.model).toBe('claude-opus-5-5');
+        // The default model is Haiku 5.5, which takes no server-side fallback
+        expect(first.model).toBe('claude-haiku-5-5');
         expect(first.thinking).toEqual({ type: 'adaptive', display: 'updates' });
-        expect(first.fallbacks).toBe('default');
-        expect(first.betas).toEqual(expect.arrayContaining(['thinking-display-updates-2026-08-18', 'server-side-fallback-2026-07-01']));
+        expect(first.fallbacks).toBeUndefined();
+        expect(first.betas).toEqual(['thinking-display-updates-2026-08-18']);
         const system = first.system as { text: string; cache_control?: unknown }[];
         expect(system[0]?.text).toContain('You are the builder inside Magnetic');
         expect(system[0]?.cache_control).toEqual({ type: 'ephemeral' });
@@ -303,6 +304,43 @@ describe('Agent turns', () => {
         expect(refused.status).toBe(409);
         expect(((await refused.json()) as { message: string }).message).toMatch(/today's agent budget/);
         expect(model.requests).toHaveLength(0);
+    });
+
+    it('should run a turn on the model the person picked, offer the models in the editor, and refuse one not offered', async () => {
+        model.steps = [() => answer([{ type: 'text', text: 'Hello.' }], 'end_turn')];
+        const { all: events } = await opened(magnetic.origin, appId, alice, (event) => event.type === 'done');
+        const started = await postTurn(magnetic.origin, appId, alice, 'Say hello', [], 'claude-opus-5-5');
+        await events;
+        const refused = await postTurn(magnetic.origin, appId, alice, 'Say hello', [], 'claude-unknown-1');
+        const editor = await (await fetch(`${magnetic.origin}/edit/${appId}`, { headers: { Cookie: alice } })).text();
+
+        expect(started.status).toBe(202);
+        const [request] = model.requests as [ModelRequest];
+        expect(request.model).toBe('claude-opus-5-5');
+        expect(request.fallbacks).toBe('default');
+        expect(refused.status).toBe(400);
+        expect(model.requests).toHaveLength(1);
+        expect(editor).toContain('<select id="model"');
+        expect(editor.indexOf('value="claude-haiku-5-5"')).toBeLessThan(editor.indexOf('value="claude-opus-5-5"'));
+    });
+
+    it('should end a turn as soon as it spends the last of the budget', async () => {
+        const capped = await startMagnetic({ dataDir: join(dataDir, 'capped'), host: '127.0.0.1', port: 0, report: silent, devUsers: ['dan'], starter: 'none', browser: noBrowser, agent: { model, budgets: { dailyPerUser: 1, monthly: 0.01 } } });
+        try {
+            const dan = await signIn(capped.origin, 'dan');
+            const made = await fetch(`${capped.origin}/new`, { method: 'POST', headers: { Cookie: dan, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=capped', redirect: 'manual' });
+            const id = decodeURIComponent((made.headers.get('location') ?? '').replace('/edit/', ''));
+            const look = (n: number): Step => () => answer([{ type: 'tool_use', id: `toolu_${n}`, name: 'ui_tree', input: { app: 'capped' } }], 'tool_use');
+            // Each recorded answer costs $0.008 at Opus prices, so the second crosses $0.01
+            model.steps = [look(1), look(2), look(3), look(4)];
+            const { all: events } = await opened(capped.origin, id, dan, (event) => event.type === 'done');
+            await postTurn(capped.origin, id, dan, 'Look around');
+            const seen = await events;
+            expect(model.requests).toHaveLength(2);
+            expect(seen.at(-1)).toMatchObject({ type: 'done', outcome: 'limit', message: expect.stringMatching(/budget for this month/) });
+        } finally {
+            await capped.stop();
+        }
     });
 
     it('should refuse an empty or oversized request', async () => {

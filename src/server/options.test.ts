@@ -30,8 +30,14 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--public-origin', origin], {})).toThrow(UsageError);
     });
 
-    it('should run the agent on Opus 5.5 at high effort with $1 a day and $100 a month by default', () => {
-        expect(parseOptions([], {})).toMatchObject({ model: 'claude-opus-5-5', effort: 'high', dailyBudget: 1, monthlyBudget: 100 });
+    it('should run the agent on Haiku 5.5 at high effort with $1 a day and $100 a month by default', () => {
+        expect(parseOptions([], {})).toMatchObject({ model: 'claude-haiku-5-5', models: undefined, effort: 'high', dailyBudget: 1, monthlyBudget: 100 });
+    });
+
+    it('should take the models people may pick from a flag over the environment', () => {
+        expect(parseOptions(['--models', 'claude-haiku-5-5, claude-sonnet-5-5'], { MAGNETIC_MODELS: 'claude-opus-5-5' }).models).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+        expect(parseOptions([], { MAGNETIC_MODELS: 'claude-opus-5-5' }).models).toEqual(['claude-opus-5-5']);
+        expect(() => parseOptions(['--models', ' , '], {})).toThrow('Invalid models');
     });
 
     it('should take the model, effort and budgets from flags over the environment', () => {

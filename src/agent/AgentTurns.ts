@@ -40,8 +40,10 @@ export interface TurnWorkspace {
 
 export interface AgentTurnsOptions {
     readonly model: AgentModel;
-    /** The model id, such as `claude-opus-5-5` */
+    /** The model id of a turn that names none, such as `claude-haiku-5-5` */
     readonly modelName: string;
+    /** The model ids a turn may name; default only `modelName` */
+    readonly models?: readonly string[];
     readonly effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     readonly workspace: (userId: string) => Promise<TurnWorkspace>;
     readonly budgets: Budgets;
@@ -163,7 +165,8 @@ export class AgentTurns {
      * Starts a turn on an app. Refused, with a reason for the person, when a turn of the user is already running or
      * the budget is spent. The turn runs on; its end is the `done` event. `finished` resolves when it has ended
      */
-    async start(userId: string, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[]): Promise<{ refused: string } | { finished: Promise<void> }> {
+    async start(userId: string, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string = this.options.modelName): Promise<{ refused: string } | { finished: Promise<void> }> {
+        if (!this.models.includes(model)) return { refused: 'That model is not offered on this server.' };
         if (this.running.has(userId)) return { refused: 'The agent is still working on your last request.' };
         const refusal = await this.options.budgets.check(userId);
         if (refusal !== undefined) return { refused: refusal };
@@ -176,7 +179,7 @@ export class AgentTurns {
             this.running.delete(userId);
             throw error;
         }
-        const finished = this.run(userId, workspace, app, text, toggles, abort.signal)
+        const finished = this.run(userId, workspace, app, text, toggles, model, abort.signal)
             .catch((error: unknown) => this.options.report.info('Agent turn could not be recorded', { userId, appId: app.id, error: error instanceof Error ? error.message : String(error) }))
             .finally(() => {
                 workspace.release();
@@ -187,7 +190,13 @@ export class AgentTurns {
         return { finished };
     }
 
-    private async run(userId: string, workspace: TurnWorkspace, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], signal: AbortSignal): Promise<void> {
+    /** The model ids a turn may name, the default first */
+    get models(): readonly string[] {
+        const { modelName, models = [] } = this.options;
+        return [modelName, ...models.filter((model) => model !== modelName)];
+    }
+
+    private async run(userId: string, workspace: TurnWorkspace, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string, signal: AbortSignal): Promise<void> {
         const { chats, budgets, report } = this.options;
         // Stopped by the person or by the deadline; wired before the first await, so a stop that comes early is not lost
         const turnAbort = new AbortController();
@@ -224,7 +233,7 @@ export class AgentTurns {
                 let spoken = '';
                 try {
                     response = await this.options.model.request(
-                        this.request(workspace.system, tools, messages),
+                        this.request(model, workspace.system, tools, messages),
                         {
                             text: (delta) => {
                                 spoken += delta;
@@ -245,6 +254,13 @@ export class AgentTurns {
                 cost += spent;
                 await budgets.charge(userId, spent);
                 if (spoken !== '') said.push(spoken);
+                // A spent budget ends the turn at once, so a hard limit is passed by one request at most
+                const spentOut = await budgets.check(userId);
+                if (spentOut !== undefined) {
+                    outcome = 'limit';
+                    message = spentOut;
+                    break;
+                }
 
                 if (response.stop_reason === 'refusal') {
                     outcome = 'refused';
@@ -302,12 +318,12 @@ export class AgentTurns {
         const entry: ChatEntry = { role: 'agent', text: said.join('\n\n'), at: new Date().toISOString(), tools: lines, outcome, ...(message !== undefined && { message }) };
         await chats.append(userId, app.id, entry);
         this.emit(userId, app.id, { type: 'done', outcome, ...(message !== undefined && { message }), cost });
-        report.info('Agent turn', { userId, appId: app.id, outcome, toolCalls: lines.length, cost: Number(cost.toFixed(4)) });
+        report.info('Agent turn', { userId, appId: app.id, model, outcome, toolCalls: lines.length, cost: Number(cost.toFixed(4)) });
     }
 
     /** One request of the loop: the cached system prompt and tools, then the turn's messages */
-    private request(system: string, tools: readonly UiToolDefinition[], messages: Anthropic.Beta.Messages.BetaMessageParam[]): ModelRequest {
-        const { modelName, effort } = this.options;
+    private request(modelName: string, system: string, tools: readonly UiToolDefinition[], messages: Anthropic.Beta.Messages.BetaMessageParam[]): ModelRequest {
+        const { effort } = this.options;
         const fallback = FALLBACK_MODELS.has(modelName);
         return {
             model: modelName,

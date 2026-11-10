@@ -16,6 +16,8 @@ export interface CliOptions {
     /** The agent's model, such as claude-opus-5-5 */
     model: string;
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    /** The models people may pick in the editor; undefined for the default list */
+    models: string[] | undefined;
     /** Dollars per user per UTC day */
     dailyBudget: number;
     /** Dollars for the whole server per UTC month */
@@ -54,7 +56,10 @@ Sign in with LinkedIn (environment only):
                          as a test person, to try the provider flow (env MAGNETIC_MOCK_PROVIDER=true).
                          Loopback hosts only
 The agent (the API key comes from ANTHROPIC_API_KEY):
-  --model <id>           The model (env MAGNETIC_MODEL, default claude-opus-5-5)
+  --model <id>           The model a turn uses unless the person picks another
+                         (env MAGNETIC_MODEL, default claude-haiku-5-5)
+  --models <ids>         The models people may pick, comma-separated (env MAGNETIC_MODELS,
+                         default claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5)
   --effort <level>       low, medium, high, xhigh or max (env MAGNETIC_EFFORT, default high)
   --daily-budget <usd>   Dollars each user may spend per UTC day (env MAGNETIC_DAILY_BUDGET, default 1)
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
@@ -113,6 +118,15 @@ const parseModel = (text: string): string => {
     return text;
 };
 
+const parseModels = (text: string): string[] => {
+    const models = text
+        .split(',')
+        .map((model) => model.trim())
+        .filter((model) => model !== '');
+    if (models.length === 0) throw new UsageError('Invalid models: name at least one');
+    return models.map(parseModel);
+};
+
 const parseDollars = (name: string, text: string): number => {
     const value = Number(text);
     if (!Number.isFinite(value) || value < 0 || text.trim() === '') throw new UsageError(`Invalid ${name}: ${text} (dollars, such as 2.5)`);
@@ -136,7 +150,8 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     const linkedIn = parseLinkedIn(env);
     let mockProvider = env['MAGNETIC_MOCK_PROVIDER'] === 'true';
     let mockAgent = env['MAGNETIC_MOCK_AGENT'] === 'true';
-    let model = env['MAGNETIC_MODEL'] !== undefined ? parseModel(env['MAGNETIC_MODEL']) : 'claude-opus-5-5';
+    let model = env['MAGNETIC_MODEL'] !== undefined ? parseModel(env['MAGNETIC_MODEL']) : 'claude-haiku-5-5';
+    let models = env['MAGNETIC_MODELS'] !== undefined ? parseModels(env['MAGNETIC_MODELS']) : undefined;
     let effort = env['MAGNETIC_EFFORT'] !== undefined ? parseEffort(env['MAGNETIC_EFFORT']) : 'high';
     let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
@@ -193,6 +208,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--model':
                 model = parseModel(value());
                 break;
+            case '--models':
+                models = parseModels(value());
+                break;
             case '--effort':
                 effort = parseEffort(value());
                 break;
@@ -210,5 +228,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 throw new UsageError(`Unknown option: ${argument}`);
         }
     }
-    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, mockAgent, model, effort, dailyBudget, monthlyBudget, help };
+    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, help };
 }

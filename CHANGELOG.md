@@ -2,6 +2,15 @@
 
 ## 0.1.0 (unreleased)
 
+- **A model per turn.** The editor has a model menu beside Send: Haiku 5.5, Sonnet 5.5 and Opus 5.5 by default
+  (`--models`, `MAGNETIC_MODELS`, `agent.models`; `AGENT_MODELS`). The browser remembers the pick and each turn
+  posts it; a model not offered is refused with 400. The default model is now `claude-haiku-5-5`, as every turn is
+  paid for.
+- **Budgets hold mid-turn.** A turn ends as soon as a request spends the last of the user's daily or the server's
+  monthly budget, so a hard limit is passed by one request at most. Before, the turn that crossed it ran to its end.
+- **A logo**, in `brand/` (SVG, and PNGs at 512, 300 and 100 pixels).
+- Tests: a turn on the picked model, the menu in the editor, a model not offered, a turn ended by the budget, and
+  `--models`.
 - **M6, sharing.**
   - The editor's **Share** panel makes links to an app: `use` (the default: the person gets their own instance of
     the app, with their own data), `view` (the owner's instance, live and read only) and `remix` (a copy of the app

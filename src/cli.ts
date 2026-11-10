@@ -47,11 +47,11 @@ async function main(): Promise<void> {
         ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
         providers,
         allowHttpProviders: mock !== undefined,
-        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, monthly: options.monthlyBudget } }
+        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);
     if (options.mockAgent) process.stderr.write('magnetic: agent is the scripted mock agent; no API calls\n');
-    else process.stderr.write(`magnetic: agent ${options.model} (${options.effort}), budget $${options.dailyBudget} per user per day and $${options.monthlyBudget} per month${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
+    else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget $${options.dailyBudget} per user per day and $${options.monthlyBudget} per month${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
     process.stderr.write(`magnetic: ${server.origin}  data in ${options.dataDir}\n`);
 
     let stopping = false;

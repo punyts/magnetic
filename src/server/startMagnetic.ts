@@ -12,6 +12,7 @@ import { Budgets, DEFAULT_BUDGETS } from '../agent/Budgets.js';
 import type { BudgetLimits } from '../agent/Budgets.js';
 import { Chats } from '../agent/Chats.js';
 import { agentSystemPrompt } from '../agent/instructions.js';
+import { AGENT_MODELS, modelChoice } from '../agent/models.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import type { User } from '../accounts/Accounts.js';
 import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
@@ -40,15 +41,17 @@ const APP_PATH = /^\/apps\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 /** What a person sees, and their browser is told, when an app shared with them is taken back */
 export const REVOKED_MESSAGE = 'This app is no longer shared with you.';
 
-/** The model of the agent when no other is given */
-export const DEFAULT_AGENT_MODEL = 'claude-opus-5-5';
+/** The model of the agent when no other is given: the cheapest, as every turn is paid for */
+export const DEFAULT_AGENT_MODEL = 'claude-haiku-5-5';
 export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface MagneticAgentOptions {
     /** Replaces the Claude API, for tests */
     readonly model?: AgentModel;
-    /** Default `claude-opus-5-5` */
+    /** The model of a turn that names none; default `claude-haiku-5-5` */
     readonly modelName?: string;
+    /** The models people may pick in the editor; default Haiku, Sonnet and Opus 5.5 (`AGENT_MODELS`) */
+    readonly models?: readonly string[];
     /** Default `high` */
     readonly effort?: AgentEffort;
     /** Default $1 per user per day and $100 per month for the server */
@@ -247,6 +250,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const turns = new AgentTurns({
         model: options.agent?.model ?? new ClaudeModel(),
         modelName: options.agent?.modelName ?? DEFAULT_AGENT_MODEL,
+        models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
         chats: new Chats(join(options.dataDir, 'users')),
@@ -543,7 +547,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
             const runtimeOrigin = `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
-            const html = shellPage({ appId, name: app.name, runtimeUrl: `${runtimeOrigin}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(app) });
+            const html = shellPage({ appId, name: app.name, runtimeUrl: `${runtimeOrigin}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(app), models: turns.models.map(modelChoice) });
             response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': hostPageCsp(runtimeOrigin), 'Cache-Control': 'no-store' });
             response.end(html);
             return;
@@ -572,14 +576,18 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (what === '/turns' && method === 'POST') {
             const body = await readJsonBody(request, MAX_TURN_BYTES);
-            const fields = (typeof body === 'object' && body !== null ? body : {}) as { text?: unknown; context?: unknown };
+            const fields = (typeof body === 'object' && body !== null ? body : {}) as { text?: unknown; context?: unknown; model?: unknown };
             const text = typeof fields.text === 'string' ? fields.text.trim() : '';
             if (text === '' || text.length > MAX_REQUEST_CHARS) {
                 sendJson(response, 400, { message: `Write a request of up to ${MAX_REQUEST_CHARS} characters.` });
                 return;
             }
             const context = Array.isArray(fields.context) ? fields.context.filter((name): name is ContextToggle => (CONTEXT_TOGGLES as readonly unknown[]).includes(name)) : [];
-            const started = await turns.start(userId, { id: appId, name: app.name }, text, context);
+            if (fields.model !== undefined && (typeof fields.model !== 'string' || !turns.models.includes(fields.model))) {
+                sendJson(response, 400, { message: 'Choose one of the models offered.' });
+                return;
+            }
+            const started = await turns.start(userId, { id: appId, name: app.name }, text, context, typeof fields.model === 'string' ? fields.model : undefined);
             if ('refused' in started) sendJson(response, 409, { message: started.refused });
             else sendJson(response, 202, { ok: true });
             return;

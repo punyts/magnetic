@@ -10,6 +10,8 @@ export interface ShellPageOptions {
     readonly chunk3d?: string;
     /** The sync namespace of the app's instance */
     readonly namespace: string;
+    /** The models the person may pick, the default first; no menu when there is one or none */
+    readonly models?: readonly { readonly id: string; readonly label: string }[];
 }
 
 const TOGGLE_LABELS: Record<(typeof CONTEXT_TOGGLES)[number], string> = { theme: 'Theme', layout: 'Layout', data: 'Data', logic: 'Logic', screens: 'Screens' };
@@ -20,6 +22,11 @@ const TOGGLE_LABELS: Record<(typeof CONTEXT_TOGGLES)[number], string> = { theme:
  * on it; `/assets/shell.js` runs the chat
  */
 export function shellPage(options: ShellPageOptions): string {
+    const models = options.models ?? [];
+    const menu =
+        models.length < 2
+            ? ''
+            : `<label class="hidden" for="model">Model</label><select id="model" title="The model the agent uses">${models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.label)}</option>`).join('')}</select>`;
     const toggles = CONTEXT_TOGGLES.map((name) => `<button type="button" class="toggle" data-context="${name}" aria-pressed="false">${TOGGLE_LABELS[name]}</button>`).join('');
     return [
         '<!doctype html>',
@@ -50,7 +57,7 @@ export function shellPage(options: ShellPageOptions): string {
         `<div class="toggles" role="group" aria-label="Show the agent">${toggles}</div>`,
         '<label class="hidden" for="text">Your request</label>',
         '<textarea id="text" name="text" rows="3" maxlength="4000" placeholder="Describe what to build or change" required></textarea>',
-        '<div class="row"><p class="status" id="status" role="status"></p><button type="submit" class="primary" id="send">Send</button></div>',
+        `<div class="row"><p class="status" id="status" role="status"></p>${menu}<button type="submit" class="primary" id="send">Send</button></div>`,
         '</form>',
         '</aside>',
         '<script type="module" src="/assets/shell.js"></script>',
@@ -100,6 +107,7 @@ body.view.shell[data-status]::after { right: auto; left: 0.75rem; }
 .ask .row { display: flex; align-items: center; gap: 0.5rem; }
 .ask .status { flex: 1; margin: 0; font-size: 0.85rem; color: var(--muted); }
 .ask .status.bad { color: var(--bad); }
+#model { font: inherit; font-size: 0.85rem; max-width: 55%; padding: 0.3rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .chat button { font: inherit; padding: 0.35rem 0.8rem; border-radius: 0.5rem; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
 .chat button.primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .chat button:disabled { opacity: 0.5; cursor: default; }
@@ -297,7 +305,7 @@ form.addEventListener('submit', async (event) => {
     if (value === '' || running) return;
     const context = [...document.querySelectorAll('.toggle[aria-pressed="true"]')].map((toggle) => toggle.dataset.context);
     send.disabled = true;
-    const refused = await post('/turns', { text: value, context });
+    const refused = await post('/turns', model ? { text: value, context, model: model.value } : { text: value, context });
     if (refused === undefined) { text.value = ''; return; }
     send.disabled = running;
     status.className = 'status bad';
@@ -310,6 +318,16 @@ text.addEventListener('keydown', (event) => {
 
 stop.addEventListener('click', () => { void post('/stop', {}); });
 stop.disabled = true;
+
+// The model menu remembers the person's pick in this browser
+const model = document.getElementById('model');
+if (model) {
+    try {
+        const kept = localStorage.getItem('magnetic.model');
+        if (kept && [...model.options].some((option) => option.value === kept)) model.value = kept;
+    } catch { /* storage may be blocked */ }
+    model.addEventListener('change', () => { try { localStorage.setItem('magnetic.model', model.value); } catch { /* storage may be blocked */ } });
+}
 
 const share = document.getElementById('share');
 const shareOpen = document.getElementById('share-open');

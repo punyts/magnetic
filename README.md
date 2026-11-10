@@ -4,9 +4,11 @@ Magnetic is an AI app builder on StateUI. People sign in, describe an app, and w
 StateUI app. They can look at its state, edit it by hand, and share it. The design is in
 `docs/design/magnetic-v1.md` in the workspace.
 
-This is stage M2: the multi-user server (M1), with sign-in through LinkedIn or any OpenID Connect provider. Each person
-gets a workspace of their own, and their apps run live behind their session. The shell and the agent (M3), the state
-view (M4), the editor (M5) and sharing (M6) come next.
+Built so far: the multi-user server (M1), sign-in through LinkedIn or any OpenID Connect provider (M2), the editor
+and the agent (M3), and sharing (M6). Each person gets a workspace of their own, and their apps run live behind their
+session. Hosting (M7), the state view (M4) and the hand editor (M5) come next.
+
+The logo is in `brand/`: `logo.svg`, and PNGs at 512, 300 and 100 pixels.
 
 ## Run it
 
@@ -128,6 +130,9 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - The page reads `GET /edit/<appId>/events` (server-sent events: `state` with the chat so far, `person`,
     `say`, `note`, `tool`, `toolDone` and `done`). It posts `/edit/<appId>/turns` (`{ text, context }`) and
     `/edit/<appId>/stop`. A stream holds the workspace open and closes when the session signs out.
+  - **The model menu** beside Send offers the models of `--models` (default Haiku 5.5, Sonnet 5.5 and Opus 5.5, the
+    cheapest first). The browser remembers the pick, and each turn posts it as `model`. A model not offered is
+    refused with 400. A turn that names none runs on `--model` (default `claude-haiku-5-5`).
 - **The agent** (`AgentTurns`) runs on the server, over the user's own stateui-mcp tools (`createStateUiTools`).
   - One turn at a time per user. A turn is a fresh conversation with the Claude API: the earlier chat goes in as
     text, so no thinking has to be carried across turns.
@@ -143,7 +148,8 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - Each chat is kept in `users/<userId>/magnetic/chats/<appId>.json` (the last 100 entries).
 - **Budgets** (`Budgets`, `data/budgets.json`). Each request is priced from its token counts. A user may spend
   `--daily-budget` dollars per UTC day (default 1) and the server `--monthly-budget` per UTC month (default 100).
-  The turn that crosses a limit finishes; the next one is refused with a message.
+  A turn ends as soon as a request spends the last of either budget, so a limit is passed by one request at most;
+  the next turn is refused with a message.
 
 - **Sharing** (`Grants`, `data/grants.json`). The editor's Share panel makes links to the app:
   - `use` (the default): each person who opens it gets their own instance of the app, with their own data
@@ -178,7 +184,8 @@ The options also take:
 - `logicLimits`, `socketMessagesPerSecond` and `workspaces` (`idleMs`, `max`);
 - `secureCookies`;
 - `agent`: `model` (an `AgentModel`, such as a scripted one in tests; default `ClaudeModel`), `modelName`
-  (default `claude-opus-5-5`), `effort` (default `high`), `budgets` and `limits`.
+  (default `claude-haiku-5-5`), `models` (the ids people may pick; default `AGENT_MODELS`), `effort` (default
+  `high`), `budgets` and `limits`.
 
 `startMockOidcProvider()` starts the mock provider the tests use, and `MockAgentModel` is the scripted agent of
 `--mock-agent`.
