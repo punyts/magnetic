@@ -73,6 +73,34 @@ interface Running {
 const key = (userId: string, appId: string): string => `${userId}:${appId}`;
 const clip = (text: string, size: number): string => (text.length <= size ? text : `${text.slice(0, size)}…`);
 
+/** The note added to the last message when a tool input was not JSON, before the request is sent again */
+export const SMALLER_INPUTS_NOTE = 'Your last tool call was not valid JSON, so it was not run. Write it again with shallower inputs: set the root with empty children, then each section as its own set operation at "root.children.<key>".';
+
+/**
+ * A tool input the model streamed that is not JSON: the SDK rejects the stream with a SyntaxError, or with its own
+ * error naming the tool parameter JSON. Never an API error
+ */
+export function isBadToolJson(error: unknown): boolean {
+    if (error instanceof Anthropic.APIError || !(error instanceof Error)) return false;
+    return error instanceof SyntaxError || /tool parameter JSON/i.test(error.message);
+}
+
+/** No usable API key: an authentication error from the API, or the SDK finding no key. The message is not searched further, as it may quote the model's text */
+export function isMissingKey(error: unknown): boolean {
+    if (error instanceof Anthropic.AuthenticationError) return true;
+    return !(error instanceof Anthropic.APIError) && error instanceof Error && !isBadToolJson(error) && error.message.startsWith('Could not resolve authentication method');
+}
+
+/** Adds the note asking for smaller inputs to the last message, once */
+function askForSmallerInputs(messages: Anthropic.Beta.Messages.BetaMessageParam[]): void {
+    const last = messages[messages.length - 1];
+    if (last === undefined || last.role !== 'user') return;
+    const content = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : [...last.content];
+    if (content.some((block) => block.type === 'text' && block.text === SMALLER_INPUTS_NOTE)) return;
+    content.push({ type: 'text', text: SMALLER_INPUTS_NOTE });
+    messages[messages.length - 1] = { role: 'user', content };
+}
+
 /** A one-line description of a tool call, from the arguments that say what it touches */
 export function describeCall(input: unknown): string {
     if (typeof input !== 'object' || input === null) return '';
@@ -246,8 +274,12 @@ export class AgentTurns {
                     jsonRetries = 0;
                 } catch (error) {
                     if (turnAbort.signal.aborted) break;
-                    // With eager input streaming a tool input that is not JSON rejects the stream; that alone is retried
-                    if (!(error instanceof Anthropic.APIError) && error instanceof SyntaxError && jsonRetries++ < 2) continue;
+                    // With eager input streaming a tool input that is not JSON rejects the stream; that alone is retried,
+                    // with a note asking for smaller inputs, as a large node tree is where a model breaks its JSON
+                    if (isBadToolJson(error) && jsonRetries++ < 2) {
+                        askForSmallerInputs(messages);
+                        continue;
+                    }
                     throw error;
                 }
                 const spent = costOf(response.model, response.usage);
@@ -308,7 +340,7 @@ export class AgentTurns {
         } catch (error) {
             outcome = signal.aborted ? 'stopped' : outcome === 'limit' ? 'limit' : 'failed';
             if (outcome === 'failed') {
-                message = error instanceof Anthropic.AuthenticationError || (!(error instanceof Anthropic.APIError) && /api.?key|auth/i.test(error instanceof Error ? error.message : '')) ? 'The agent is not set up on this server (no valid API key).' : error instanceof Anthropic.RateLimitError ? 'The agent is busy right now. Please try again in a minute.' : 'The agent ran into a problem and stopped.';
+                message = isMissingKey(error) ? 'The agent is not set up on this server (no valid API key).' : error instanceof Anthropic.RateLimitError ? 'The agent is busy right now. Please try again in a minute.' : 'The agent ran into a problem and stopped.';
                 report.info('Agent turn failed', { userId, appId: app.id, error: error instanceof Error ? error.message : String(error) });
             } else if (outcome === 'stopped') message = 'Stopped.';
         } finally {

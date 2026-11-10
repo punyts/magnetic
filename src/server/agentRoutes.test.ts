@@ -5,6 +5,7 @@ import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentModel, ModelListener, ModelMessage, ModelRequest } from '../agent/AgentModel.js';
+import { SMALLER_INPUTS_NOTE } from '../agent/AgentTurns.js';
 import type { AgentEvent } from '../agent/AgentTurns.js';
 import { Chats } from '../agent/Chats.js';
 import { appNameOf, startMagnetic } from './startMagnetic.js';
@@ -265,6 +266,27 @@ describe('Agent turns', () => {
         await postTurn(magnetic.origin, appId, alice, 'Something the model declines');
         expect((await events).at(-1)).toMatchObject({ type: 'done', outcome: 'refused' });
         expect(model.requests).toHaveLength(1);
+    });
+
+    it('should retry a tool input that is not JSON with a note asking for smaller inputs, and not take it for a missing key', async () => {
+        // The SDK's own error, quoting the model's JSON, which here holds the word "author"
+        const badJson = (): never => {
+            throw new Error('Unable to parse tool parameter JSON from model. Please retry your request or adjust your prompt. Error: SyntaxError. JSON: {"author": "x"');
+        };
+        model.steps = [badJson, () => answer([{ type: 'text', text: 'Done.' }], 'end_turn')];
+        const { all: events } = await opened(magnetic.origin, appId, alice, (event) => event.type === 'done');
+        await postTurn(magnetic.origin, appId, alice, 'Make a reading list');
+        expect((await events).at(-1)).toMatchObject({ type: 'done', outcome: 'finished' });
+        const [first, second] = model.requests as [ModelRequest, ModelRequest];
+        expect(JSON.stringify(first.messages)).not.toContain(SMALLER_INPUTS_NOTE);
+        expect(JSON.stringify(second.messages)).toContain(SMALLER_INPUTS_NOTE);
+
+        model.requests.length = 0;
+        model.steps = [badJson, badJson, badJson];
+        const { all: failed } = await opened(magnetic.origin, appId, alice, (event) => event.type === 'done');
+        await postTurn(magnetic.origin, appId, alice, 'Make a reading list');
+        expect((await failed).at(-1)).toMatchObject({ type: 'done', outcome: 'failed', message: 'The agent ran into a problem and stopped.' });
+        expect(model.requests).toHaveLength(3);
     });
 
     it('should end a turn that reaches its tool-call limit', async () => {

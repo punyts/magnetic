@@ -2,6 +2,16 @@
 
 ## 0.1.0 (unreleased)
 
+- **The agent builds instead of reading.** Its instructions now say that the app already exists (no
+  `ui_app_create`), that the check is `ui_validate` only, and how behavior works (links write back, a button runs
+  only set, toggle, emit and navigate, so saving a record is a rule). They give a short path for a new app and a
+  worked to-do example, checked in a browser, written as shallow section writes. On Haiku 5.5 a to-do list, a reading
+  list and a tip calculator now build in 12 to 20 tool calls for under 1.5 cents each; before, a to-do list spent 40
+  calls and built nothing.
+- **A tool input that is not JSON is retried.** The SDK reports it as its own error, which was not caught, so the turn
+  failed. It is now retried twice, with a note asking for shallower inputs.
+- **"No valid API key" only for a missing key.** The message was given for any error whose text held "auth", such as
+  a tool input with an "author" field.
 - **A model per turn.** The editor has a model menu beside Send: Haiku 5.5, Sonnet 5.5 and Opus 5.5 by default
   (`--models`, `MAGNETIC_MODELS`, `agent.models`; `AGENT_MODELS`). The browser remembers the pick and each turn
   posts it; a model not offered is refused with 400. The default model is now `claude-haiku-5-5`, as every turn is
