@@ -2,6 +2,15 @@
 
 ## 0.1.0 (unreleased)
 
+- **The inspector: edit by hand, and see the state.** A panel at the right of the editor, itself a StateUI app,
+  with three tabs. Properties edits the selected node, a field per property. Add places a component where you
+  click: between the children of a column or row, beside a cell of a grid, or at the point of an `adhoc`
+  layout. State shows `$.data` as a tree, which nodes show each path and which logic reads and writes it, and a
+  feed of changes as they happen. The Select tool (S) outlines and selects a part of the app; drag it or press
+  Alt+Arrow to move it, Delete to remove it. Every change is one checked `ui_nodes_write`. "Ask the agent" adds a
+  path to the next turn, and the Data toggle shows the shape of the data above the chat bar.
+- **The logo.** Every page has it as its icon, the sign-in page and the editor show it, and `/assets/logo.svg`
+  serves it.
 - **Your apps is a StateUI app.** The home page is the app `your-apps` in each workspace: a grid of cards, one
   per app and one per app shared with the person, a field and button to make an app, and Sign out. Magnetic
   writes the lists into its data on each visit. A card opens the app at `/apps/<appId>`, full page, with no

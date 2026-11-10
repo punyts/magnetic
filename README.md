@@ -5,8 +5,8 @@ StateUI app. They can look at its state, edit it by hand, and share it. The desi
 `docs/design/magnetic-v1.md` in the workspace.
 
 Built so far: the multi-user server (M1), sign-in through LinkedIn or any OpenID Connect provider (M2), the editor
-and the agent (M3), and sharing (M6). Each person gets a workspace of their own, and their apps run live behind their
-session. Hosting (M7), the state view (M4) and the hand editor (M5) come next.
+and the agent (M3), the state view and the hand editor (M4, M5: the inspector), and sharing (M6). Each person gets a
+workspace of their own, and their apps run live behind their session. Hosting (M7) comes next.
 
 The logo is in `brand/`: `logo.svg`, and PNGs at 512, 300 and 100 pixels. Every page has it as its icon, the sign-in
 page and the editor show it, and the server serves the file at `/assets/logo.svg` (`src/http/logo.ts` holds a copy;
