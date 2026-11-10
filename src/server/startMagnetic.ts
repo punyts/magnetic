@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { COMMON_HEADERS, createServices, createStateUiTools, hostPageCsp, HttpError, installShowcase, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcase, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Report } from '@punyts/core';
 import { Accounts } from '../accounts/Accounts.js';
@@ -18,7 +18,10 @@ import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
 import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
 import type { OidcProvider } from '../auth/OidcSignIn.js';
 import { httpOnlyCookie, readCookie, SESSION_COOKIE, sessionCookie, SIGN_IN_COOKIE } from '../http/cookies.js';
-import { appsPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
+import { appsPage, linkPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
+import type { SharedApp } from '../http/pages.js';
+import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
+import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
 
@@ -31,6 +34,11 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 const MAX_FORM_BYTES = 4096;
 const MAX_TURN_BYTES = 16_384;
 const MAX_REQUEST_CHARS = 4000;
+/** A random (version 4) UUID: the id of an app made in a workspace, which no other workspace has */
+const RANDOM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const APP_PATH = /^\/apps\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
+/** What a person sees, and their browser is told, when an app shared with them is taken back */
+export const REVOKED_MESSAGE = 'This app is no longer shared with you.';
 
 /** The model of the agent when no other is given */
 export const DEFAULT_AGENT_MODEL = 'claude-opus-5-5';
@@ -97,6 +105,7 @@ export interface RunningMagnetic {
     readonly signIn: OidcSignIn;
     readonly turns: AgentTurns;
     readonly budgets: Budgets;
+    readonly grants: Grants;
     /** Closes the server, the workspaces and their browsers. Safe to call twice */
     stop(): Promise<void>;
 }
@@ -256,7 +265,34 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     });
     /** The open view sockets of each session (by the hash of its token), closed when it signs out */
-    const sessionSockets = new Map<string, Set<(reason: string) => void>>();
+    const sessionSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
+    const grants = new Grants(join(options.dataDir, 'grants.json'));
+    /** The open view sockets of apps shared with a person, by `<userId>/<appId>`, closed when a link is revoked */
+    const sharedSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
+    const linkOf = (grant: Grant): string => `${publicOrigin ?? origin}/s/${grant.token}`;
+
+    /** Adds a close function to one of the socket maps; the function returned takes it out again */
+    function track(map: Map<string, Set<(reason: string, revoked?: boolean) => void>>, key: string, close: (reason: string, revoked?: boolean) => void): () => void {
+        const open = map.get(key) ?? new Set();
+        open.add(close);
+        map.set(key, open);
+        return () => {
+            open.delete(close);
+            if (open.size === 0) map.delete(key);
+        };
+    }
+
+    /**
+     * After a link is revoked, closes the views of everyone who opened it. A person with no other live link to the app
+     * is told it was revoked, so their browser deletes what it kept of it; one with another link reconnects under it
+     */
+    async function closeRevoked(grant: Grant): Promise<void> {
+        for (const userId of Object.keys(grant.members)) {
+            const access = await grants.access(grant.appId, userId);
+            const live = access !== undefined && 'live' in access;
+            for (const close of [...(sharedSockets.get(`${userId}/${grant.appId}`) ?? [])]) close(live ? 'Your access to this app changed' : REVOKED_MESSAGE, !live);
+        }
+    }
 
     /** The signed-in user of a request and their session token, or `undefined` */
     async function signedIn(request: IncomingMessage): Promise<{ user: User; token: string } | undefined> {
@@ -275,6 +311,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const services = await workspaces.get(who.user.id);
         const key = Sessions.keyOf(who.token);
+        const appId = APP_PATH.exec(new URL(request.url ?? '/', 'http://localhost').pathname)?.[1]?.toLowerCase();
+        if (appId !== undefined && (await services.instanceViews.find(appId)) === undefined) {
+            // Not one of theirs: an app shared with them, or one taken back from them
+            const shared = await grants.access(appId, who.user.id);
+            if (shared !== undefined && 'revoked' in shared) {
+                const grant = shared.revoked;
+                const persona = grant.right === 'use' ? who.user.id : DEFAULT_PERSONA;
+                return { revoked: { message: REVOKED_MESSAGE, namespace: appNamespace({ persona, ownerId: grant.ownerId, appId }), name: grant.appName } };
+            }
+            if (shared !== undefined) return { tenant: await sharedTenant(shared.live, who.user.id, key) };
+        }
         const answer: HttpTenant = {
             useCases: services.useCases,
             hub: services.hub,
@@ -293,6 +340,85 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             }
         };
         return { tenant: answer };
+    }
+
+    /** The owner's workspace, seen by a person given the app: their own instance (`use`) or the owner's, read only (`view`) */
+    async function sharedTenant(grant: Grant & { readonly right: 'view' | 'use' }, userId: string, sessionKey: string): Promise<HttpTenant> {
+        const owner = await workspaces.get(grant.ownerId);
+        return {
+            useCases: owner.useCases,
+            hub: owner.hub,
+            liveViews: owner.liveViews,
+            instances: owner.instanceViews,
+            persona: grant.right === 'use' ? userId : DEFAULT_PERSONA,
+            access: grant.right,
+            retain: (close) => {
+                const release = workspaces.retain(grant.ownerId);
+                const untrackSession = track(sessionSockets, sessionKey, close);
+                const untrackShared = track(sharedSockets, `${userId}/${grant.appId}`, close);
+                return () => {
+                    release();
+                    untrackSession();
+                    untrackShared();
+                };
+            }
+        };
+    }
+
+    /** The apps shared with a person, for their home page */
+    async function sharedApps(userId: string): Promise<SharedApp[]> {
+        const found: SharedApp[] = [];
+        for (const grant of await grants.sharedWith(userId)) {
+            const owner = await accounts.user(grant.ownerId);
+            found.push({ appId: grant.appId, name: grant.appName, right: grant.right === 'use' ? 'use' : 'view', ownerName: owner?.name ?? 'Someone' });
+        }
+        return found;
+    }
+
+    /** `GET /s/<token>` and `POST /s/<token>/remix`: a share link */
+    async function linkRoute(request: IncomingMessage, response: ServerResponse, method: string, token: string, remix: boolean): Promise<void> {
+        const who = await signedIn(request);
+        if (who === undefined) {
+            if (method === 'GET') redirect(response, `/signin?next=${encodeURIComponent(`/s/${token}`)}`);
+            else throw new HttpError(401, 'Sign in first', 'unauthorized');
+            return;
+        }
+        const grant = await grants.byToken(token);
+        if (grant === undefined) {
+            sendPage(response, linkPage({ title: 'Link not found', message: 'This link does not work. Ask the person who sent it for a new one.' }), 404);
+            return;
+        }
+        if (grant.revokedAt !== undefined) {
+            sendPage(response, linkPage({ title: grant.appName, message: 'This link was revoked by the person who shared it.' }), 410);
+            return;
+        }
+        const owner = await workspaces.get(grant.ownerId);
+        const app = await owner.instanceViews.find(grant.appId);
+        if (app === undefined) {
+            sendPage(response, linkPage({ title: grant.appName, message: 'This app was deleted.' }), 404);
+            return;
+        }
+        if (grant.ownerId === who.user.id) {
+            redirect(response, `/edit/${encodeURIComponent(grant.appId)}`);
+            return;
+        }
+        if (method === 'GET') {
+            await grants.join(grant.id, who.user.id);
+            if (grant.right === 'remix') {
+                const sharer = await accounts.user(grant.ownerId);
+                sendPage(response, linkPage({ title: `Remix ${app.name}`, message: `${sharer?.name ?? 'Someone'} shared a copy of this app with you.`, remix: { token } }));
+            } else redirect(response, `/apps/${encodeURIComponent(grant.appId)}`);
+            return;
+        }
+        if (!remix || grant.right !== 'remix') throw new HttpError(405, 'Not allowed', 'method_not_allowed');
+        const mine = await workspaces.get(who.user.id);
+        const copied = await copyAppParts(owner.parts, mine.parts, grant.appId);
+        if (copied.kind !== 'copied') {
+            sendPage(response, linkPage({ title: `Remix ${app.name}`, message: copied.kind === 'failed' ? `The copy could not be made: ${copied.reason}` : 'This app was deleted.', remix: { token } }), copied.kind === 'failed' ? 500 : 404);
+            return;
+        }
+        options.report.info('App remixed', { from: grant.appId, to: copied.app.id, parts: copied.parts.length });
+        redirect(response, `/edit/${encodeURIComponent(copied.app.id)}`);
     }
 
     async function routes(request: IncomingMessage, response: ServerResponse): Promise<boolean> {
@@ -363,7 +489,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 return true;
             }
             const apps = await (await workspaces.get(who.user.id)).instanceViews.list();
-            sendPage(response, appsPage({ user: who.user, apps }));
+            sendPage(response, appsPage({ user: who.user, apps, shared: await sharedApps(who.user.id) }));
             return true;
         }
         if (method === 'GET' && path === '/assets/shell.css') {
@@ -384,15 +510,20 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
             if (outcome === undefined || outcome.isError || typeof created?.id !== 'string') {
                 const why = name === undefined ? 'Give the app a name that starts with a letter.' : typeof created?.message === 'string' ? created.message : 'The app could not be made.';
-                sendPage(response, appsPage({ user: who.user, apps: await services.instanceViews.list(), error: why }), 400);
+                sendPage(response, appsPage({ user: who.user, apps: await services.instanceViews.list(), shared: await sharedApps(who.user.id), error: why }), 400);
                 return true;
             }
             redirect(response, `/edit/${encodeURIComponent(created.id)}`);
             return true;
         }
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
+            return true;
+        }
+        const link = /^\/s\/([A-Za-z0-9_-]{1,64})(\/remix)?$/.exec(path);
+        if (link !== null && (method === 'GET' ? link[2] === undefined : method === 'POST' && link[2] !== undefined)) {
+            await linkRoute(request, response, method, link[1] as string, link[2] !== undefined);
             return true;
         }
         return false;
@@ -457,6 +588,38 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendJson(response, 200, { stopped: turns.stop(userId) });
             return;
         }
+        if (what === '/share' && method === 'GET') {
+            const links = (await grants.forApp(userId, appId)).map((grant) => ({ id: grant.id, right: grant.right, url: linkOf(grant), members: Object.keys(grant.members).length, revoked: grant.revokedAt !== undefined, createdAt: grant.createdAt }));
+            sendJson(response, 200, { grants: links });
+            return;
+        }
+        if (what === '/share' && method === 'POST') {
+            const body = await readJsonBody(request, MAX_FORM_BYTES);
+            const right = (typeof body === 'object' && body !== null ? (body as { right?: unknown }).right : undefined) as GrantRight;
+            if (!GRANT_RIGHTS.includes(right)) {
+                sendJson(response, 400, { message: `Choose what the link gives: ${GRANT_RIGHTS.join(', ')}.` });
+                return;
+            }
+            if (!RANDOM_ID.test(appId)) {
+                // The starter apps have the same id in every workspace, so a link to one would open the person's own
+                sendJson(response, 409, { message: 'Everyone starts with this app already. Ask the agent to make an app of your own from it, and share that.' });
+                return;
+            }
+            const grant = await grants.create(userId, { id: appId, name: app.name }, right);
+            sendJson(response, 201, { id: grant.id, right: grant.right, url: linkOf(grant) });
+            return;
+        }
+        const revoke = what === undefined ? null : /^\/share\/([^/]+)\/revoke$/.exec(what);
+        if (revoke !== null && method === 'POST') {
+            const grant = await grants.revoke(userId, decodeURIComponent(revoke[1] as string));
+            if (grant === undefined || grant.appId !== appId) {
+                sendJson(response, 404, { message: 'No such link.' });
+                return;
+            }
+            await closeRevoked(grant);
+            sendJson(response, 200, { revoked: true });
+            return;
+        }
         throw new HttpError(405, 'Not allowed', 'method_not_allowed');
     }
 
@@ -489,6 +652,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         signIn,
         turns,
         budgets,
+        grants,
         stop: async () => {
             if (stopped) return;
             stopped = true;

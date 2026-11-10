@@ -23,6 +23,7 @@ ul.list a { color: var(--accent); }
 .error { color: #c0392b; }
 @media (prefers-color-scheme: dark) { .error { color: #ff8a7a; } }
 form.new { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1.5rem; }
+h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; }
 form.new input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .stack { display: grid; gap: 0.75rem; max-width: 20rem; }
 `;
@@ -81,6 +82,16 @@ export interface AppsPageOptions {
     /** Why the last new app was not made */
     readonly error?: string;
     readonly apps: readonly { readonly id: string; readonly name: string; readonly updatedAt: Date }[];
+    /** The apps others shared with the user through links they opened */
+    readonly shared?: readonly SharedApp[];
+}
+
+/** An app another person shared with the user */
+export interface SharedApp {
+    readonly appId: string;
+    readonly name: string;
+    readonly right: 'view' | 'use';
+    readonly ownerName: string;
 }
 
 /** `GET /`: the signed-in user's apps */
@@ -100,7 +111,37 @@ export function appsPage(options: AppsPageOptions): string {
             '</header>',
             '<form class="new" method="post" action="/new"><label for="new-name">New app</label><input id="new-name" name="name" maxlength="60" placeholder="todo-list" required><button type="submit" class="primary">Create</button></form>',
             options.error === undefined ? '' : `<p class="error" role="alert">${escapeHtml(options.error)}</p>`,
-            apps.length === 0 ? '<p class="muted">No apps yet.</p>' : `<ul class="list">\n${rows}\n</ul>`
+            apps.length === 0 ? '<p class="muted">No apps yet.</p>' : `<ul class="list">\n${rows}\n</ul>`,
+            sharedSection(options.shared ?? [])
+        ].join('\n')
+    );
+}
+
+function sharedSection(shared: readonly SharedApp[]): string {
+    if (shared.length === 0) return '';
+    const rows = shared
+        .map((app) => `<li><a href="/apps/${escapeHtml(app.appId)}">${escapeHtml(app.name)}</a><span class="muted">${escapeHtml(app.ownerName)} · ${app.right === 'use' ? 'use' : 'view only'}</span></li>`)
+        .join('\n');
+    return `<h2>Shared with you</h2>\n<ul class="list">\n${rows}\n</ul>`;
+}
+
+export interface LinkPageOptions {
+    readonly title: string;
+    readonly message: string;
+    /** A live remix link: the page offers to copy the app */
+    readonly remix?: { readonly token: string };
+}
+
+/** `GET /s/<token>` when the link does not open an app at once: a remix offer, or why the link does not work */
+export function linkPage(options: LinkPageOptions): string {
+    return page(
+        options.title,
+        [
+            `<header><h1>${escapeHtml(options.title)}</h1><a href="/">Your apps</a></header>`,
+            `<p>${escapeHtml(options.message)}</p>`,
+            options.remix === undefined
+                ? ''
+                : `<form method="post" action="/s/${escapeHtml(options.remix.token)}/remix"><button type="submit" class="primary">Remix</button></form><p class="muted">The copy is yours: you can change it and share it. It starts from the app as it is now, without anyone's data.</p>`
         ].join('\n')
     );
 }

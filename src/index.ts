@@ -22,3 +22,6 @@ export { Chats } from './agent/Chats.js';
 export type { ChatEntry, ToolLine, TurnOutcome } from './agent/Chats.js';
 export { agentSystemPrompt, MAGNETIC_INSTRUCTIONS } from './agent/instructions.js';
 export { MockAgentModel } from './testing/mockAgentModel.js';
+export { REVOKED_MESSAGE } from './server/startMagnetic.js';
+export { GRANT_RIGHTS, Grants } from './sharing/Grants.js';
+export type { Grant, GrantRight, SharedAccess } from './sharing/Grants.js';

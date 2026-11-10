@@ -2,6 +2,22 @@
 
 ## 0.1.0 (unreleased)
 
+- **M6, sharing.**
+  - The editor's **Share** panel makes links to an app: `use` (the default: the person gets their own instance of
+    the app, with their own data), `view` (the owner's instance, live and read only) and `remix` (a copy of the app
+    in the person's own workspace). It lists the links with how many people opened each, and has Copy and Revoke.
+  - `Grants` keeps the links in `grants.json`, each with a random 32-character token and the people who opened it.
+    Every link needs a signed-in person.
+  - `GET /s/<token>` opens a link: `use` and `view` go to `/apps/<appId>`, and `remix` shows a page with a Remix
+    button (`POST /s/<token>/remix`), which copies the app and the parts it reaches and opens the copy's editor.
+  - The home page lists the apps shared with the person under "Shared with you".
+  - **Revoke** closes the open views of everyone who opened the link and tells their browsers, which delete what
+    they kept of the app. A browser that was away is told on its next visit or connection. A remix is a copy and
+    keeps working.
+  - The starter apps (the showcase) cannot be shared: they have the same id in every workspace.
+  - Tests: `src/sharing/Grants.test.ts` and `src/server/sharing.test.ts` (a `use` link gives the person their own
+    instance; a `view` link rejects changes and file uploads; revoke closes the socket with the `revoked` error;
+    a browser that was away is scrubbed; a remix works after the revoke; another owner cannot revoke).
 - **M3, the editor and the agent.**
   - `/edit/<appId>` shows the live app beside a chat. `POST /new` makes an app and opens it there.
   - The chat box has the context toggles Theme, Layout, Data, Logic and Screens. Each adds what a read-only tool

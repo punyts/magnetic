@@ -33,7 +33,13 @@ export function shellPage(options: ShellPageOptions): string {
         '</head>',
         `<body class="view shell" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
         '<aside class="chat" aria-label="Build with the agent">',
-        `<header class="bar"><a href="/" class="back">Apps</a><strong class="name">${escapeHtml(options.name)}</strong><a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open">Open</a></header>`,
+        `<header class="bar"><a href="/" class="back">Apps</a><strong class="name">${escapeHtml(options.name)}</strong><a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open">Open</a><button type="button" id="share-open" aria-expanded="false" aria-controls="share">Share</button></header>`,
+        '<section class="share" id="share" aria-label="Share this app" hidden>',
+        '<form class="share-new" id="share-new"><label for="share-right">People with the link can</label><div class="row"><select id="share-right"><option value="use" selected>use it, with their own data</option><option value="view">look at it, live and read only</option><option value="remix">copy it, to change their copy</option></select><button type="submit" class="primary">Make link</button></div></form>',
+        '<p class="small muted">Everyone signs in to open a link. Revoking a link takes the app back from everyone who opened it, and their browsers delete what they kept of it. A remix is a copy: revoking stops new remixes, but the copies already made belong to the people who made them.</p>',
+        '<p class="small status" id="share-status" role="status"></p>',
+        '<ol class="links" id="links"></ol>',
+        '</section>',
         '<ol class="log" id="log" aria-live="polite"></ol>',
         '<section class="drawer" id="drawer" aria-label="Agent activity" hidden>',
         '<header class="bar"><strong>Activity</strong><span class="spacer"></span><button type="button" id="pin" aria-pressed="false">Keep open</button><button type="button" id="stop" class="stop">Stop</button></header>',
@@ -99,6 +105,22 @@ body.view.shell[data-status]::after { right: auto; left: 0.75rem; }
 .chat button:disabled { opacity: 0.5; cursor: default; }
 .chat button.stop { border-color: var(--bad); color: var(--bad); }
 #pin[aria-pressed="true"] { background: var(--line); }
+#share-open[aria-expanded="true"] { background: var(--line); }
+.share { border-bottom: 1px solid var(--line); background: var(--soft); padding: 0.6rem 0.8rem; display: grid; gap: 0.5rem; max-height: 55%; overflow-y: auto; }
+.share[hidden] { display: none; }
+.share-new { display: grid; gap: 0.35rem; }
+.share .row { display: flex; gap: 0.5rem; }
+.share select { flex: 1; min-width: 0; font: inherit; padding: 0.35rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.small { font-size: 0.85rem; margin: 0; }
+.muted { color: var(--muted); }
+.share .status:empty { display: none; }
+.share .status.bad { color: var(--bad); }
+.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.links li { display: grid; gap: 0.3rem; padding: 0.5rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--paper); }
+.links li.revoked { opacity: 0.6; }
+.links .head { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; }
+.links input { font: inherit; font-size: 0.8rem; width: 100%; box-sizing: border-box; padding: 0.3rem; border-radius: 0.4rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
+.links .row button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
 .hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @media (max-width: 760px) {
   body.view.shell { grid-template-columns: 100%; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
@@ -288,4 +310,75 @@ text.addEventListener('keydown', (event) => {
 
 stop.addEventListener('click', () => { void post('/stop', {}); });
 stop.disabled = true;
+
+const share = document.getElementById('share');
+const shareOpen = document.getElementById('share-open');
+const shareForm = document.getElementById('share-new');
+const shareRight = document.getElementById('share-right');
+const shareStatus = document.getElementById('share-status');
+const links = document.getElementById('links');
+const RIGHTS = { use: 'Use, with their own data', view: 'Look, read only', remix: 'Remix, as a copy' };
+
+function shareSays(message, bad) { shareStatus.className = bad ? 'small status bad' : 'small status'; shareStatus.textContent = message || ''; }
+
+function showLinks(grants) {
+    links.replaceChildren();
+    for (const grant of grants) {
+        const item = el('li', grant.revoked ? 'revoked' : '');
+        const head = el('div', 'head');
+        const opened = grant.members === 1 ? '1 person opened it' : grant.members + ' people opened it';
+        head.append(el('strong', '', RIGHTS[grant.right] || grant.right), el('span', 'muted', grant.revoked ? 'Revoked · ' + opened : opened));
+        item.append(head);
+        if (!grant.revoked) {
+            const url = el('input');
+            url.readOnly = true;
+            url.value = grant.url;
+            url.setAttribute('aria-label', 'Link');
+            url.addEventListener('focus', () => url.select());
+            const row = el('div', 'row');
+            const copy = el('button', '', 'Copy');
+            copy.type = 'button';
+            copy.addEventListener('click', async () => {
+                try { await navigator.clipboard.writeText(grant.url); shareSays('Link copied.'); }
+                catch { url.focus(); shareSays('Copy the selected link.'); }
+            });
+            const revoke = el('button', 'stop', 'Revoke');
+            revoke.type = 'button';
+            revoke.addEventListener('click', async () => {
+                if (!confirm('Revoke this link? Everyone who opened it loses the app.')) return;
+                const refused = await post('/share/' + encodeURIComponent(grant.id) + '/revoke', {});
+                if (refused !== undefined) { shareSays(refused, true); return; }
+                shareSays('Link revoked.');
+                await loadLinks();
+            });
+            row.append(copy, revoke);
+            item.append(url, row);
+        }
+        links.append(item);
+    }
+    if (grants.length === 0) links.append(el('li', 'muted small', 'No links yet.'));
+}
+
+async function loadLinks() {
+    try {
+        const response = await fetch(base + '/share');
+        if (!response.ok) throw new Error('refused');
+        showLinks((await response.json()).grants);
+    } catch { shareSays('The links could not be loaded.', true); }
+}
+
+shareOpen.addEventListener('click', () => {
+    const open = share.hidden;
+    share.hidden = !open;
+    shareOpen.setAttribute('aria-expanded', String(open));
+    if (open) { shareSays(''); void loadLinks(); }
+});
+
+shareForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const refused = await post('/share', { right: shareRight.value });
+    if (refused !== undefined) { shareSays(refused, true); return; }
+    shareSays('Link made. Copy it and send it.');
+    await loadLinks();
+});
 `;

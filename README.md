@@ -145,6 +145,19 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   `--daily-budget` dollars per UTC day (default 1) and the server `--monthly-budget` per UTC month (default 100).
   The turn that crosses a limit finishes; the next one is refused with a message.
 
+- **Sharing** (`Grants`, `data/grants.json`). The editor's Share panel makes links to the app:
+  - `use` (the default): each person who opens it gets their own instance of the app, with their own data
+    (persona = their user id);
+  - `view`: the owner's instance, live and read only. Changes are rejected and file uploads refused;
+  - `remix`: a copy of the app, and the parts it reaches, in the person's own workspace, theirs to change. No data
+    or uploaded files are copied.
+
+  A link is `/s/<token>`, with a random 32-character token, and needs a signed-in person. The home page lists the
+  apps shared with the person. **Revoke** closes the open views of everyone who opened the link and tells their
+  browsers to delete what they kept of the app. A browser that was away is told on its next visit or connection.
+  Copies made by remixing are not touched. The starter apps cannot be shared, as every workspace has them under the
+  same id.
+
 ## Use it from code
 
 ```ts
@@ -155,7 +168,7 @@ console.log(magnetic.origin);
 await magnetic.stop();
 ```
 
-`startMagnetic` returns `{ origin, port, runtimePort, accounts, sessions, workspaces, signIn, turns, budgets, stop }`.
+`startMagnetic` returns `{ origin, port, runtimePort, accounts, sessions, workspaces, signIn, turns, budgets, grants, stop }`.
 The options also take:
 - `providers`, such as `[linkedInProvider(id, secret)]`;
 - `publicOrigin`;
@@ -177,6 +190,10 @@ The options also take:
 - **The agent cannot see the page.** The browser tools are withheld: each workspace would open its own Chromium,
   and its headless page cannot sign in to reach the app. One shared browser with a context per user, and a way for
   it to sign in, come before the agent gets them back.
+- **Sharing leaves some things behind.**
+  - Deleting an app does not delete the instances of the people it was shared with, nor its links.
+  - A person who moves from a `use` link to a `view` link keeps their `use` data in their browser.
+  - The page of a revoked app still shows its name.
 - **The shell is a server page**, not a StateUI app as the design has it. The state view (M4) and the editor overlay
   (M5) will show whether it needs to be one.
 
@@ -184,5 +201,5 @@ The options also take:
 
 ```bash
 npm run build
-npm test        # vitest: accounts, sessions, workspaces, the options, budgets, provider sign-in against the mock provider, agent turns against recorded answers, and the server over HTTP and WebSockets
+npm test        # vitest: accounts, sessions, workspaces, the options, budgets, grants, provider sign-in against the mock provider, agent turns against recorded answers, sharing and revoking, and the server over HTTP and WebSockets
 ```
