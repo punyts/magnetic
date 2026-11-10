@@ -2,6 +2,11 @@
 
 ## 0.1.0 (unreleased)
 
+- **The editor floats on the app.** The app fills the page, and the editor sits on it in rounded panels: the name
+  at the top left, Share at the top right, the context toggles on a rail at the left and a chat bar at the bottom
+  centre. The chat opens above the bar when it is focused or a turn starts, and closes with its button or Escape.
+  Enter now sends (Shift+Enter for a new line), and the bar grows with the request. Before, the chat was a
+  column at the right.
 - **The agent builds instead of reading.** Its instructions now say that the app already exists (no
   `ui_app_create`), that the check is `ui_validate` only, and how behavior works (links write back, a button runs
   only set, toggle, emit and navigate, so saving a record is a rule). They give a short path for a new app and a

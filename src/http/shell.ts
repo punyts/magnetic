@@ -16,8 +16,19 @@ export interface ShellPageOptions {
 
 const TOGGLE_LABELS: Record<(typeof CONTEXT_TOGGLES)[number], string> = { theme: 'Theme', layout: 'Layout', data: 'Data', logic: 'Logic', screens: 'Screens' };
 
+/** Line icons drawn in the text colour */
+const svg = (path: string): string =>
+    `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+const ICONS = {
+    back: svg('<path d="M15 18l-6-6 6-6"/>'),
+    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    chat: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
+    send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>')
+};
+
 /**
- * `GET /edit/<appId>`: the app on the left, the chat on the right. The body carries what the StateUI host script
+ * `GET /edit/<appId>`: the app fills the page and the editor floats on it: the name at the top left, Share at the top
+ * right, the context toggles on a rail at the left and a chat bar at the bottom centre that opens into the chat. The body carries what the StateUI host script
  * (`/assets/host.js`) reads to build the app frame, as `/apps/<appId>` does, so the app is live while the agent works
  * on it; `/assets/shell.js` runs the chat
  */
@@ -39,25 +50,31 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
         `<body class="view shell" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
-        '<aside class="chat" aria-label="Build with the agent">',
-        `<header class="bar"><a href="/" class="back">Apps</a><strong class="name">${escapeHtml(options.name)}</strong><a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open">Open</a><button type="button" id="share-open" aria-expanded="false" aria-controls="share">Share</button></header>`,
-        '<section class="share" id="share" aria-label="Share this app" hidden>',
+        `<header class="float corner start"><a href="/" class="back" title="All your apps">${ICONS.back}<span class="hidden">Apps</span></a><strong class="name">${escapeHtml(options.name)}</strong><a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
+        '<div class="float corner end"><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">Share</button></div>',
+        `<nav class="float rail" aria-label="Show the agent"><span class="rail-label" aria-hidden="true">Show</span>${toggles}</nav>`,
+        '<section class="float sheet share" id="share" aria-label="Share this app" hidden>',
         '<form class="share-new" id="share-new"><label for="share-right">People with the link can</label><div class="row"><select id="share-right"><option value="use" selected>use it, with their own data</option><option value="view">look at it, live and read only</option><option value="remix">copy it, to change their copy</option></select><button type="submit" class="primary">Make link</button></div></form>',
         '<p class="small muted">Everyone signs in to open a link. Revoking a link takes the app back from everyone who opened it, and their browsers delete what they kept of it. A remix is a copy: revoking stops new remixes, but the copies already made belong to the people who made them.</p>',
         '<p class="small status" id="share-status" role="status"></p>',
         '<ol class="links" id="links"></ol>',
         '</section>',
+        '<aside class="dock" aria-label="Build with the agent">',
+        '<section class="float panel" id="panel" aria-label="Chat" hidden>',
+        `<header class="bar"><strong>Chat</strong><span class="spacer"></span><button type="button" id="chat-close" class="icon" title="Close the chat" aria-label="Close the chat">${ICONS.close}</button></header>`,
         '<ol class="log" id="log" aria-live="polite"></ol>',
         '<section class="drawer" id="drawer" aria-label="Agent activity" hidden>',
         '<header class="bar"><strong>Activity</strong><span class="spacer"></span><button type="button" id="pin" aria-pressed="false">Keep open</button><button type="button" id="stop" class="stop">Stop</button></header>',
         '<p class="note" id="note"></p>',
         '<ol class="calls" id="calls"></ol>',
         '</section>',
-        '<form class="ask" id="ask">',
-        `<div class="toggles" role="group" aria-label="Show the agent">${toggles}</div>`,
+        '</section>',
+        '<form class="float ask" id="ask">',
+        '<p class="status" id="status" role="status"></p>',
+        `<div class="row"><button type="button" id="chat-open" class="icon" aria-expanded="false" aria-controls="panel" title="Show the chat" aria-label="Show the chat">${ICONS.chat}</button>`,
         '<label class="hidden" for="text">Your request</label>',
-        '<textarea id="text" name="text" rows="3" maxlength="4000" placeholder="Describe what to build or change" required></textarea>',
-        `<div class="row"><p class="status" id="status" role="status"></p>${menu}<button type="submit" class="primary" id="send">Send</button></div>`,
+        '<textarea id="text" name="text" rows="1" maxlength="4000" placeholder="What shall we build?" required></textarea>',
+        `${menu}<button type="submit" class="primary icon" id="send" title="Send (Enter)" aria-label="Send">${ICONS.send}</button></div>`,
         '</form>',
         '</aside>',
         '<script type="module" src="/assets/shell.js"></script>',
@@ -69,53 +86,71 @@ export function shellPage(options: ShellPageOptions): string {
 }
 
 /** `/assets/shell.css`, after the host's `page.css` */
-export const SHELL_CSS = `:root { color-scheme: light dark; --ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; }
-@media (prefers-color-scheme: dark) { :root { --ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; } }
-html, body.shell { height: 100%; margin: 0; }
-body.view.shell { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem); grid-template-rows: 100%; font-family: system-ui, sans-serif; color: var(--ink); background: var(--paper); }
-body.view.shell iframe { grid-column: 1; grid-row: 1; height: 100%; }
-body.view.shell[data-status]::after { right: auto; left: 0.75rem; }
-.chat { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--paper); }
-.bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); }
-.bar .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar a { color: var(--accent); text-decoration: none; }
+export const SHELL_CSS = `:root { color-scheme: light dark; --ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1); }
+@media (prefers-color-scheme: dark) { :root { --ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35); } }
+html, body.shell { height: 100%; margin: 0; overflow: hidden; }
+body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--soft); }
+body.view.shell iframe { position: fixed; top: 3.75rem; left: 6rem; width: calc(100% - 6rem); height: calc(100% - 3.75rem); }
+body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); }
+.float { position: fixed; z-index: 2; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow); }
+.corner { top: 0.75rem; display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem; }
+.corner.start { left: 0.75rem; max-width: calc(50vw - 2rem); }
+.corner.end { right: 0.75rem; }
+.corner .name { padding: 0 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corner a { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; padding: 0.35rem 0.5rem; border-radius: 0.5rem; }
+.corner a:hover, .corner a:focus-visible { background: var(--soft); }
+.corner a.open { color: var(--accent); font-size: 0.9rem; }
+.rail { left: 0.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 0.25rem; padding: 0.35rem; }
+.rail-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); text-align: center; padding: 0.15rem 0 0.1rem; }
+.float.rail .toggle { font-size: 0.8rem; padding: 0.4rem 0.55rem; border: 0; border-radius: 0.5rem; text-align: left; }
+.float.rail .toggle:hover { background: var(--soft); }
+.float.rail .toggle[aria-pressed="true"] { background: var(--accent); color: var(--paper); }
+.sheet { top: 4rem; right: 0.75rem; width: min(22rem, calc(100vw - 1.5rem)); max-height: calc(100vh - 10rem); overflow-y: auto; padding: 0.8rem; display: grid; gap: 0.5rem; box-sizing: border-box; }
+.sheet[hidden] { display: none; }
+.dock { position: fixed; z-index: 3; left: 50%; bottom: 1rem; transform: translateX(-50%); width: min(40rem, calc(100vw - 1.5rem)); display: flex; flex-direction: column; gap: 0.5rem; pointer-events: none; }
+.dock > * { pointer-events: auto; }
+.dock .float { position: static; }
+.panel { height: min(30rem, calc(100vh - 11rem)); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.panel[hidden] { display: none; }
+.bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem 0.45rem 0.9rem; border-bottom: 1px solid var(--line); }
 .spacer { flex: 1; }
 .log { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0.8rem; display: flex; flex-direction: column; gap: 0.6rem; }
-.log li { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; padding: 0.55rem 0.75rem; border-radius: 0.6rem; max-width: 92%; }
+.log li { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; padding: 0.55rem 0.75rem; border-radius: 0.75rem; max-width: 88%; }
 .log li.person { align-self: flex-end; background: var(--accent); color: var(--paper); }
 .log li.agent { align-self: flex-start; background: var(--soft); }
-.log li.empty { align-self: center; color: var(--muted); background: none; text-align: center; }
+.log li.empty { align-self: center; color: var(--muted); background: none; text-align: center; max-width: 30rem; margin: auto 0; }
 .log .outcome { display: block; margin-top: 0.35rem; font-size: 0.85rem; color: var(--muted); }
 .log .outcome.bad { color: var(--bad); }
 .log details { margin-top: 0.35rem; font-size: 0.85rem; color: var(--muted); }
 .log details ol { margin: 0.3rem 0 0; padding-left: 1.1rem; }
 .drawer { border-top: 1px solid var(--line); background: var(--soft); max-height: 40%; display: flex; flex-direction: column; min-height: 0; }
 .drawer[hidden] { display: none; }
-.drawer .note { margin: 0; padding: 0.4rem 0.8rem 0; font-size: 0.85rem; color: var(--muted); font-style: italic; white-space: pre-wrap; max-height: 4.5em; overflow: hidden; }
+.drawer .bar { padding-top: 0.3rem; padding-bottom: 0.3rem; font-size: 0.9rem; }
+.drawer .note { margin: 0; padding: 0.4rem 0.9rem 0; font-size: 0.85rem; color: var(--muted); font-style: italic; white-space: pre-wrap; max-height: 4.5em; overflow: hidden; }
 .drawer .note:empty { display: none; }
-.calls { list-style: none; margin: 0; padding: 0.4rem 0.8rem 0.6rem; overflow-y: auto; font-size: 0.85rem; font-family: ui-monospace, monospace; }
+.calls { list-style: none; margin: 0; padding: 0.4rem 0.9rem 0.6rem; overflow-y: auto; font-size: 0.85rem; font-family: ui-monospace, monospace; }
 .calls li { padding: 0.15rem 0; display: flex; gap: 0.4rem; }
 .calls li::before { content: "…"; width: 1rem; flex: none; color: var(--muted); }
 .calls li.ok::before { content: "✓"; color: var(--good); }
 .calls li.failed::before { content: "✗"; color: var(--bad); }
 .calls .what { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ask { border-top: 1px solid var(--line); padding: 0.6rem 0.8rem 0.8rem; display: grid; gap: 0.5rem; }
-.toggles { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.toggle { font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: 1rem; }
-.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--paper); }
-.ask textarea { font: inherit; resize: vertical; min-height: 4rem; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
-.ask .row { display: flex; align-items: center; gap: 0.5rem; }
-.ask .status { flex: 1; margin: 0; font-size: 0.85rem; color: var(--muted); }
+.ask { border-radius: 1.6rem; padding: 0.35rem; display: grid; gap: 0.25rem; }
+.ask .row { display: flex; align-items: flex-end; gap: 0.35rem; }
+.ask textarea { flex: 1; min-width: 0; font: inherit; line-height: 1.4; resize: none; box-sizing: border-box; max-height: 9.8em; padding: 0.45rem 0.3rem; border: 0; outline: none; background: transparent; color: var(--ink); }
+.ask .status { margin: 0; padding: 0.2rem 0.9rem 0; font-size: 0.85rem; color: var(--muted); }
+.ask .status:empty { display: none; }
 .ask .status.bad { color: var(--bad); }
-#model { font: inherit; font-size: 0.85rem; max-width: 55%; padding: 0.3rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
-.chat button { font: inherit; padding: 0.35rem 0.8rem; border-radius: 0.5rem; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
-.chat button.primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
-.chat button:disabled { opacity: 0.5; cursor: default; }
-.chat button.stop { border-color: var(--bad); color: var(--bad); }
+.ask:focus-within { border-color: var(--accent); }
+#model { font: inherit; font-size: 0.8rem; max-width: 11rem; height: 2.2rem; padding: 0 0.4rem; border-radius: 1.1rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
+.float button { font: inherit; padding: 0.35rem 0.8rem; border-radius: 0.5rem; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.float button.primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+.float button:disabled { opacity: 0.5; cursor: default; }
+.float button.stop { border-color: var(--bad); color: var(--bad); }
+.float button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 2.2rem; height: 2.2rem; flex: none; border: 0; border-radius: 50%; }
+.float button.icon:not(.primary):hover { background: var(--soft); }
+#chat-open[aria-expanded="true"] { color: var(--accent); }
 #pin[aria-pressed="true"] { background: var(--line); }
-#share-open[aria-expanded="true"] { background: var(--line); }
-.share { border-bottom: 1px solid var(--line); background: var(--soft); padding: 0.6rem 0.8rem; display: grid; gap: 0.5rem; max-height: 55%; overflow-y: auto; }
-.share[hidden] { display: none; }
+#share-open[aria-expanded="true"] { filter: brightness(0.9); }
 .share-new { display: grid; gap: 0.35rem; }
 .share .row { display: flex; gap: 0.5rem; }
 .share select { flex: 1; min-width: 0; font: inherit; padding: 0.35rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
@@ -131,9 +166,13 @@ body.view.shell[data-status]::after { right: auto; left: 0.75rem; }
 .links .row button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
 .hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @media (max-width: 760px) {
-  body.view.shell { grid-template-columns: 100%; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
-  body.view.shell iframe { grid-row: 1; }
-  .chat { grid-column: 1; grid-row: 2; border-left: 0; border-top: 1px solid var(--line); }
+  body.view.shell iframe { top: 6.9rem; left: 0; width: 100%; height: calc(100% - 6.9rem); }
+  .rail { top: 4rem; transform: none; flex-direction: row; max-width: calc(100vw - 1.5rem); overflow-x: auto; }
+  .rail-label { align-self: center; padding: 0 0.3rem; }
+  .corner.start { max-width: calc(100vw - 7.5rem); }
+  .sheet { top: 7.2rem; }
+  .panel { height: calc(100vh - 13rem); }
+  #model { max-width: 6.5rem; }
 }
 `;
 
@@ -154,6 +193,9 @@ const form = document.getElementById('ask');
 const text = document.getElementById('text');
 const send = document.getElementById('send');
 const status = document.getElementById('status');
+const panel = document.getElementById('panel');
+const chatOpen = document.getElementById('chat-open');
+const chatClose = document.getElementById('chat-close');
 const CLOSE_AFTER_MS = 4000;
 const OUTCOMES = { stopped: 'Stopped.', limit: 'Reached a limit.', refused: 'The model declined.', failed: 'Something went wrong.', budget: 'Out of budget.' };
 let running = false;
@@ -206,7 +248,26 @@ function setRunning(value) {
     else if (status.textContent === 'Working…') status.textContent = '';
 }
 
-function openDrawer() { cancelClose(); drawer.hidden = false; }
+// The chat panel opens above the chat bar and closes with its button or Escape; the bar stays
+function showChat(open) {
+    if (panel.hidden === !open) return;
+    panel.hidden = !open;
+    chatOpen.setAttribute('aria-expanded', String(open));
+    chatOpen.title = open ? 'Hide the chat' : 'Show the chat';
+    chatOpen.setAttribute('aria-label', chatOpen.title);
+    if (open) scrollDown();
+}
+
+chatOpen.addEventListener('click', () => { showChat(panel.hidden); if (!panel.hidden) text.focus(); });
+chatClose.addEventListener('click', () => { showChat(false); text.focus(); });
+document.querySelector('.dock').addEventListener('keydown', (event) => { if (event.key === 'Escape' && !panel.hidden) { event.preventDefault(); showChat(false); text.focus(); } });
+text.addEventListener('focus', () => showChat(true));
+
+// The chat bar grows with the request, up to its CSS max-height
+function fitText() { text.style.height = 'auto'; text.style.height = text.scrollHeight + 'px'; }
+text.addEventListener('input', fitText);
+
+function openDrawer() { cancelClose(); showChat(true); drawer.hidden = false; }
 
 function cancelClose() { if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; } }
 
@@ -236,7 +297,7 @@ function showHistory(history) {
         if (entry.role === 'person') addPerson(entry.text);
         else finishAgent(entry);
     }
-    if (history.length === 0) log.append(el('li', 'empty', 'Describe the app you want, or a change to this one. Turn on Layout, Data or the others to show the agent those parts first.'));
+    if (history.length === 0) log.append(el('li', 'empty', 'Describe the app you want, or a change to this one. Turn on Layout, Data or the others at the left to show the agent those parts first.'));
     scrollDown();
 }
 
@@ -306,14 +367,15 @@ form.addEventListener('submit', async (event) => {
     const context = [...document.querySelectorAll('.toggle[aria-pressed="true"]')].map((toggle) => toggle.dataset.context);
     send.disabled = true;
     const refused = await post('/turns', model ? { text: value, context, model: model.value } : { text: value, context });
-    if (refused === undefined) { text.value = ''; return; }
+    if (refused === undefined) { text.value = ''; fitText(); status.textContent = status.textContent === 'Working…' ? status.textContent : ''; return; }
     send.disabled = running;
     status.className = 'status bad';
     status.textContent = refused;
 });
 
 text.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); form.requestSubmit(); }
+    // Enter sends and Shift+Enter starts a new line
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
 });
 
 stop.addEventListener('click', () => { void post('/stop', {}); });
@@ -385,12 +447,14 @@ async function loadLinks() {
     } catch { shareSays('The links could not be loaded.', true); }
 }
 
-shareOpen.addEventListener('click', () => {
-    const open = share.hidden;
+function showShare(open) {
     share.hidden = !open;
     shareOpen.setAttribute('aria-expanded', String(open));
     if (open) { shareSays(''); void loadLinks(); }
-});
+}
+
+shareOpen.addEventListener('click', () => showShare(share.hidden));
+share.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); showShare(false); shareOpen.focus(); } });
 
 shareForm.addEventListener('submit', async (event) => {
     event.preventDefault();

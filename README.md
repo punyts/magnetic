@@ -115,22 +115,26 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - They send `Referrer-Policy: same-origin`. A browser posts a form from a `no-referrer` page with `Origin: null`,
     which the same-origin check refuses.
   - Every POST must come from the same origin as the server.
-- **The editor** (`/edit/<appId>`): the app on the left and the chat on the right (stacked on a phone).
+- **The editor** (`/edit/<appId>`): the app fills the page and the editor floats on it, in rounded panels. At
+  the top left are the way back to the apps, the name and Open; at the top right, Share, whose links open in a
+  panel under it; on a rail at the left, the context toggles. At the bottom centre is a chat bar: the request,
+  the model menu and Send. Focusing it, or its chat button, opens the chat above it; the close button or Escape
+  closes it. Enter sends and Shift+Enter starts a new line. On a phone the toggles sit in a row under the top bar.
   - The page carries the same body attributes as stateui-mcp's `/apps/<appId>`, so the host script builds the live
     app frame. Every change the agent writes shows in it at once. It sends the host page's policy
     (`hostPageCsp`).
   - `POST /new` makes an app from the name typed on the home page (lower case words joined by dashes) and opens its
     editor. The home page links each app to its editor and to its plain page.
-  - The chat box has five toggles, Theme, Layout, Data, Logic and Screens. Each adds what a read-only tool says about
+  - The rail has five toggles, Theme, Layout, Data, Logic and Screens. Each adds what a read-only tool says about
     that part of the app (`ui_get`, `ui_tree`, `ui_tree` with `logic`, `ui_state_get` on `$.data`,
     `ui_list` of screens) to the turn as a `<context>` block.
-  - The activity drawer opens when a turn starts. It shows the model's progress notes and one line per tool call
+  - The activity drawer, at the foot of the chat, opens the chat and itself when a turn starts. It shows the model's progress notes and one line per tool call
     with its outcome, and has Stop and "Keep open". It closes 4 s after the turn ends, unless the pointer or the
     focus is in it, or it is kept open.
   - The page reads `GET /edit/<appId>/events` (server-sent events: `state` with the chat so far, `person`,
     `say`, `note`, `tool`, `toolDone` and `done`). It posts `/edit/<appId>/turns` (`{ text, context }`) and
     `/edit/<appId>/stop`. A stream holds the workspace open and closes when the session signs out.
-  - **The model menu** beside Send offers the models of `--models` (default Haiku 5.5, Sonnet 5.5 and Opus 5.5, the
+  - **The model menu** in the chat bar offers the models of `--models` (default Haiku 5.5, Sonnet 5.5 and Opus 5.5, the
     cheapest first). The browser remembers the pick, and each turn posts it as `model`. A model not offered is
     refused with 400. A turn that names none runs on `--model` (default `claude-haiku-5-5`).
 - **The agent** (`AgentTurns`) runs on the server, over the user's own stateui-mcp tools (`createStateUiTools`).

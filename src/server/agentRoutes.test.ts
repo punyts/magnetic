@@ -278,8 +278,10 @@ describe('Agent turns', () => {
         await postTurn(magnetic.origin, appId, alice, 'Make a reading list');
         expect((await events).at(-1)).toMatchObject({ type: 'done', outcome: 'finished' });
         const [first, second] = model.requests as [ModelRequest, ModelRequest];
-        expect(JSON.stringify(first.messages)).not.toContain(SMALLER_INPUTS_NOTE);
-        expect(JSON.stringify(second.messages)).toContain(SMALLER_INPUTS_NOTE);
+        // The note holds quotes, so it is looked for as JSON writes it
+        const note = JSON.stringify(SMALLER_INPUTS_NOTE).slice(1, -1);
+        expect(JSON.stringify(first.messages)).not.toContain(note);
+        expect(JSON.stringify(second.messages)).toContain(note);
 
         model.requests.length = 0;
         model.steps = [badJson, badJson, badJson];
