@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
+import { run } from '../stateui/run.js';
 import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
 
 /** The name of each person's "Your apps" app, which Magnetic makes in their workspace and shows at `/` */
@@ -66,16 +67,6 @@ const HOME_DEFINITION = { title: 'Your apps', data: { apps: { model: CARD_MODEL,
 
 /** Changes when the definition does, so a workspace made with an older one gets the new one */
 const HOME_STAMP = createHash('sha256').update(JSON.stringify({ CARD_FIELDS, HOME_DEFINITION })).digest('hex').slice(0, 16);
-
-/** Runs one StateUI tool and returns its body, or throws with its message when it fails */
-async function run(tools: readonly UiToolDefinition[], name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const tool = tools.find((candidate) => candidate.name === name);
-    if (tool === undefined) throw new Error(`No tool ${name}`);
-    const outcome = await tool.run(args as never);
-    const body = (outcome.body ?? {}) as Record<string, unknown>;
-    if (outcome.isError) throw new Error(`${name}: ${typeof body['message'] === 'string' ? body['message'] : ''} ${JSON.stringify(body['errors'] ?? body)}`);
-    return body;
-}
 
 /**
  * Each person's "Your apps": a StateUI app in their own workspace, built with the same tools the agent uses. It is made

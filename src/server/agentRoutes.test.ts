@@ -307,6 +307,27 @@ describe('Agent turns', () => {
         expect(model.requests[0]?.messages).toHaveLength(1);
     });
 
+    it('should give a turn the paths the person points at, and leave out what is not a path', async () => {
+        // Arrange
+        model.steps = [() => answer([{ type: 'text', text: 'That is the home screen.' }], 'end_turn')];
+        const { all: events } = await opened(magnetic.origin, appId, alice, (event) => event.type === 'done');
+
+        // Act
+        const started = await fetch(`${magnetic.origin}/edit/${appId}/turns`, {
+            method: 'POST',
+            headers: { Cookie: alice, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: 'What is this?', focus: ['$.screens.home', 'not a path', '$.data.nothing.here'] })
+        });
+        await events;
+
+        // Assert
+        expect(started.status).toBe(202);
+        const opening = model.requests[0]?.messages[0]?.content as string;
+        expect(opening).toContain('<context name="focus" path="$.screens.home">\n{"note":"The person points at this node of the app."}\n</context>');
+        expect(opening).toContain('<context name="focus" path="$.data.nothing.here">');
+        expect(opening).not.toContain('not a path');
+    });
+
     it('should stop a turn when asked, and refuse a second turn while one runs', async () => {
         model.steps = [(_params, _listener, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))))];
         const { all: events } = await opened(magnetic.origin, appId, alice, (event) => event.type === 'done');

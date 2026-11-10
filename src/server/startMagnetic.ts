@@ -16,6 +16,10 @@ import { AGENT_MODELS, modelChoice } from '../agent/models.js';
 import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME_APP, HomeApps } from '../home/HomeApp.js';
+import { INSPECT_JS } from '../http/inspect.js';
+import { bindingsOf, logicOf, nodeAt, ownSettings, treeOf } from '../inspector/editInfo.js';
+import { COMPONENT_CATEGORIES, InspectorApp, SYSTEM_USER_ID } from '../inspector/InspectorApp.js';
+import { run } from '../stateui/run.js';
 import type { HomeCard } from '../home/HomeApp.js';
 import type { User } from '../accounts/Accounts.js';
 import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
@@ -38,6 +42,22 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 const MAX_FORM_BYTES = 4096;
 const MAX_TURN_BYTES = 16_384;
 const MAX_REQUEST_CHARS = 4000;
+/** The routes of the editor's inspector under `/edit/<id>` */
+const INSPECT_ROUTES = new Set(['/node', '/nodes', '/components', '/state', '/trace']);
+/** The largest node write the inspector sends, and its most operations */
+const MAX_NODE_WRITE_BYTES = 65_536;
+const MAX_NODE_OPERATIONS = 20;
+/** A state or node path a person points the agent at ("Ask the agent" in the State tab), and how many a turn takes */
+const FOCUS_PATH = /^\$\.(data|app|screens)(\.[A-Za-z0-9_-]{1,64}){0,16}$/;
+const MAX_FOCUS = 5;
+
+/** An app part, as the views find it */
+type AppPart = NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** A random (version 4) UUID: the id of an app made in a workspace, which no other workspace has */
 const RANDOM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const APP_PATH = /^\/apps\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
@@ -221,7 +241,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         {
             open: async (userId) => {
                 const dataDir = join(options.dataDir, 'users', userId);
-                if ((options.starter ?? 'showcase') === 'showcase') await installShowcase({ dataDir, report: options.report });
+                if ((options.starter ?? 'showcase') === 'showcase' && userId !== SYSTEM_USER_ID) await installShowcase({ dataDir, report: options.report });
                 const services = createServices({
                     dataDir,
                     ownerId: userId,
@@ -252,6 +272,24 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     };
     /** Each person's "Your apps", made with the tools the agent uses */
     const homes = new HomeApps(toolsOf, join(options.dataDir, 'users'));
+    /** The inspector the editor mounts beside the app, made in the system workspace */
+    const inspector = new InspectorApp(
+        async () => {
+            const release = workspaces.retain(SYSTEM_USER_ID);
+            try {
+                return { services: await workspaces.get(SYSTEM_USER_ID), release };
+            } catch (error) {
+                release();
+                throw error;
+            }
+        },
+        toolsOf,
+        join(options.dataDir, 'users', SYSTEM_USER_ID, 'magnetic')
+    );
+    /** The component library as the Add tab lists it */
+    const library = loadCatalogFile()
+        .components.filter((component) => component.name !== 'app')
+        .map((component) => ({ name: component.name, category: component.category, summary: component.summary }));
     let system: string | undefined;
     const budgets = new Budgets(join(options.dataDir, 'budgets.json'), options.agent?.budgets ?? DEFAULT_BUDGETS);
     const turns = new AgentTurns({
@@ -550,6 +588,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/javascript', SHELL_JS);
             return true;
         }
+        if (method === 'GET' && path === '/assets/inspect.js') {
+            sendAsset(response, 'text/javascript', INSPECT_JS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/inspector.json') {
+            if ((await signedIn(request)) === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            sendJson(response, 200, await inspector.mountable());
+            return true;
+        }
         if (method === 'POST' && path === '/new') {
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
@@ -572,7 +619,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -659,18 +706,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (what === '/turns' && method === 'POST') {
             const body = await readJsonBody(request, MAX_TURN_BYTES);
-            const fields = (typeof body === 'object' && body !== null ? body : {}) as { text?: unknown; context?: unknown; model?: unknown };
+            const fields = (typeof body === 'object' && body !== null ? body : {}) as { text?: unknown; context?: unknown; model?: unknown; focus?: unknown };
             const text = typeof fields.text === 'string' ? fields.text.trim() : '';
             if (text === '' || text.length > MAX_REQUEST_CHARS) {
                 sendJson(response, 400, { message: `Write a request of up to ${MAX_REQUEST_CHARS} characters.` });
                 return;
             }
             const context = Array.isArray(fields.context) ? fields.context.filter((name): name is ContextToggle => (CONTEXT_TOGGLES as readonly unknown[]).includes(name)) : [];
+            const focus = Array.isArray(fields.focus) ? fields.focus.filter((entry): entry is string => typeof entry === 'string' && FOCUS_PATH.test(entry)).slice(0, MAX_FOCUS) : [];
             if (fields.model !== undefined && (typeof fields.model !== 'string' || !turns.models.includes(fields.model))) {
                 sendJson(response, 400, { message: 'Choose one of the models offered.' });
                 return;
             }
-            const started = await turns.start(userId, { id: appId, name: app.name }, text, context, typeof fields.model === 'string' ? fields.model : undefined);
+            const started = await turns.start(userId, { id: appId, name: app.name }, text, context, typeof fields.model === 'string' ? fields.model : undefined, focus);
             if ('refused' in started) sendJson(response, 409, { message: started.refused });
             else sendJson(response, 202, { ok: true });
             return;
@@ -700,6 +748,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendJson(response, 201, { id: grant.id, right: grant.right, url: linkOf(grant) });
             return;
         }
+        if (what !== undefined && INSPECT_ROUTES.has(what)) {
+            await inspectRoute(request, response, method, services, app, what);
+            return;
+        }
         const revoke = what === undefined ? null : /^\/share\/([^/]+)\/revoke$/.exec(what);
         if (revoke !== null && method === 'POST') {
             const grant = await grants.revoke(userId, decodeURIComponent(revoke[1] as string));
@@ -709,6 +761,69 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             }
             await closeRevoked(grant);
             sendJson(response, 200, { revoked: true });
+            return;
+        }
+        throw new HttpError(405, 'Not allowed', 'method_not_allowed');
+    }
+
+    /**
+     * What the editor's inspector reads and writes of an app, each with the person's own tools: a node and its
+     * component (`/node`), one checked node write (`/nodes`), the component library (`/components`), the state with
+     * the nodes and logic that use each path (`/state`) and the latest logic runs (`/trace`)
+     */
+    async function inspectRoute(request: IncomingMessage, response: ServerResponse, method: string, services: Services, app: AppPart, what: string): Promise<void> {
+        const tools = toolsOf(services);
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        if (what === '/node' && method === 'GET') {
+            const path = url.searchParams.get('path') ?? '';
+            const { document } = await services.instanceViews.message(app, 'attach');
+            const node = nodeAt(document as Record<string, unknown>, path);
+            const tree = treeOf(path);
+            if (node === undefined || tree === undefined) {
+                sendJson(response, 404, { message: 'No node at this path.' });
+                return;
+            }
+            const component = await run(tools, 'ui_component_get', { name: node['component'] }).catch(() => undefined);
+            sendJson(response, 200, {
+                path,
+                tree,
+                revision: app.revision,
+                settings: ownSettings(node),
+                children: Object.keys(isRecord(node['children']) ? node['children'] : {}),
+                component: component === undefined ? undefined : { name: component['name'], summary: component['summary'], properties: component['properties'], events: component['events'] }
+            });
+            return;
+        }
+        if (what === '/nodes' && method === 'POST') {
+            const body = await readJsonBody(request, MAX_NODE_WRITE_BYTES);
+            const operations = isRecord(body) && Array.isArray(body['operations']) ? body['operations'] : [];
+            const trees = new Set(operations.map((operation) => (isRecord(operation) && typeof operation['path'] === 'string' ? treeOf(operation['path']) : undefined)));
+            const tree = [...trees][0];
+            if (operations.length === 0 || operations.length > MAX_NODE_OPERATIONS || trees.size !== 1 || tree === undefined) {
+                sendJson(response, 400, { message: `Send 1 to ${MAX_NODE_OPERATIONS} operations, each with a node path of one screen ("$.screens.<name>…") or of the app node ("$.app…").` });
+                return;
+            }
+            const expected = isRecord(body) && typeof body['revision'] === 'number' ? body['revision'] : app.revision;
+            const write = tools.find((tool) => tool.name === 'ui_nodes_write');
+            if (write === undefined) throw new HttpError(500, 'No node write tool', 'internal');
+            const outcome = await write.run({ app: app.name, screen: tree, expectedRevision: expected, operations } as never);
+            const result = (outcome.body ?? {}) as Record<string, unknown>;
+            if (outcome.isError) sendJson(response, result['error'] === 'conflict' ? 409 : 400, { message: typeof result['message'] === 'string' ? result['message'] : 'The change was refused.', errors: result['errors'] ?? [] });
+            else sendJson(response, 200, { revision: result['revision'], added: result['added'] });
+            return;
+        }
+        if (what === '/components' && method === 'GET') {
+            sendJson(response, 200, { categories: COMPONENT_CATEGORIES, components: library });
+            return;
+        }
+        if (what === '/state' && method === 'GET') {
+            const { document } = await services.instanceViews.message(app, 'attach');
+            const state = await run(tools, 'ui_state_get', { app: app.name, path: '$.data', full: true }).catch(() => ({}) as Record<string, unknown>);
+            sendJson(response, 200, { data: state['value'] ?? {}, bindings: bindingsOf(document as Record<string, unknown>), logic: logicOf(document as Record<string, unknown>) });
+            return;
+        }
+        if (what === '/trace' && method === 'GET') {
+            sendJson(response, 200, await run(tools, 'ui_logic_trace', { app: app.name, limit: 20 }));
             return;
         }
         throw new HttpError(405, 'Not allowed', 'method_not_allowed');

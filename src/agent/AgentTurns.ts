@@ -193,7 +193,7 @@ export class AgentTurns {
      * Starts a turn on an app. Refused, with a reason for the person, when a turn of the user is already running or
      * the budget is spent. The turn runs on; its end is the `done` event. `finished` resolves when it has ended
      */
-    async start(userId: string, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string = this.options.modelName): Promise<{ refused: string } | { finished: Promise<void> }> {
+    async start(userId: string, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string = this.options.modelName, focus: readonly string[] = []): Promise<{ refused: string } | { finished: Promise<void> }> {
         if (!this.models.includes(model)) return { refused: 'That model is not offered on this server.' };
         if (this.running.has(userId)) return { refused: 'The agent is still working on your last request.' };
         const refusal = await this.options.budgets.check(userId);
@@ -207,7 +207,7 @@ export class AgentTurns {
             this.running.delete(userId);
             throw error;
         }
-        const finished = this.run(userId, workspace, app, text, toggles, model, abort.signal)
+        const finished = this.run(userId, workspace, app, text, toggles, model, abort.signal, focus)
             .catch((error: unknown) => this.options.report.info('Agent turn could not be recorded', { userId, appId: app.id, error: error instanceof Error ? error.message : String(error) }))
             .finally(() => {
                 workspace.release();
@@ -224,7 +224,7 @@ export class AgentTurns {
         return [modelName, ...models.filter((model) => model !== modelName)];
     }
 
-    private async run(userId: string, workspace: TurnWorkspace, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string, signal: AbortSignal): Promise<void> {
+    private async run(userId: string, workspace: TurnWorkspace, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string, signal: AbortSignal, focus: readonly string[]): Promise<void> {
         const { chats, budgets, report } = this.options;
         // Stopped by the person or by the deadline; wired before the first await, so a stop that comes early is not lost
         const turnAbort = new AbortController();
@@ -251,7 +251,7 @@ export class AgentTurns {
         let cost = 0;
 
         try {
-            const facts = await this.facts(byName, app.name, toggles);
+            const facts = [...(await this.facts(byName, app.name, toggles)), ...(await this.focusFacts(byName, app.name, focus))];
             const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: 'user', content: this.firstMessage(history, app.name, facts, text) }];
             let toolCalls = 0;
             let jsonRetries = 0;
@@ -385,6 +385,26 @@ export class AgentTurns {
         ]
             .filter((part) => part !== '')
             .join('\n\n');
+    }
+
+    /**
+     * The paths the person points at ("Ask the agent" in the State tab of the editor): a state path with its value, read
+     * with `ui_state_get`, or a node path
+     */
+    private async focusFacts(tools: ReadonlyMap<string, UiToolDefinition>, app: string, focus: readonly string[]): Promise<string[]> {
+        const facts: string[] = [];
+        for (const path of focus) {
+            let body: unknown = { note: 'The person points at this node of the app.' };
+            if (path.startsWith('$.data')) {
+                try {
+                    body = (await runTool(tools.get('ui_state_get'), 'ui_state_get', { app, path })).body;
+                } catch (error) {
+                    body = { error: error instanceof Error ? error.message : String(error) };
+                }
+            }
+            facts.push(`<context name="focus" path="${path}">\n${clip(JSON.stringify(body), 4000)}\n</context>`);
+        }
+        return facts;
     }
 
     /** The facts of the toggles, each read with a read-only tool; a fact that cannot be read says so */
