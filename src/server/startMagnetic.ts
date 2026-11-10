@@ -18,7 +18,7 @@ import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { bindingsOf, logicOf, nodeAt, ownSettings, treeOf } from '../inspector/editInfo.js';
-import { COMPONENT_CATEGORIES, InspectorApp, SYSTEM_USER_ID } from '../inspector/InspectorApp.js';
+import { COMPONENT_CATEGORIES, INSPECTOR_PATHS, InspectorApp, SYSTEM_USER_ID } from '../inspector/InspectorApp.js';
 import { run } from '../stateui/run.js';
 import type { HomeCard } from '../home/HomeApp.js';
 import type { User } from '../accounts/Accounts.js';
@@ -594,7 +594,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (method === 'GET' && path === '/assets/inspector.json') {
             if ((await signedIn(request)) === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
-            sendJson(response, 200, await inspector.mountable());
+            sendJson(response, 200, { ...(await inspector.mountable()), paths: INSPECTOR_PATHS });
             return true;
         }
         if (method === 'POST' && path === '/new') {

@@ -30,6 +30,7 @@ const ICONS = {
     chat: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
     send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>'),
     pointer: svg('<path d="M5 3l14 8-6 2-3 6z"/>'),
+    select: svg('<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><path d="M10 10l7 3-3 1-1 3z"/>'),
     hand: svg('<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V11M14 6.5a1.5 1.5 0 0 1 3 0V11M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/>'),
     minus: svg('<path d="M5 12h14"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
@@ -76,12 +77,12 @@ export function shellPage(options: ShellPageOptions): string {
         '</head>',
         `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
         '<main class="board" id="board" aria-label="Canvas">',
-        `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div></div></div>`,
+        `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div><div class="overlay" id="overlay" aria-hidden="true"></div></div></div>`,
         '</main>',
         `<header class="float corner start"><a href="/" class="back" title="All your apps">${ICONS.back}<span class="hidden">Apps</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
         '<div class="float corner end"><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">Share</button></div>',
         '<nav class="float rail" aria-label="Tools">',
-        `<div class="tools" role="group" aria-label="Pointer"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="Use the app (V)" aria-label="Use the app">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="Move the canvas (H, or hold Space)" aria-label="Move the canvas">${ICONS.hand}</button></div>`,
+        `<div class="tools" role="group" aria-label="Pointer"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="Use the app (V)" aria-label="Use the app">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="Move the canvas (H, or hold Space)" aria-label="Move the canvas">${ICONS.hand}</button><button type="button" class="tool icon" data-tool="select" aria-pressed="false" title="Select a part of the app (S)" aria-label="Select a part of the app">${ICONS.select}</button></div>`,
         `<div class="shows" role="group" aria-label="Show the agent"><span class="rail-label" aria-hidden="true">Show</span>${toggles}</div>`,
         '</nav>',
         '<div class="float zoom" role="group" aria-label="Zoom">',
@@ -90,6 +91,10 @@ export function shellPage(options: ShellPageOptions): string {
         `<button type="button" class="icon" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">${ICONS.plus}</button>`,
         `<button type="button" class="icon" id="zoom-fit" title="Fit the app (1)" aria-label="Fit the app">${ICONS.fit}</button>`,
         '</div>',
+        '<aside class="float inspector" id="inspector" aria-label="Inspector">',
+        `<header class="bar"><strong>Inspector</strong><span class="small muted status" id="inspector-status" role="status"></span><span class="spacer"></span><button type="button" id="inspector-close" class="icon" title="Close the inspector" aria-label="Close the inspector">${ICONS.close}</button></header>`,
+        '<div class="inspector-frame" id="inspector-frame"></div>',
+        '</aside>',
         '<section class="float sheet share" id="share" aria-label="Share this app" hidden>',
         '<form class="share-new" id="share-new"><label for="share-right">People with the link can</label><div class="row"><select id="share-right"><option value="use" selected>use it, with their own data</option><option value="view">look at it, live and read only</option><option value="remix">copy it, to change their copy</option></select><button type="submit" class="primary">Make link</button></div></form>',
         '<p class="small muted">Everyone signs in to open a link. Revoking a link takes the app back from everyone who opened it, and their browsers delete what they kept of it. A remix is a copy: revoking stops new remixes, but the copies already made belong to the people who made them.</p>',
@@ -108,6 +113,8 @@ export function shellPage(options: ShellPageOptions): string {
         '</section>',
         '<form class="float ask" id="ask">',
         '<p class="status" id="status" role="status"></p>',
+        '<p class="focus small" id="focus" hidden></p>',
+        '<p class="data-line small" id="data-line" hidden></p>',
         `<div class="row"><button type="button" id="chat-open" class="icon" aria-expanded="false" aria-controls="panel" title="Show the chat" aria-label="Show the chat">${ICONS.chat}</button>`,
         '<label class="hidden" for="text">Your request</label>',
         '<textarea id="text" name="text" rows="1" maxlength="4000" placeholder="What shall we build?" required></textarea>',
@@ -117,6 +124,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<p class="hint" id="hint" role="status" hidden>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> to edit</p>',
         '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/host.js"></script>',
+        '<script type="module" src="/assets/inspect.js"></script>',
         '</body>',
         '</html>',
         ''
@@ -139,6 +147,24 @@ body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; he
 .artboard-label span:first-child { color: var(--ink); font-weight: 600; }
 .shield { position: absolute; inset: 0; z-index: 1; }
 .shield[hidden] { display: none; }
+.board.selecting .shield { cursor: crosshair; }
+.overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.overlay .box { position: absolute; box-sizing: border-box; border: calc(1.5px / var(--zoom, 1)) solid var(--accent); border-radius: calc(3px / var(--zoom, 1)); }
+.overlay .box.hover { border-style: dashed; opacity: 0.8; }
+.overlay .box.target { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.overlay .tag { position: absolute; left: -1px; bottom: 100%; margin-bottom: calc(2px / var(--zoom, 1)); padding: calc(1px / var(--zoom, 1)) calc(5px / var(--zoom, 1)); font: calc(11px / var(--zoom, 1)) system-ui, sans-serif; color: var(--paper); background: var(--accent); border-radius: calc(3px / var(--zoom, 1)); white-space: nowrap; }
+.overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
+.overlay .dot { position: absolute; width: calc(10px / var(--zoom, 1)); height: calc(10px / var(--zoom, 1)); margin: calc(-5px / var(--zoom, 1)); border-radius: 50%; background: var(--accent); }
+.inspector { top: 4rem; right: 0.75rem; bottom: 4.5rem; width: 20rem; display: flex; flex-direction: column; overflow: hidden; }
+.inspector[hidden] { display: none; }
+.inspector .status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector .status.bad { color: var(--bad); }
+.inspector-frame { flex: 1; min-height: 0; position: relative; }
+.inspector-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.share { z-index: 3; }
+.ask .focus, .ask .data-line { margin: 0; padding: 0.2rem 0.9rem 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask .focus[hidden], .ask .data-line[hidden] { display: none; }
+.ask .focus button { font-size: 0.8rem; padding: 0 0.4rem; margin-left: 0.3rem; }
 body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); }
 .float { position: fixed; z-index: 2; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow); }
 .corner { top: 0.75rem; display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem; }
@@ -239,6 +265,7 @@ body.shell.editing .hint { display: none; }
   .rail-label { align-self: center; padding: 0 0.3rem; }
   .corner.start { max-width: calc(100vw - 7.5rem); }
   .sheet { top: 7.2rem; }
+  .inspector { top: auto; left: 0.75rem; width: auto; height: 45vh; bottom: 5.5rem; }
   .panel { height: calc(100vh - 13rem); }
   #model { max-width: 6.5rem; }
 }
@@ -434,8 +461,9 @@ form.addEventListener('submit', async (event) => {
     if (value === '' || running) return;
     const context = [...document.querySelectorAll('.toggle[aria-pressed="true"]')].map((toggle) => toggle.dataset.context);
     send.disabled = true;
-    const refused = await post('/turns', model ? { text: value, context, model: model.value } : { text: value, context });
-    if (refused === undefined) { text.value = ''; fitText(); status.textContent = status.textContent === 'Working…' ? status.textContent : ''; return; }
+    const focus = magneticShell.focus.slice();
+    const refused = await post('/turns', { text: value, context, ...(model && { model: model.value }), ...(focus.length > 0 && { focus }) });
+    if (refused === undefined) { text.value = ''; fitText(); magneticShell.focus.length = 0; showFocus(); status.textContent = status.textContent === 'Working…' ? status.textContent : ''; return; }
     send.disabled = running;
     status.className = 'status bad';
     status.textContent = refused;
@@ -580,7 +608,9 @@ function freeArea() {
     const upright = rail.height > rail.width;
     const left = upright ? rail.right + 24 : 24;
     const top = Math.max(corner.bottom, upright ? 0 : rail.bottom) + 32;
-    const right = innerWidth - 24;
+    const inspector = document.getElementById('inspector');
+    const beside = !inspector.hidden && inspector.getBoundingClientRect().height > innerHeight / 2;
+    const right = (beside ? inspector.getBoundingClientRect().left : innerWidth) - 24;
     const bottom = Math.min(ask.top, document.querySelector('.zoom').getBoundingClientRect().top) - 24;
     return { left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
 }
@@ -627,10 +657,12 @@ function moving() { return tool === 'move' || spaceHeld; }
 function showTool() {
     for (const button of document.querySelectorAll('.tool')) button.setAttribute('aria-pressed', String(button.dataset.tool === tool));
     board.classList.toggle('moving', moving());
-    shield.hidden = !moving() && !board.classList.contains('dragging');
+    board.classList.toggle('selecting', !moving() && (tool === 'select' || tool === 'place'));
+    shield.hidden = !moving() && tool === 'use' && !board.classList.contains('dragging');
 }
 
-function setTool(name) { tool = name; showTool(); }
+const toolListeners = [];
+function setTool(name) { tool = name; showTool(); for (const listener of toolListeners) listener(name); }
 
 for (const button of document.querySelectorAll('.tool')) button.addEventListener('click', () => setTool(button.dataset.tool));
 
@@ -660,7 +692,7 @@ function pinchState() {
 board.addEventListener('pointerdown', (event) => {
     if (!editing()) return;
     const onBackground = event.target === board || event.target === world;
-    if (!(onBackground || event.target === shield || event.button === 1)) return;
+    if (!(onBackground || (event.target === shield && moving()) || event.button === 1)) return;
     if (event.button !== 0 && event.button !== 1) return;
     event.preventDefault();
     board.setPointerCapture(event.pointerId);
@@ -702,7 +734,7 @@ document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') { event.preventDefault(); setEditing(!editing()); return; }
     if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
     if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
-    const keys = { v: () => setTool('use'), h: () => setTool('move'), '+': () => zoomCentre(view.zoom * 1.25), '=': () => zoomCentre(view.zoom * 1.25), '-': () => zoomCentre(view.zoom / 1.25), '0': () => zoomCentre(1), '1': () => fit(true) };
+    const keys = { v: () => setTool('use'), h: () => setTool('move'), s: () => setTool('select'), '+': () => zoomCentre(view.zoom * 1.25), '=': () => zoomCentre(view.zoom * 1.25), '-': () => zoomCentre(view.zoom / 1.25), '0': () => zoomCentre(1), '1': () => fit(true) };
     const run = keys[event.key.toLowerCase()];
     if (run) { event.preventDefault(); run(); }
 });
@@ -736,6 +768,35 @@ function setEditing(on) {
 }
 
 addEventListener('stateui:key', (event) => { if (event.detail && event.detail.key === 'mod+shift+e') setEditing(!editing()); });
+
+// What /assets/inspect.js uses of the editor: the tools, and the paths the next turn is about ("Ask the agent")
+const focusLine = document.getElementById('focus');
+function showFocus() {
+    const paths = magneticShell.focus;
+    focusLine.hidden = paths.length === 0;
+    focusLine.textContent = paths.length === 0 ? '' : 'About: ' + paths.join(', ');
+    if (paths.length > 0) {
+        const clear = el('button', '', 'Clear');
+        clear.type = 'button';
+        clear.addEventListener('click', () => { magneticShell.focus.length = 0; showFocus(); });
+        focusLine.append(clear);
+    }
+}
+const magneticShell = {
+    tool: () => tool,
+    setTool,
+    onTool: (listener) => toolListeners.push(listener),
+    editing,
+    focus: [],
+    ask(path) {
+        if (!magneticShell.focus.includes(path)) magneticShell.focus.push(path);
+        magneticShell.focus.splice(0, Math.max(0, magneticShell.focus.length - 5));
+        showFocus();
+        text.focus();
+    },
+    refit: () => render(false)
+};
+window.magneticShell = magneticShell;
 
 // Without the editor, a hint says once in this browser how to open it
 const hint = document.getElementById('hint');
