@@ -115,11 +115,19 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - They send `Referrer-Policy: same-origin`. A browser posts a form from a `no-referrer` page with `Origin: null`,
     which the same-origin check refuses.
   - Every POST must come from the same origin as the server.
-- **The editor** (`/edit/<appId>`): the app fills the page and the editor floats on it, in rounded panels. At
-  the top left are the way back to the apps, the name and Open; at the top right, Share, whose links open in a
-  panel under it; on a rail at the left, the context toggles. At the bottom centre is a chat bar: the request,
-  the model menu and Send. Focusing it, or its chat button, opens the chat above it; the close button or Escape
-  closes it. Enter sends and Shift+Enter starts a new line. On a phone the toggles sit in a row under the top bar.
+- **The editor** (`/edit/<appId>`): the app is a frame on a canvas, and the editor floats on it in rounded
+  panels. At the top left are the way back to the apps, the name, the frame size (Desktop 1280×800, Tablet
+  834×1112, Phone 390×844) and Open; at the top right, Share, whose links open in a panel under it; on a rail at
+  the left, the tools and the context toggles; at the bottom right, the zoom.
+  - **The canvas** pans and zooms. Scrolling on the board pans it, Ctrl+scroll or a pinch zooms about the
+    pointer, and dragging the board pans it. Over the app, the app gets the pointer as usual; with the Move tool
+    (H) or Space held, a cover lies over the frame and the pointer moves the board. V goes back to Use; +, - and
+    0 zoom in, out and to 100%; 1 fits the frame in the free space, never past 100%. The zoom control does the
+    same. The view and the frame size are kept per app in the browser; a new app opens fitted, in the phone
+    frame on a narrow screen.
+  - At the bottom centre is a chat bar: the request, the model menu and Send. Focusing it, or its chat button,
+    opens the chat above it; the close button or Escape closes it. Enter sends and Shift+Enter starts a new line.
+    On a phone the rail sits in a row under the top bar.
   - The page carries the same body attributes as stateui-mcp's `/apps/<appId>`, so the host script builds the live
     app frame. Every change the agent writes shows in it at once. It sends the host page's policy
     (`hostPageCsp`).

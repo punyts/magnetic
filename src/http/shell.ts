@@ -23,12 +23,27 @@ const ICONS = {
     back: svg('<path d="M15 18l-6-6 6-6"/>'),
     close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
     chat: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
-    send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>')
+    send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>'),
+    pointer: svg('<path d="M5 3l14 8-6 2-3 6z"/>'),
+    hand: svg('<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V11M14 6.5a1.5 1.5 0 0 1 3 0V11M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/>'),
+    minus: svg('<path d="M5 12h14"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    fit: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')
 };
 
+/** The sizes the app's frame can have on the canvas; the first is the default */
+export const FRAME_SIZES = [
+    { id: 'desktop', label: 'Desktop', width: 1280, height: 800 },
+    { id: 'tablet', label: 'Tablet', width: 834, height: 1112 },
+    { id: 'phone', label: 'Phone', width: 390, height: 844 }
+] as const;
+
+const sizeMenu = `<label class="hidden" for="frame-size">Frame size</label><select id="frame-size" title="The size of the app's frame">${FRAME_SIZES.map((size) => `<option value="${size.id}" data-width="${size.width}" data-height="${size.height}">${size.label}</option>`).join('')}</select>`;
+
 /**
- * `GET /edit/<appId>`: the app fills the page and the editor floats on it: the name at the top left, Share at the top
- * right, the context toggles on a rail at the left and a chat bar at the bottom centre that opens into the chat. The body carries what the StateUI host script
+ * `GET /edit/<appId>`: the app is a frame on a canvas that pans and zooms, and the editor floats on it: the name and
+ * frame size at the top left, Share at the top right, the tools and context toggles on a rail at the left, the zoom at
+ * the bottom right and a chat bar at the bottom centre that opens into the chat. The body carries what the StateUI host script
  * (`/assets/host.js`) reads to build the app frame, as `/apps/<appId>` does, so the app is live while the agent works
  * on it; `/assets/shell.js` runs the chat
  */
@@ -50,9 +65,21 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
         `<body class="view shell" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
-        `<header class="float corner start"><a href="/" class="back" title="All your apps">${ICONS.back}<span class="hidden">Apps</span></a><strong class="name">${escapeHtml(options.name)}</strong><a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
+        '<main class="board" id="board" aria-label="Canvas">',
+        `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div></div></div>`,
+        '</main>',
+        `<header class="float corner start"><a href="/" class="back" title="All your apps">${ICONS.back}<span class="hidden">Apps</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
         '<div class="float corner end"><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">Share</button></div>',
-        `<nav class="float rail" aria-label="Show the agent"><span class="rail-label" aria-hidden="true">Show</span>${toggles}</nav>`,
+        '<nav class="float rail" aria-label="Tools">',
+        `<div class="tools" role="group" aria-label="Pointer"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="Use the app (V)" aria-label="Use the app">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="Move the canvas (H, or hold Space)" aria-label="Move the canvas">${ICONS.hand}</button></div>`,
+        `<div class="shows" role="group" aria-label="Show the agent"><span class="rail-label" aria-hidden="true">Show</span>${toggles}</div>`,
+        '</nav>',
+        '<div class="float zoom" role="group" aria-label="Zoom">',
+        `<button type="button" class="icon" id="zoom-out" title="Zoom out (-)" aria-label="Zoom out">${ICONS.minus}</button>`,
+        '<button type="button" id="zoom-reset" title="Zoom to 100% (0)">100%</button>',
+        `<button type="button" class="icon" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">${ICONS.plus}</button>`,
+        `<button type="button" class="icon" id="zoom-fit" title="Fit the app (1)" aria-label="Fit the app">${ICONS.fit}</button>`,
+        '</div>',
         '<section class="float sheet share" id="share" aria-label="Share this app" hidden>',
         '<form class="share-new" id="share-new"><label for="share-right">People with the link can</label><div class="row"><select id="share-right"><option value="use" selected>use it, with their own data</option><option value="view">look at it, live and read only</option><option value="remix">copy it, to change their copy</option></select><button type="submit" class="primary">Make link</button></div></form>',
         '<p class="small muted">Everyone signs in to open a link. Revoking a link takes the app back from everyone who opened it, and their browsers delete what they kept of it. A remix is a copy: revoking stops new remixes, but the copies already made belong to the people who made them.</p>',
@@ -86,11 +113,21 @@ export function shellPage(options: ShellPageOptions): string {
 }
 
 /** `/assets/shell.css`, after the host's `page.css` */
-export const SHELL_CSS = `:root { color-scheme: light dark; --ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1); }
-@media (prefers-color-scheme: dark) { :root { --ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35); } }
+export const SHELL_CSS = `:root { color-scheme: light dark; --ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; --dot: #c9cdd6; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1); }
+@media (prefers-color-scheme: dark) { :root { --ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; --dot: #353a45; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35); } }
 html, body.shell { height: 100%; margin: 0; overflow: hidden; }
 body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--soft); }
-body.view.shell iframe { position: fixed; top: 3.75rem; left: 6rem; width: calc(100% - 6rem); height: calc(100% - 3.75rem); }
+.board { position: fixed; inset: 0; overflow: hidden; touch-action: none; cursor: default; background-color: var(--soft); background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); }
+.board.moving, .board.moving .shield { cursor: grab; }
+.board.dragging, .board.dragging .shield { cursor: grabbing; }
+.world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.world.glide { transition: transform 0.25s ease; }
+.artboard { position: relative; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
+body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: inherit; display: block; }
+.artboard-label { position: absolute; left: 0; bottom: 100%; margin: 0 0 calc(6px / var(--zoom, 1)); display: flex; gap: 0.5em; white-space: nowrap; font-size: calc(12px / var(--zoom, 1)); color: var(--muted); }
+.artboard-label span:first-child { color: var(--ink); font-weight: 600; }
+.shield { position: absolute; inset: 0; z-index: 1; }
+.shield[hidden] { display: none; }
 body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); }
 .float { position: fixed; z-index: 2; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow); }
 .corner { top: 0.75rem; display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem; }
@@ -100,7 +137,16 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .corner a { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; padding: 0.35rem 0.5rem; border-radius: 0.5rem; }
 .corner a:hover, .corner a:focus-visible { background: var(--soft); }
 .corner a.open { color: var(--accent); font-size: 0.9rem; }
-.rail { left: 0.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 0.25rem; padding: 0.35rem; }
+.rail { left: 0.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 0.35rem; padding: 0.35rem; }
+.rail .tools, .rail .shows { display: flex; flex-direction: column; gap: 0.25rem; }
+.rail .tools { align-items: center; padding-bottom: 0.35rem; border-bottom: 1px solid var(--line); }
+.float .tool.icon { border-radius: 0.5rem; }
+.float .tool[aria-pressed="true"], .float .tool[aria-pressed="true"]:hover { background: var(--accent); color: var(--paper); }
+.corner #frame-size { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.3rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
+.zoom { right: 0.75rem; bottom: 1rem; display: flex; align-items: center; gap: 0.1rem; padding: 0.25rem; }
+.float.zoom #zoom-reset { min-width: 3.6rem; padding: 0.35rem 0.3rem; border: 0; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.float.zoom #zoom-reset:hover { background: var(--soft); }
+@media (max-width: 1120px) { .zoom { bottom: 5rem; } }
 .rail-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); text-align: center; padding: 0.15rem 0 0.1rem; }
 .float.rail .toggle { font-size: 0.8rem; padding: 0.4rem 0.55rem; border: 0; border-radius: 0.5rem; text-align: left; }
 .float.rail .toggle:hover { background: var(--soft); }
@@ -166,8 +212,9 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .links .row button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
 .hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @media (max-width: 760px) {
-  body.view.shell iframe { top: 6.9rem; left: 0; width: 100%; height: calc(100% - 6.9rem); }
-  .rail { top: 4rem; transform: none; flex-direction: row; max-width: calc(100vw - 1.5rem); overflow-x: auto; }
+  .rail, .rail .tools, .rail .shows { flex-direction: row; }
+  .rail { top: 4rem; transform: none; max-width: calc(100vw - 1.5rem); overflow-x: auto; scrollbar-width: none; }
+  .rail .tools { padding: 0 0.35rem 0 0; border-bottom: 0; border-right: 1px solid var(--line); }
   .rail-label { align-self: center; padding: 0 0.3rem; }
   .corner.start { max-width: calc(100vw - 7.5rem); }
   .sheet { top: 7.2rem; }
@@ -463,4 +510,199 @@ shareForm.addEventListener('submit', async (event) => {
     shareSays('Link made. Copy it and send it.');
     await loadLinks();
 });
+
+// The canvas: the app is a frame on a board that pans and zooms. Scrolling on the board pans it, Ctrl or a pinch
+// zooms, and dragging the board pans it. Over the app, the app gets the pointer, unless the Move tool is on or Space
+// is held: then a shield covers the frame and the pointer moves the board. The view is kept per app in this browser
+const board = document.getElementById('board');
+const world = document.getElementById('world');
+const artboard = document.getElementById('artboard');
+const shield = document.getElementById('shield');
+const frameSize = document.getElementById('frame-size');
+const sizeLabel = document.getElementById('artboard-size');
+const zoomReset = document.getElementById('zoom-reset');
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 4;
+const VIEW_KEY = 'magnetic.view.' + appId;
+const view = { x: 0, y: 0, zoom: 1 };
+let tool = 'use';
+let spaceHeld = false;
+let saveTimer = null;
+
+function clampZoom(zoom) { return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)); }
+
+function saveView() {
+    if (saveTimer !== null) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        saveTimer = null;
+        try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size: frameSize.value })); } catch { /* storage may be blocked */ }
+    }, 300);
+}
+
+function render(glide) {
+    world.classList.toggle('glide', Boolean(glide));
+    world.style.transform = 'translate(' + view.x + 'px, ' + view.y + 'px) scale(' + view.zoom + ')';
+    world.style.setProperty('--zoom', String(view.zoom));
+    let step = 24 * view.zoom;
+    while (step < 12) step *= 4;
+    board.style.backgroundSize = step + 'px ' + step + 'px';
+    board.style.backgroundPosition = view.x + 'px ' + view.y + 'px';
+    zoomReset.textContent = Math.round(view.zoom * 100) + '%';
+    saveView();
+}
+
+// Where the frame can show without the floating panels covering it
+function freeArea() {
+    const rail = document.querySelector('.rail').getBoundingClientRect();
+    const corner = document.querySelector('.corner.start').getBoundingClientRect();
+    const ask = form.getBoundingClientRect();
+    const upright = rail.height > rail.width;
+    const left = upright ? rail.right + 24 : 24;
+    const top = Math.max(corner.bottom, upright ? 0 : rail.bottom) + 32;
+    const right = innerWidth - 24;
+    const bottom = Math.min(ask.top, document.querySelector('.zoom').getBoundingClientRect().top) - 24;
+    return { left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+}
+
+function frameWidth() { return artboard.offsetWidth; }
+function frameHeight() { return artboard.offsetHeight; }
+
+// Fit the frame into the free area, never past 100%
+function fit(glide) {
+    const area = freeArea();
+    view.zoom = clampZoom(Math.min(1, area.width / frameWidth(), area.height / frameHeight()));
+    view.x = area.left + (area.width - frameWidth() * view.zoom) / 2;
+    view.y = area.top + (area.height - frameHeight() * view.zoom) / 2;
+    render(glide);
+}
+
+// Zoom keeping the board point under (cx, cy) where it is
+function zoomAt(zoom, cx, cy, glide) {
+    const next = clampZoom(zoom);
+    view.x = cx - ((cx - view.x) / view.zoom) * next;
+    view.y = cy - ((cy - view.y) / view.zoom) * next;
+    view.zoom = next;
+    render(glide);
+}
+
+function zoomCentre(zoom) {
+    const area = freeArea();
+    zoomAt(zoom, area.left + area.width / 2, area.top + area.height / 2, true);
+}
+
+function panBy(dx, dy) { view.x += dx; view.y += dy; render(false); }
+
+function setSize(id, refit) {
+    const option = [...frameSize.options].find((item) => item.value === id) || frameSize.options[0];
+    frameSize.value = option.value;
+    artboard.style.width = option.dataset.width + 'px';
+    artboard.style.height = option.dataset.height + 'px';
+    sizeLabel.textContent = option.dataset.width + ' × ' + option.dataset.height;
+    if (refit) fit(true);
+}
+
+function moving() { return tool === 'move' || spaceHeld; }
+
+function showTool() {
+    for (const button of document.querySelectorAll('.tool')) button.setAttribute('aria-pressed', String(button.dataset.tool === tool));
+    board.classList.toggle('moving', moving());
+    shield.hidden = !moving() && !board.classList.contains('dragging');
+}
+
+function setTool(name) { tool = name; showTool(); }
+
+for (const button of document.querySelectorAll('.tool')) button.addEventListener('click', () => setTool(button.dataset.tool));
+
+board.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1;
+    if (event.ctrlKey || event.metaKey) {
+        const delta = Math.max(-30, Math.min(30, event.deltaY * scale));
+        zoomAt(view.zoom * Math.exp(-delta * 0.01), event.clientX, event.clientY, false);
+    } else if (event.shiftKey && event.deltaX === 0) {
+        panBy(-event.deltaY * scale, 0);
+    } else {
+        panBy(-event.deltaX * scale, -event.deltaY * scale);
+    }
+}, { passive: false });
+
+// Dragging pans; two touches pinch
+const pointers = new Map();
+let pinch = null;
+
+function pinchState() {
+    const [a, b] = [...pointers.values()];
+    return { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+board.addEventListener('pointerdown', (event) => {
+    const onBackground = event.target === board || event.target === world;
+    if (!(onBackground || event.target === shield || event.button === 1)) return;
+    if (event.button !== 0 && event.button !== 1) return;
+    event.preventDefault();
+    board.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    board.classList.add('dragging');
+    shield.hidden = false;
+    pinch = pointers.size === 2 ? pinchState() : null;
+});
+
+board.addEventListener('pointermove', (event) => {
+    const last = pointers.get(event.pointerId);
+    if (last === undefined) return;
+    const now = { x: event.clientX, y: event.clientY };
+    pointers.set(event.pointerId, now);
+    if (pointers.size === 2 && pinch !== null) {
+        const next = pinchState();
+        view.x += next.x - pinch.x;
+        view.y += next.y - pinch.y;
+        zoomAt(view.zoom * (next.distance / pinch.distance), next.x, next.y, false);
+        pinch = next;
+    } else if (pointers.size === 1) {
+        panBy(now.x - last.x, now.y - last.y);
+    }
+});
+
+function endDrag(event) {
+    if (!pointers.delete(event.pointerId)) return;
+    pinch = pointers.size === 2 ? pinchState() : null;
+    if (pointers.size > 0) return;
+    board.classList.remove('dragging');
+    showTool();
+}
+board.addEventListener('pointerup', endDrag);
+board.addEventListener('pointercancel', endDrag);
+
+function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
+
+document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+    if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
+    const keys = { v: () => setTool('use'), h: () => setTool('move'), '+': () => zoomCentre(view.zoom * 1.25), '=': () => zoomCentre(view.zoom * 1.25), '-': () => zoomCentre(view.zoom / 1.25), '0': () => zoomCentre(1), '1': () => fit(true) };
+    const run = keys[event.key.toLowerCase()];
+    if (run) { event.preventDefault(); run(); }
+});
+document.addEventListener('keyup', (event) => { if (event.key === ' ' && spaceHeld) { event.preventDefault(); spaceHeld = false; showTool(); } });
+addEventListener('blur', () => { if (spaceHeld) { spaceHeld = false; showTool(); } });
+
+document.getElementById('zoom-in').addEventListener('click', () => zoomCentre(view.zoom * 1.25));
+document.getElementById('zoom-out').addEventListener('click', () => zoomCentre(view.zoom / 1.25));
+document.getElementById('zoom-fit').addEventListener('click', () => fit(true));
+zoomReset.addEventListener('click', () => zoomCentre(1));
+frameSize.addEventListener('change', () => setSize(frameSize.value, true));
+
+(function startCanvas() {
+    let kept = null;
+    try { kept = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch { /* storage may be blocked */ }
+    setSize((kept && kept.size) || (innerWidth < 760 ? 'phone' : 'desktop'), false);
+    if (kept && [kept.x, kept.y, kept.zoom].every(Number.isFinite)) {
+        view.x = kept.x;
+        view.y = kept.y;
+        view.zoom = clampZoom(kept.zoom);
+        render(false);
+    } else {
+        fit(false);
+    }
+    showTool();
+})();
 `;

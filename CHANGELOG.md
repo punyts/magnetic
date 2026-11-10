@@ -2,6 +2,10 @@
 
 ## 0.1.0 (unreleased)
 
+- **The app is a frame on a canvas.** Instead of padding the app clear of the floating panels, the app sits in a
+  frame (Desktop, Tablet or Phone) on a board that pans and zooms: scroll or drag the board to pan, Ctrl+scroll
+  or pinch to zoom, the Move tool or Space to pan over the app, and a zoom control with Fit and 100%. The view
+  is kept per app in the browser.
 - **The editor floats on the app.** The app fills the page, and the editor sits on it in rounded panels: the name
   at the top left, Share at the top right, the context toggles on a rail at the left and a chat bar at the bottom
   centre. The chat opens above the bar when it is focused or a turn starts, and closes with its button or Escape.
