@@ -22,6 +22,8 @@ ul.list a { color: var(--accent); }
 .who img { width: 2rem; height: 2rem; border-radius: 50%; }
 .error { color: #c0392b; }
 @media (prefers-color-scheme: dark) { .error { color: #ff8a7a; } }
+form.new { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1.5rem; }
+form.new input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .stack { display: grid; gap: 0.75rem; max-width: 20rem; }
 `;
 
@@ -76,6 +78,8 @@ export function signInPage(options: SignInPageOptions): string {
 
 export interface AppsPageOptions {
     readonly user: User;
+    /** Why the last new app was not made */
+    readonly error?: string;
     readonly apps: readonly { readonly id: string; readonly name: string; readonly updatedAt: Date }[];
 }
 
@@ -85,7 +89,7 @@ export function appsPage(options: AppsPageOptions): string {
     const picture = user.picture !== undefined && user.picture.startsWith('https://') ? `<img alt="" src="${escapeHtml(user.picture)}">` : '';
     const rows = [...apps]
         .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-        .map((app) => `<li><a href="/apps/${escapeHtml(app.id)}">${escapeHtml(app.name)}</a><span class="muted">${escapeHtml(app.updatedAt.toISOString().slice(0, 10))}</span></li>`)
+        .map((app) => `<li><a href="/edit/${escapeHtml(app.id)}">${escapeHtml(app.name)}</a><span class="muted"><a href="/apps/${escapeHtml(app.id)}">Open</a> · ${escapeHtml(app.updatedAt.toISOString().slice(0, 10))}</span></li>`)
         .join('\n');
     return page(
         'Magnetic',
@@ -94,6 +98,8 @@ export function appsPage(options: AppsPageOptions): string {
             '<h1>Your apps</h1>',
             `<div class="who">${picture}<span>${escapeHtml(user.name)}</span><form class="inline" method="post" action="/signout"><button type="submit">Sign out</button></form></div>`,
             '</header>',
+            '<form class="new" method="post" action="/new"><label for="new-name">New app</label><input id="new-name" name="name" maxlength="60" placeholder="todo-list" required><button type="submit" class="primary">Create</button></form>',
+            options.error === undefined ? '' : `<p class="error" role="alert">${escapeHtml(options.error)}</p>`,
             apps.length === 0 ? '<p class="muted">No apps yet.</p>' : `<ul class="list">\n${rows}\n</ul>`
         ].join('\n')
     );

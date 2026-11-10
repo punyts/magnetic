@@ -2,6 +2,22 @@
 
 ## 0.1.0 (unreleased)
 
+- **M3, the editor and the agent.**
+  - `/edit/<appId>` shows the live app beside a chat. `POST /new` makes an app and opens it there.
+  - The chat box has the context toggles Theme, Layout, Data, Logic and Screens. Each adds what a read-only tool
+    says about that part of the app to the turn.
+  - `AgentTurns` runs the agent on the server over the user's own stateui-mcp tools, one turn at a time per user,
+    streaming what it says and does to the page (server-sent events). The browser and answer tools are withheld.
+  - The activity drawer lists each tool call, has Stop and "Keep open", and closes 4 s after the turn.
+  - `ClaudeModel` calls the Claude API (`@anthropic-ai/sdk`): streaming, adaptive thinking with progress notes,
+    cached system prompt and tools, eager tool input streaming, and the server-side fallback on a refusal. The
+    model is `--model` (default `claude-opus-5-5`) at `--effort` (default `high`).
+  - `Budgets` prices each request and refuses a turn once the user's daily budget (`--daily-budget`, default $1)
+    or the server's monthly budget (`--monthly-budget`, default $100) is spent.
+  - Each app's chat is kept and comes back when the editor is opened again.
+  - `--mock-agent` (loopback only) plays a scripted agent, to try the editor without an API key.
+  - Tests: `src/server/agentRoutes.test.ts` (a turn against recorded answers writes nodes; stop; the tool-call
+    limit; a refusal; a spent budget; the earlier chat), `src/agent/Budgets.test.ts`, and the new options.
 - **M2, LinkedIn sign-in.**
   - `OidcSignIn` signs people in with OpenID Connect providers through `openid-client`, using the authorization code
     flow with state, nonce and PKCE. The ID token's signature is checked against the provider's keys.

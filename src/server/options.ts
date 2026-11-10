@@ -11,6 +11,15 @@ export interface CliOptions {
     mockProvider: boolean;
     /** LinkedIn's client, from the environment only so the secret stays out of the process list */
     linkedIn: { clientId: string; clientSecret: string; pkce: boolean } | undefined;
+    /** Plays a scripted agent instead of calling the Claude API, to try the editor without a key */
+    mockAgent: boolean;
+    /** The agent's model, such as claude-opus-5-5 */
+    model: string;
+    effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    /** Dollars per user per UTC day */
+    dailyBudget: number;
+    /** Dollars for the whole server per UTC month */
+    monthlyBudget: number;
     help: boolean;
 }
 
@@ -44,6 +53,14 @@ Sign in with LinkedIn (environment only):
   --mock-provider        Also run a mock OpenID Connect provider on loopback that signs anyone in
                          as a test person, to try the provider flow (env MAGNETIC_MOCK_PROVIDER=true).
                          Loopback hosts only
+The agent (the API key comes from ANTHROPIC_API_KEY):
+  --model <id>           The model (env MAGNETIC_MODEL, default claude-opus-5-5)
+  --effort <level>       low, medium, high, xhigh or max (env MAGNETIC_EFFORT, default high)
+  --daily-budget <usd>   Dollars each user may spend per UTC day (env MAGNETIC_DAILY_BUDGET, default 1)
+  --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
+  --mock-agent           A scripted agent that adds each request as a text on the app's first screen,
+                         to try the editor without an API key (env MAGNETIC_MOCK_AGENT=true). Loopback hosts only
+
   -h, --help             Show this help
 `;
 
@@ -84,6 +101,24 @@ const parseLinkedIn = (env: Readonly<Record<string, string | undefined>>): CliOp
     return { clientId, clientSecret, pkce: pkce !== 'false' };
 };
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+const parseEffort = (text: string): CliOptions['effort'] => {
+    const effort = EFFORTS.find((level) => level === text);
+    if (effort === undefined) throw new UsageError(`Invalid effort: ${text} (${EFFORTS.join(', ')})`);
+    return effort;
+};
+
+const parseModel = (text: string): string => {
+    if (!/^[a-z0-9][a-z0-9.@:/_-]{0,99}$/i.test(text)) throw new UsageError(`Invalid model: ${text}`);
+    return text;
+};
+
+const parseDollars = (name: string, text: string): number => {
+    const value = Number(text);
+    if (!Number.isFinite(value) || value < 0 || text.trim() === '') throw new UsageError(`Invalid ${name}: ${text} (dollars, such as 2.5)`);
+    return value;
+};
+
 const parseStarter = (text: string): 'showcase' | 'none' => {
     if (text !== 'showcase' && text !== 'none') throw new UsageError(`Invalid starter: ${text}`);
     return text;
@@ -100,6 +135,11 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
     const linkedIn = parseLinkedIn(env);
     let mockProvider = env['MAGNETIC_MOCK_PROVIDER'] === 'true';
+    let mockAgent = env['MAGNETIC_MOCK_AGENT'] === 'true';
+    let model = env['MAGNETIC_MODEL'] !== undefined ? parseModel(env['MAGNETIC_MODEL']) : 'claude-opus-5-5';
+    let effort = env['MAGNETIC_EFFORT'] !== undefined ? parseEffort(env['MAGNETIC_EFFORT']) : 'high';
+    let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
+    let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
     const envUsers = (env['MAGNETIC_DEV_USERS'] ?? '')
         .split(',')
         .map((name) => name.trim())
@@ -147,6 +187,21 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--mock-provider':
                 mockProvider = true;
                 break;
+            case '--mock-agent':
+                mockAgent = true;
+                break;
+            case '--model':
+                model = parseModel(value());
+                break;
+            case '--effort':
+                effort = parseEffort(value());
+                break;
+            case '--daily-budget':
+                dailyBudget = parseDollars('daily budget', value());
+                break;
+            case '--monthly-budget':
+                monthlyBudget = parseDollars('monthly budget', value());
+                break;
             case '-h':
             case '--help':
                 help = true;
@@ -155,5 +210,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 throw new UsageError(`Unknown option: ${argument}`);
         }
     }
-    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, help };
+    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, mockAgent, model, effort, dailyBudget, monthlyBudget, help };
 }

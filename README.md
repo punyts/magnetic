@@ -14,7 +14,14 @@ From the workspace:
 
 ```bash
 npm run magnetic:build   # the libraries Magnetic uses, Magnetic itself and the runtime bundle
-npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob and a mock provider
+npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob, a mock provider and the mock agent
+```
+
+`npm run magnetic` runs the scripted mock agent, so the editor works without an API key and costs nothing. To use
+Claude, set `ANTHROPIC_API_KEY` and start the server without `--mock-agent`:
+
+```bash
+npm run start -w @punyts/magnetic -- --dev-user alice
 ```
 
 Open it at `http://127.0.0.1:4300/`, not `localhost`: the provider sends the browser back to the origin the server
@@ -106,6 +113,37 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - They send `Referrer-Policy: same-origin`. A browser posts a form from a `no-referrer` page with `Origin: null`,
     which the same-origin check refuses.
   - Every POST must come from the same origin as the server.
+- **The editor** (`/edit/<appId>`): the app on the left and the chat on the right (stacked on a phone).
+  - The page carries the same body attributes as stateui-mcp's `/apps/<appId>`, so the host script builds the live
+    app frame. Every change the agent writes shows in it at once. It sends the host page's policy
+    (`hostPageCsp`).
+  - `POST /new` makes an app from the name typed on the home page (lower case words joined by dashes) and opens its
+    editor. The home page links each app to its editor and to its plain page.
+  - The chat box has five toggles, Theme, Layout, Data, Logic and Screens. Each adds what a read-only tool says about
+    that part of the app (`ui_get`, `ui_tree`, `ui_tree` with `logic`, `ui_state_get` on `$.data`,
+    `ui_list` of screens) to the turn as a `<context>` block.
+  - The activity drawer opens when a turn starts. It shows the model's progress notes and one line per tool call
+    with its outcome, and has Stop and "Keep open". It closes 4 s after the turn ends, unless the pointer or the
+    focus is in it, or it is kept open.
+  - The page reads `GET /edit/<appId>/events` (server-sent events: `state` with the chat so far, `person`,
+    `say`, `note`, `tool`, `toolDone` and `done`). It posts `/edit/<appId>/turns` (`{ text, context }`) and
+    `/edit/<appId>/stop`. A stream holds the workspace open and closes when the session signs out.
+- **The agent** (`AgentTurns`) runs on the server, over the user's own stateui-mcp tools (`createStateUiTools`).
+  - One turn at a time per user. A turn is a fresh conversation with the Claude API: the earlier chat goes in as
+    text, so no thinking has to be carried across turns.
+  - The system prompt is Magnetic's instructions plus stateui-mcp's guide (`buildServerInstructions`), cached, with
+    the tools.
+  - Requests stream, with adaptive thinking (`display: "updates"` for the progress notes), the effort set by
+    `--effort`, `eager_input_streaming` on each tool, and `fallbacks: "default"` on Opus 5.5 and Sonnet 5.5, so a
+    request the model declines is retried on the fallback model.
+  - A turn ends when the model answers without a tool call, after 40 tool calls, after 5 minutes, on a refusal, or
+    on Stop.
+  - The browser tools (`ui_preview`, `ui_screenshot`, `ui_interact`) are withheld until the headless browser
+    can reach a signed-in page, and so are the answer tools, as no logic waits for an agent here.
+  - Each chat is kept in `users/<userId>/magnetic/chats/<appId>.json` (the last 100 entries).
+- **Budgets** (`Budgets`, `data/budgets.json`). Each request is priced from its token counts. A user may spend
+  `--daily-budget` dollars per UTC day (default 1) and the server `--monthly-budget` per UTC month (default 100).
+  The turn that crosses a limit finishes; the next one is refused with a message.
 
 ## Use it from code
 
@@ -117,29 +155,34 @@ console.log(magnetic.origin);
 await magnetic.stop();
 ```
 
-`startMagnetic` returns `{ origin, port, runtimePort, accounts, sessions, workspaces, signIn, stop }`. The options
-also take:
+`startMagnetic` returns `{ origin, port, runtimePort, accounts, sessions, workspaces, signIn, turns, budgets, stop }`.
+The options also take:
 - `providers`, such as `[linkedInProvider(id, secret)]`;
 - `publicOrigin`;
 - `allowHttpProviders`, for a mock provider on loopback;
 - `starter`, `runtimeDir` and `chunk3dDir`;
 - `browser`, a stand-in headless browser for tests;
 - `logicLimits`, `socketMessagesPerSecond` and `workspaces` (`idleMs`, `max`);
-- `secureCookies`.
+- `secureCookies`;
+- `agent`: `model` (an `AgentModel`, such as a scripted one in tests; default `ClaudeModel`), `modelName`
+  (default `claude-opus-5-5`), `effort` (default `high`), `budgets` and `limits`.
 
-`startMockOidcProvider()` starts the mock provider the tests use.
+`startMockOidcProvider()` starts the mock provider the tests use, and `MockAgentModel` is the scripted agent of
+`--mock-agent`.
 
 ## Not yet
 
 - **Hosting** (M7): HTTPS, public host names for the two origins, and the Host check behind a proxy. Until then the
   runtime origin is `http://<host>:<runtime port>`, which suits a local server only.
-- **One headless browser per workspace.** Each workspace opens its own Chromium when it first previews. Nothing does
-  that in M1. The agent in M3 will share one browser with a context per user, and its headless pages need a way to
-  sign in.
+- **The agent cannot see the page.** The browser tools are withheld: each workspace would open its own Chromium,
+  and its headless page cannot sign in to reach the app. One shared browser with a context per user, and a way for
+  it to sign in, come before the agent gets them back.
+- **The shell is a server page**, not a StateUI app as the design has it. The state view (M4) and the editor overlay
+  (M5) will show whether it needs to be one.
 
 ## Develop
 
 ```bash
 npm run build
-npm test        # vitest: accounts, sessions, workspaces, the options, provider sign-in against the mock provider, and the server over HTTP and WebSockets
+npm test        # vitest: accounts, sessions, workspaces, the options, budgets, provider sign-in against the mock provider, agent turns against recorded answers, and the server over HTTP and WebSockets
 ```

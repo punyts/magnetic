@@ -29,4 +29,17 @@ describe('parseOptions', () => {
     it.each(['magnetic.example', 'https://magnetic.example/app', 'ftp://magnetic.example'])('should refuse the public origin %s', (origin) => {
         expect(() => parseOptions(['--public-origin', origin], {})).toThrow(UsageError);
     });
+
+    it('should run the agent on Opus 5.5 at high effort with $1 a day and $100 a month by default', () => {
+        expect(parseOptions([], {})).toMatchObject({ model: 'claude-opus-5-5', effort: 'high', dailyBudget: 1, monthlyBudget: 100 });
+    });
+
+    it('should take the model, effort and budgets from flags over the environment', () => {
+        const options = parseOptions(['--model', 'claude-sonnet-5-5', '--effort=medium', '--daily-budget', '0.5', '--monthly-budget', '20'], { MAGNETIC_MODEL: 'claude-opus-5-5', MAGNETIC_EFFORT: 'max', MAGNETIC_DAILY_BUDGET: '3', MAGNETIC_MONTHLY_BUDGET: '300' });
+        expect(options).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium', dailyBudget: 0.5, monthlyBudget: 20 });
+    });
+
+    it.each([['--effort', 'extreme'], ['--daily-budget', '-1'], ['--monthly-budget', 'lots'], ['--model', 'two words']])('should refuse %s %s', (flag, value) => {
+        expect(() => parseOptions([flag, value], {})).toThrow(UsageError);
+    });
 });
