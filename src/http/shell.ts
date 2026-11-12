@@ -675,7 +675,8 @@ function showTool() {
 const toolListeners = [];
 function setTool(name) { tool = name; showTool(); for (const listener of toolListeners) listener(name); }
 
-for (const button of document.querySelectorAll('.tool')) button.addEventListener('click', () => setTool(button.dataset.tool));
+// Pressing the select tool while it is on turns it off: back to using the app
+for (const button of document.querySelectorAll('.tool')) button.addEventListener('click', () => setTool(button.dataset.tool === 'select' && tool === 'select' ? 'use' : button.dataset.tool));
 
 board.addEventListener('wheel', (event) => {
     if (!editing()) return;

@@ -217,6 +217,50 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await page.locator('#overlay .box.selected').waitFor({ state: 'detached', timeout: 5000 });
     }, 60_000);
 
+    it('should let the selection go and close the inspector when the inspector closes or the select tool is left', async () => {
+        const inspectorPanel = page.locator('#inspector');
+        const outline = page.locator('#overlay .box.selected');
+        const selectTool = page.locator('.tool[data-tool="select"]');
+        /** Turns the select tool on, picks the list's first text and waits for its outline and the inspector */
+        const pick = async (): Promise<void> => {
+            if ((await selectTool.getAttribute('aria-pressed')) !== 'true') await selectTool.click();
+            const alpha = await pointOf(page, `${HOME}.children.list.children.a`, 0.1);
+            await page.mouse.click(alpha.x, alpha.y);
+            await expect.poll(() => selectedLabel(page)).toBe('text · a');
+            await inspectorPanel.waitFor({ state: 'visible', timeout: 5000 });
+        };
+        const letGo = async (): Promise<void> => {
+            await outline.waitFor({ state: 'detached', timeout: 5000 });
+            await inspectorPanel.waitFor({ state: 'hidden', timeout: 5000 });
+        };
+
+        // The inspector's close button
+        await pick();
+        await page.locator('#inspector-close').click();
+        await letGo();
+        expect(await page.locator('.tool[data-tool="use"]').getAttribute('aria-pressed')).toBe('true');
+
+        // Pressing the select tool again turns it off
+        await pick();
+        await selectTool.click();
+        await letGo();
+        expect(await selectTool.getAttribute('aria-pressed')).toBe('false');
+
+        // Back to using the app with V
+        await pick();
+        await page.mouse.move(5, 450);
+        await page.keyboard.press('v');
+        await letGo();
+
+        // Panning with the hand keeps the selection and the inspector
+        await pick();
+        await page.locator('.tool[data-tool="move"]').click();
+        await page.waitForTimeout(200);
+        expect([await outline.count(), await inspectorPanel.isVisible()]).toEqual([1, true]);
+        await page.locator('.tool[data-tool="select"]').click();
+        await page.keyboard.press('Escape');
+    }, 60_000);
+
     it('should close the chat with its close button and with Escape, keeping the focus in the chat bar', async () => {
         // Arrange: focusing the chat bar opens the chat
         const panel = page.locator('#panel');

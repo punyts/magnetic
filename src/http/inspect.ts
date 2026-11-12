@@ -280,10 +280,18 @@ shield.addEventListener('pointerup', async (event) => {
 });
 shield.addEventListener('pointerleave', () => { if (!press) { hover = null; draw(); } });
 
+// Leaving the inspector (its close button, or back to using the app) lets the selection go too: nothing stays
+// outlined in an app you are using. Panning with the hand keeps both, to move around what you inspect
+function closeInspector() {
+    inspectorPanel.hidden = true;
+    if (selected) unselect();
+}
+
 shell.onTool((tool) => {
     if (tool !== 'place' && placing) { placing = null; drop = null; }
     if (tool !== 'select' && tool !== 'place') hover = null;
     if (tool === 'select') inspectorPanel.hidden = false;
+    if (tool === 'use') closeInspector();
     draw();
 });
 
@@ -649,7 +657,7 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-document.getElementById('inspector-close').addEventListener('click', () => { inspectorPanel.hidden = true; if (shell.tool() !== 'use') shell.setTool('use'); });
+document.getElementById('inspector-close').addEventListener('click', () => { closeInspector(); if (shell.tool() !== 'use') shell.setTool('use'); });
 
 (async function start() {
     if (!host || !shell) return;
