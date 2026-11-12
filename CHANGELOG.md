@@ -2,6 +2,7 @@
 
 ## 0.1.0 (unreleased)
 
+- **Fix: the chat closes.** Its close button and Escape closed the chat, then put the focus back in the chat bar, and focusing the bar opens the chat, so it opened again at once. The focus a close puts back no longer opens it. Test: `editor.browser.test.ts`.
 - **The inspector: edit by hand, and see the state.** A panel at the right of the editor, itself a StateUI app,
   with three tabs. Properties edits the selected node, a field per property. Add places a component where you
   click: between the children of a column or row, beside a cell of a grid, or at the point of an `adhoc`

@@ -216,4 +216,26 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         expect(childrenOf((await app()).root, 'list')).toEqual(['b', 'a']);
         await page.locator('#overlay .box.selected').waitFor({ state: 'detached', timeout: 5000 });
     }, 60_000);
+
+    it('should close the chat with its close button and with Escape, keeping the focus in the chat bar', async () => {
+        // Arrange: focusing the chat bar opens the chat
+        const panel = page.locator('#panel');
+        const bar = page.locator('#ask textarea');
+        await bar.focus();
+        await panel.waitFor({ state: 'visible', timeout: 5000 });
+
+        // Act and Assert: the close button closes it and the focus it puts back in the bar does not open it again
+        await page.locator('#chat-close').click();
+        await panel.waitFor({ state: 'hidden', timeout: 5000 });
+        await page.waitForTimeout(200);
+        expect(await panel.isHidden()).toBe(true);
+        expect(await bar.evaluate((element) => element.matches(':focus'))).toBe(true);
+
+        // The chat button opens it again, and Escape closes it the same way
+        await page.locator('#chat-open').click();
+        await panel.waitFor({ state: 'visible', timeout: 5000 });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        expect(await panel.isHidden()).toBe(true);
+    }, 60_000);
 });

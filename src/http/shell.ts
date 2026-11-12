@@ -356,10 +356,18 @@ function showChat(open) {
     if (open) scrollDown();
 }
 
+// Focusing the chat bar opens the chat, except when closing it puts the focus back there: then it stays closed
+let closing = false;
+function closeChat() {
+    showChat(false);
+    closing = true;
+    try { text.focus(); } finally { closing = false; }
+}
+
 chatOpen.addEventListener('click', () => { showChat(panel.hidden); if (!panel.hidden) text.focus(); });
-chatClose.addEventListener('click', () => { showChat(false); text.focus(); });
-document.querySelector('.dock').addEventListener('keydown', (event) => { if (event.key === 'Escape' && !panel.hidden) { event.preventDefault(); showChat(false); text.focus(); } });
-text.addEventListener('focus', () => showChat(true));
+chatClose.addEventListener('click', closeChat);
+document.querySelector('.dock').addEventListener('keydown', (event) => { if (event.key === 'Escape' && !panel.hidden) { event.preventDefault(); closeChat(); } });
+text.addEventListener('focus', () => { if (!closing) showChat(true); });
 
 // The chat bar grows with the request, up to its CSS max-height
 function fitText() { text.style.height = 'auto'; text.style.height = text.scrollHeight + 'px'; }
