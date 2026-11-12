@@ -68,6 +68,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     let browser: Browser;
     let page: Page;
     let inspector: FrameLocator;
+    /** Whether the inspector showed, and which tool was on, once the page had loaded and before the select tool */
+    let onLoad: { open: boolean; tool: unknown };
     let alice: string;
     let aliceId: string;
     let appId: string;
@@ -127,10 +129,12 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         page = await context.newPage();
         await page.goto(`${magnetic.origin}/edit/${appId}`);
         inspector = page.frameLocator('#inspector-frame iframe');
-        await inspector.getByRole('tab', { name: 'Add' }).waitFor({ timeout: 20_000 });
+        await inspector.getByRole('tab', { name: 'Add' }).waitFor({ state: 'attached', timeout: 20_000 });
         await expect.poll(async () => (await pointOf(page, `${HOME}.children.list.children.b`).catch(() => undefined)) !== undefined, { timeout: 20_000 }).toBe(true);
+        onLoad = { open: await page.locator('#inspector').isVisible(), tool: await page.evaluate('window.magneticShell.tool()') };
         await page.mouse.click(5, 450);
         await page.keyboard.press('s');
+        await inspector.getByRole('tab', { name: 'Add' }).waitFor({ timeout: 5000 });
     }, 60_000);
 
     it('should select a node by clicking it, and its parent from the breadcrumb, without writing anything', async () => {
@@ -216,6 +220,12 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         expect(childrenOf((await app()).root, 'list')).toEqual(['b', 'a']);
         await page.locator('#overlay .box.selected').waitFor({ state: 'detached', timeout: 5000 });
     }, 60_000);
+
+    it('should open the editor with the inspector closed and the use tool on, and open the inspector with the select tool', async () => {
+        // Assert
+        expect(onLoad).toEqual({ open: false, tool: 'use' });
+        expect(await page.locator('#inspector').isVisible()).toBe(true);
+    });
 
     it('should let the selection go and close the inspector when the inspector closes or the select tool is left', async () => {
         const inspectorPanel = page.locator('#inspector');

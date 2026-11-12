@@ -92,7 +92,7 @@ export function shellPage(options: ShellPageOptions): string {
         `<button type="button" class="icon" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">${ICONS.plus}</button>`,
         `<button type="button" class="icon" id="zoom-fit" title="Fit the app (1)" aria-label="Fit the app">${ICONS.fit}</button>`,
         '</div>',
-        '<aside class="float inspector" id="inspector" aria-label="Inspector">',
+        '<aside class="float inspector" id="inspector" aria-label="Inspector" hidden>',
         `<header class="bar"><strong>Inspector</strong><span class="small muted status" id="inspector-status" role="status"></span><span class="spacer"></span><button type="button" id="inspector-close" class="icon" title="Close the inspector" aria-label="Close the inspector">${ICONS.close}</button></header>`,
         '<div class="inspector-frame" id="inspector-frame"></div>',
         '</aside>',
@@ -157,7 +157,7 @@ body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; he
 .overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
 .overlay .dot { position: absolute; width: calc(10px / var(--zoom, 1)); height: calc(10px / var(--zoom, 1)); margin: calc(-5px / var(--zoom, 1)); border-radius: 50%; background: var(--accent); }
 .inspector { top: 4rem; right: 0.75rem; bottom: 4.5rem; width: 20rem; display: flex; flex-direction: column; overflow: hidden; }
-.inspector[hidden] { display: none; }
+.inspector[hidden] { display: flex; visibility: hidden; pointer-events: none; }
 .inspector .status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inspector .status.bad { color: var(--bad); }
 .inspector-frame { flex: 1; min-height: 0; position: relative; }
