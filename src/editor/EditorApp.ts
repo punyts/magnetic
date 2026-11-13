@@ -8,6 +8,7 @@ import { COMPONENT_CATEGORIES } from '../inspector/constants.js';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
 import { writeLocales } from '../stateui/localize.js';
 import { run } from '../stateui/run.js';
+import { ensureMagneticTheme, MAGNETIC_THEME, THEME_STAMP } from '../stateui/theme.js';
 import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
 
 /** The name of each person's editor, an app of their own in their workspace */
@@ -63,7 +64,13 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
         ...['working', 'blank', 'hasMessages', 'keepOpen', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
-        { op: 'set', field: 'show', type: 'object', default: { theme: false, layout: false, data: false, logic: false, screens: false } }
+        { op: 'set', field: 'show', type: 'object', default: { theme: false, layout: false, data: false, logic: false, screens: false } },
+        // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the toggles)
+        { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
+        { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
+        // And their tone: the accent while on, the ink while off
+        { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
+        { op: 'set', field: 'showTone', type: 'object', default: { theme: 'neutral', layout: 'neutral', data: 'neutral', logic: 'neutral', screens: 'neutral' } }
     ],
     'magnetic-message': [
         { op: 'set', field: 'id', type: 'string', required: true },
@@ -119,12 +126,11 @@ const spacer = (): Record<string, unknown> => ({ component: 'panel', padding: 'n
 /** Magnetic's logo, as the frame (which has no network) can show it */
 const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64')}`;
 
-/** The corner at the top left: back to the apps, Magnetic's logo, the app's name, the frame size and Open */
+/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size and Open */
 function nameCorner(t: Texts): Record<string, unknown> {
-    return float({ x: '12px', y: '12px', width: '470px' }, {
+    return float({ x: '12px', y: '12px', width: '440px' }, {
         bar: row({
-            home: icon(t['shell.allApps'], 'home', 'arrow-left'),
-            logo: { component: 'image', src: LOGO, decorative: true, ratio: '1:1', fit: 'contain', placement: { height: '26px' } },
+            home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, on: { press: emit('home') } },
             name: bound(`${E}.appName`, { textRole: 'label', truncate: 1, placement: { grow: 1 } }),
             size: {
                 component: 'selectField',
@@ -151,31 +157,44 @@ function shareCorner(t: Texts): Record<string, unknown> {
     });
 }
 
-/** The rail at the left: the pointer tools, and what the agent is shown with the next request */
+/**
+ * The rail at the left: the pointer tools, one above the other, then what the agent is shown with the next request.
+ * Each is a button that is solid while on (`toolLook`, `showLook`); a press emits `tool` with the tool's name, or the
+ * toggle's `show…`
+ */
 function rail(t: Texts): Record<string, unknown> {
-    const show = (name: 'theme' | 'layout' | 'data' | 'logic' | 'screens', target: string): Record<string, unknown> => ({
-        component: 'switchField',
+    const tool = (name: 'use' | 'move' | 'select', key: 'shell.useKey' | 'shell.moveKey' | 'shell.selectKey', glyph: string): Record<string, unknown> => ({
+        component: 'button',
         size: 'sm',
-        _label: t[`shell.toggle.${name}`],
-        '<-checked': `${E}.show.${name}`,
-        on: { change: emit(target) }
+        icon: glyph,
+        iconPosition: 'only',
+        _title: t[key],
+        '<-variant': `${E}.toolLook.${name}`,
+        '<-tone': `${E}.toolTone.${name}`,
+        on: { press: { command: 'emit', target: 'tool', value: name } }
     });
-    return float({ x: '12px', y: '30%', width: '132px' }, {
+    const show = (name: 'theme' | 'layout' | 'data' | 'logic' | 'screens', target: string): Record<string, unknown> => ({
+        component: 'button',
+        size: 'sm',
+        _title: t[`shell.toggle.${name}`],
+        '<-variant': `${E}.showLook.${name}`,
+        '<-tone': `${E}.showTone.${name}`,
+        on: { press: emit(target) }
+    });
+    return float({ x: '12px', center: 'y', width: '104px' }, {
         tools: {
-            component: 'segmented',
-            size: 'sm',
-            iconOnly: true,
-            _label: t['shell.pointer'],
-            options: { use: { _label: t['shell.useKey'], icon: 'pointer' }, move: { _label: t['shell.moveKey'], icon: 'hand-stop' }, select: { _label: t['shell.selectKey'], icon: 'marquee-2' } },
-            '<-value': `${E}.tool`,
-            on: { change: emit('tool') }
+            component: 'panel',
+            padding: 'none',
+            layout: { type: 'column', gap: 'sm', align: 'center' },
+            children: { use: tool('use', 'shell.useKey', 'pointer'), move: tool('move', 'shell.moveKey', 'hand-stop'), select: tool('select', 'shell.selectKey', 'marquee-2') }
         },
         showLabel: caption(t['shell.show']),
-        showTheme: show('theme', 'showTheme'),
-        showLayout: show('layout', 'showLayout'),
-        showData: show('data', 'showData'),
-        showLogic: show('logic', 'showLogic'),
-        showScreens: show('screens', 'showScreens')
+        shows: {
+            component: 'panel',
+            padding: 'none',
+            layout: { type: 'column', gap: 'none', align: 'start' },
+            children: { showTheme: show('theme', 'showTheme'), showLayout: show('layout', 'showLayout'), showData: show('data', 'showData'), showLogic: show('logic', 'showLogic'), showScreens: show('screens', 'showScreens') }
+        }
     });
 }
 
@@ -193,7 +212,7 @@ function zoom(t: Texts): Record<string, unknown> {
 
 /** The chat bar at the bottom: what the next request is about, the request, the model and Send */
 function chatBar(t: Texts): Record<string, unknown> {
-    return float({ x: '30%', bottom: '12px', width: '40%' }, {
+    return float({ center: 'x', bottom: '12px', width: '640px' }, {
         status: bound(`${E}.status`, { textRole: 'caption', '<-hidden': `${E}.noStatus` }),
         focus: row({ about: bound(`${E}.focus`, { textRole: 'caption', placement: { grow: 1 } }), clear: button(t['chat.clear'], 'focusClear') }, { '<-hidden': `${E}.noFocus` }),
         dataLine: bound(`${E}.dataLine`, { textRole: 'caption', '<-hidden': `${E}.noDataLine` }),
@@ -224,7 +243,7 @@ function chatBar(t: Texts): Record<string, unknown> {
 /** The chat above the bar: the conversation, and the agent's activity while it works */
 function chatPanel(t: Texts): Record<string, unknown> {
     return float(
-        { x: '30%', bottom: '96px', width: '40%', height: '52%' },
+        { center: 'x', bottom: '96px', width: '640px', height: '52%' },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.chat'] }, close: icon(t['shell.closeChat'], 'chatClose', 'x') }),
             empty: caption(t['chat.empty'], { '<-hidden': `${E}.hasMessages` }),
@@ -253,7 +272,7 @@ function chatPanel(t: Texts): Record<string, unknown> {
 function blankHint(t: Texts): Record<string, unknown> {
     const idea = (n: 1 | 2 | 3): Record<string, unknown> => ({ component: 'card', elevation: 'flat', padding: 'sm', interactive: true, _subtitle: t[`shell.idea${n}`], on: { press: emit(`idea${n}`) } });
     return float(
-        { x: '34%', y: '30%', width: '32%' },
+        { center: 'both', width: '480px' },
         {
             title: { component: 'text', textRole: 'heading', _text: t['shell.blankTitle'] },
             text: caption(t['shell.blankText']),
@@ -446,7 +465,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
-                    notice: float({ x: '30%', y: '12px', width: '40%' }, { text: bound(`${E}.notice`, { tone: 'danger' }) }, { '<-hidden': `${E}.noNotice` })
+                    notice: float({ center: 'x', y: '12px', width: '480px' }, { text: bound(`${E}.notice`, { tone: 'danger' }) }, { '<-hidden': `${E}.noNotice` })
                 }
             }
         }
@@ -470,7 +489,7 @@ function definition(): Record<string, unknown> {
 
 
 /** Changes when Magnetic ships a new editor: a person's editor they never changed is made again from it */
-export const EDITOR_STAMP = createHash('sha256').update(JSON.stringify({ MODELS, definition: definition(), texts: ['de', 'fr', 'es'].map((language) => textsOf(language as 'de')) })).digest('hex').slice(0, 16);
+export const EDITOR_STAMP = createHash('sha256').update(JSON.stringify({ MODELS, theme: THEME_STAMP, definition: definition(), texts: ['de', 'fr', 'es'].map((language) => textsOf(language as 'de')) })).digest('hex').slice(0, 16);
 
 /** The editor's assembled document and icons, as a page mounts it */
 export interface EditorDocument {
@@ -483,16 +502,21 @@ export interface EditorDocument {
 async function ensureModels(tools: readonly UiToolDefinition[]): Promise<void> {
     for (const [model, operations] of Object.entries(MODELS)) {
         const existing = await run(tools, 'ui_get', { kind: 'models', name: model }).catch(() => undefined);
-        const revision = existing === undefined ? undefined : existing['revision'];
-        await run(tools, 'ui_model_write', { model, operations, ...(typeof revision === 'number' && { expectedRevision: revision }) });
+        let revision = existing === undefined ? undefined : existing['revision'];
+        // The tool takes at most 50 operations a call
+        for (let start = 0; start < operations.length; start += 50) {
+            const written = await run(tools, 'ui_model_write', { model, operations: operations.slice(start, start + 50), ...(typeof revision === 'number' && { expectedRevision: revision }) });
+            revision = written['revision'];
+        }
     }
 }
 
 /** Makes the editor app in a workspace, in English with the other languages as locales; answers its id and revision */
 async function makeEditor(tools: readonly UiToolDefinition[]): Promise<{ id: string; revision: number }> {
     await ensureModels(tools);
+    await ensureMagneticTheme(tools);
     const made = definition();
-    const created = await run(tools, 'ui_app_create', { name: EDITOR_APP, ...made });
+    const created = await run(tools, 'ui_app_create', { name: EDITOR_APP, themes: [MAGNETIC_THEME], ...made });
     if (typeof created['id'] !== 'string') throw new Error('ui_app_create gave no id');
     const revision = await writeLocales(tools, EDITOR_APP, { home: made['home'] }, typeof created['revision'] === 'number' ? created['revision'] : 1);
     return { id: created['id'], revision };

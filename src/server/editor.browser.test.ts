@@ -92,7 +92,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     };
     /** The inspector shows: its Add tab is on screen */
     const inspectorOpen = (): Promise<boolean> => editor.getByRole('tab', { name: 'Add' }).isVisible();
-    const toolButton = (name: string) => editor.getByRole('radio', { name });
+    const toolButton = (name: string) => editor.getByRole('button', { name });
     const pick = async (component: string): Promise<void> => {
         await editor.getByRole('tab', { name: 'Add' }).click();
         await editor.getByText(component, { exact: true }).first().click();
@@ -133,7 +133,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         page = await context.newPage();
         await page.goto(`${magnetic.origin}/edit/${appId}`);
         editor = page.frameLocator('#editor iframe');
-        await editor.getByRole('radio', { name: 'Use the app (V)' }).waitFor({ timeout: 20_000 });
+        await editor.getByRole('button', { name: 'Use the app (V)' }).waitFor({ timeout: 20_000 });
         // The editor says where its panels are, and the canvas fits the app between them
         await expect.poll(() => page.evaluate("document.getElementById('editor').style.clipPath.startsWith('path')"), { timeout: 20_000 }).toBe(true);
         await expect.poll(async () => (await pointOf(page, `${HOME}.children.list.children.b`).catch(() => undefined)) !== undefined, { timeout: 20_000 }).toBe(true);
@@ -238,7 +238,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         const selectTool = toolButton('Select a part of the app (S)');
         /** Turns the select tool on, picks the list's first text and waits for its outline and the inspector */
         const pick = async (): Promise<void> => {
-            if ((await selectTool.getAttribute('aria-checked')) !== 'true') await selectTool.click();
+            if ((await page.evaluate('window.magneticShell.tool()')) !== 'select') await selectTool.click();
             const alpha = await pointOf(page, `${HOME}.children.list.children.a`, 0.1);
             await page.mouse.click(alpha.x, alpha.y);
             await expect.poll(() => selectedLabel(page)).toBe('text · a');
@@ -253,7 +253,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await pick();
         await editor.getByRole('button', { name: 'Close the inspector' }).click();
         await letGo();
-        await expect.poll(() => toolButton('Use the app (V)').getAttribute('aria-checked')).toBe('true');
+        await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('use');
 
         // Back to using the app with the Use tool
         await pick();
@@ -283,6 +283,35 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await chat.waitFor({ state: 'visible', timeout: 5000 });
         await editor.getByRole('button', { name: 'Close the chat' }).click();
         await chat.waitFor({ state: 'hidden', timeout: 5000 });
+    }, 60_000);
+
+    it("should take the tool keys from the editor's frame, but not while the person types there", async () => {
+        // Arrange: the focus in the editor's frame, on a button of its rail
+        await editor.getByRole('button', { name: 'Theme' }).focus();
+
+        // Act and Assert: H and V switch the tool from inside the frame
+        await page.keyboard.press('h');
+        await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('move');
+        await page.keyboard.press('v');
+        await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('use');
+
+        // Typed in the chat box, the same letters are text
+        const box = editor.getByRole('textbox', { name: 'Your request' });
+        await box.click();
+        await page.keyboard.type('hs');
+        await page.waitForTimeout(200);
+        expect(await page.evaluate('window.magneticShell.tool()')).toBe('use');
+        expect(await box.inputValue()).toBe('hs');
+    }, 60_000);
+
+    it("should cast the panels' shadows from the page and show the app only once it is fitted", async () => {
+        // Act
+        const casts = await page.locator('#shadows div').count();
+        const waiting = await page.evaluate("document.body.classList.contains('unfitted')");
+
+        // Assert
+        expect(casts).toBeGreaterThanOrEqual(5);
+        expect(waiting).toBe(false);
     }, 60_000);
 
     it('should let clicks beside the panels through to the canvas, and clip the editor to its panels', async () => {

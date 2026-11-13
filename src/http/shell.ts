@@ -59,6 +59,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
         `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        '<div class="shadows" id="shadows" aria-hidden="true"></div>',
         '<div class="editor" id="editor"></div>',
         '<main class="board" id="board" tabindex="-1">',
         `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div><div class="overlay" id="overlay" aria-hidden="true"></div></div></div>`,
@@ -84,9 +85,15 @@ html, body.shell { height: 100%; margin: 0; overflow: hidden; }
 body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--paper); }
 /* The editor's frame covers the window above the canvas, clipped to its panels (the script sets the clip); until the
    panels are known nothing of it shows. Without the editor it is out of sight but loaded, to come back at once */
-.editor { position: fixed; inset: 0; z-index: 2; clip-path: inset(0 calc(100% - 1px) calc(100% - 1px) 0); }
+.editor { position: fixed; inset: 0; z-index: 3; clip-path: inset(0 calc(100% - 1px) calc(100% - 1px) 0); }
 .editor iframe { width: 100%; height: 100%; border: 0; display: block; }
 body.shell:not(.editing) .editor { visibility: hidden; pointer-events: none; }
+/* The editor's panels cast their shadows from here, under the frame: the frame is clipped to the panels themselves */
+.shadows { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+.shadows div { position: absolute; border-radius: 12px; box-shadow: var(--shadow); }
+body.shell:not(.editing) .shadows { display: none; }
+/* Until the editor says where its panels are, the app waits out of sight rather than show at the wrong place */
+body.shell.editing.unfitted .world { visibility: hidden; }
 /* The canvas fills the window under the editor */
 .board { position: fixed; inset: 0; z-index: 1; overflow: hidden; touch-action: none; cursor: default; background-color: var(--soft); background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); }
 .board.moving, .board.moving .shield { cursor: grab; }
@@ -211,7 +218,7 @@ async function mountEditor(useDefault) {
     editorId = editor.id;
     holder.replaceChildren();
     for (const name of Object.keys(editorState)) delete editorState[name];
-    panel = host.mount(holder, { document: editor.document, icons: editor.icons, keys: ['mod+shift+e'] }, T['editor.title']);
+    panel = host.mount(holder, { document: editor.document, icons: editor.icons, keys: ['mod+shift+e', ...Object.keys(TOOL_KEYS)] }, T['editor.title']);
     const timer = setTimeout(() => { if (!ready && !useDefault) void mountEditor(true); }, READY_MS);
     holder.onstateuiready = null;
     return new Promise((resolve) => {
@@ -359,6 +366,14 @@ async function sendRequest(text) {
     showFocus();
 }
 
+function showToggles() {
+    ed({
+        show: { ...shown },
+        showLook: Object.fromEntries(CONTEXT.map((name) => [name, shown[name] ? 'solid' : 'ghost'])),
+        showTone: Object.fromEntries(CONTEXT.map((name) => [name, shown[name] ? 'accent' : 'neutral']))
+    });
+}
+
 function showFocus() {
     const paths = magneticShell.focus;
     ed({ focus: paths.length === 0 ? '' : fill(T['chat.about'], { paths: paths.join(', ') }), noFocus: paths.length === 0 });
@@ -464,9 +479,10 @@ emitListeners.push((name, payload) => {
     }
     const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
     if (show) {
+        // A press turns a toggle over (a switch would say its new state)
         const key = show[1].toLowerCase();
-        shown[key] = Boolean(value);
-        ed({ show: { ...shown } });
+        shown[key] = typeof value === 'boolean' ? value : !shown[key];
+        showToggles();
     }
 });
 
@@ -570,7 +586,14 @@ function showTool() {
     board.classList.toggle('moving', moving());
     board.classList.toggle('selecting', !moving() && (tool === 'select' || tool === 'place'));
     shield.hidden = !moving() && tool === 'use' && !board.classList.contains('dragging');
-    ed({ tool: tool === 'place' ? 'select' : tool });
+    const shownTool = tool === 'place' ? 'select' : tool;
+    const look = (on) => (on ? 'solid' : 'ghost');
+    const tone = (on) => (on ? 'accent' : 'neutral');
+    ed({
+        tool: shownTool,
+        toolLook: { use: look(shownTool === 'use'), move: look(shownTool === 'move'), select: look(shownTool === 'select') },
+        toolTone: { use: tone(shownTool === 'use'), move: tone(shownTool === 'move'), select: tone(shownTool === 'select') }
+    });
 }
 
 const toolListeners = [];
@@ -642,14 +665,28 @@ function endDrag(event) {
 board.addEventListener('pointerup', endDrag);
 board.addEventListener('pointercancel', endDrag);
 
+/** The editor's keys, the same from the page and, through the runtime, from the editor's frame */
+const TOOL_KEYS = {
+    v: () => setTool('use'),
+    h: () => setTool('move'),
+    s: () => setTool('select'),
+    '=': () => zoomCentre(view.zoom * 1.25),
+    '-': () => zoomCentre(view.zoom / 1.25),
+    '0': () => zoomCentre(1),
+    '1': () => fit(true),
+    escape: () => { for (const listener of escapeListeners) if (listener()) return; if (chatOpen) showChat(false); }
+};
+/** What Escape lets go of first: inspect.js adds placing and the selection */
+const escapeListeners = [];
+
 function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
 
 document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') { event.preventDefault(); setEditing(!editing()); return; }
     if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
     if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
-    const keys = { v: () => setTool('use'), h: () => setTool('move'), s: () => setTool('select'), '+': () => zoomCentre(view.zoom * 1.25), '=': () => zoomCentre(view.zoom * 1.25), '-': () => zoomCentre(view.zoom / 1.25), '0': () => zoomCentre(1), '1': () => fit(true) };
-    const run = keys[event.key.toLowerCase()];
+    // Escape on the page is inspect.js's; from the editor's frame it comes as a key of the runtime
+    const run = event.key === 'Escape' ? undefined : TOOL_KEYS[event.key.toLowerCase()] || (event.key === '+' ? TOOL_KEYS['='] : undefined);
     if (run) { event.preventDefault(); run(); }
 });
 document.addEventListener('keyup', (event) => { if (event.key === ' ' && spaceHeld) { event.preventDefault(); spaceHeld = false; showTool(); } });
@@ -668,17 +705,27 @@ function roundedRect(rect) {
     return 'M' + (x + r) + ' ' + y + 'H' + (right - r) + 'A' + r + ' ' + r + ' 0 0 1 ' + right + ' ' + (y + r) + 'V' + (bottom - r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (right - r) + ' ' + bottom +
         'H' + (x + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + x + ' ' + (bottom - r) + 'V' + (y + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + 'Z';
 }
+const shadows = document.getElementById('shadows');
 function clipEditor(nodes) {
     panels.clear();
     const shapes = [];
+    const casts = [];
     for (const node of nodes || []) {
         const key = node.path.slice(node.path.lastIndexOf('.') + 1);
         if (node.rect.width < 1 || node.rect.height < 1) continue;
         panels.set(key, node.rect);
         shapes.push(roundedRect(node.rect));
+        const cast = document.createElement('div');
+        cast.style.left = node.rect.x + 'px';
+        cast.style.top = node.rect.y + 'px';
+        cast.style.width = node.rect.width + 'px';
+        cast.style.height = node.rect.height + 'px';
+        casts.push(cast);
     }
+    shadows.replaceChildren(...casts);
     holder.style.clipPath = shapes.length === 0 ? '' : "path('" + shapes.join(' ') + "')";
     if (!fitted && panels.size > 0) { fitted = true; fit(false); }
+    if (panels.size > 0) document.body.classList.remove('unfitted');
 }
 function watchStage() {
     const stage = pathOfKey('stage');
@@ -715,7 +762,11 @@ function setEditing(on) {
     }
 }
 
-addEventListener('stateui:key', (event) => { if (event.detail && event.detail.key === 'mod+shift+e') setEditing(!editing()); });
+addEventListener('stateui:key', (event) => {
+    const key = event.detail && event.detail.key;
+    if (key === 'mod+shift+e') setEditing(!editing());
+    else if (editing() && TOOL_KEYS[key]) TOOL_KEYS[key]();
+});
 
 // Editing the editor itself: each change shows in the editor around it, a moment after it is saved
 let reloadTimer = null;
@@ -740,6 +791,7 @@ const magneticShell = {
     },
     refit: () => render(false),
     editorChanged,
+    onEscape: (listener) => escapeListeners.push(listener),
     showInspector: (open) => ed({ inspectorHidden: !open }),
     editor: {
         set: ed,
@@ -779,6 +831,7 @@ function showAll() {
         noModels: MODELS.length < 2,
         show: { ...shown }
     });
+    showToggles();
     render(false);
     showTool();
     showMessages();
@@ -789,6 +842,7 @@ function showAll() {
     if (editing()) watchStage();
 }
 
+if (document.body.classList.contains('editing')) document.body.classList.add('unfitted');
 (function startCanvas() {
     let kept = null;
     try { kept = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch { /* storage may be blocked */ }

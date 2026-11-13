@@ -598,7 +598,8 @@ async function showDataLine(on) {
 
 function onEmit(name, payload) {
     if (typeof name !== 'string') return;
-    if (name === 'showData') { void showDataLine(Boolean(valueOf(payload))); return; }
+    // The page has already turned the toggle over (its listener runs first): show what it says now
+    if (name === 'showData') { void showDataLine(Boolean(editor.state.show && editor.state.show.data)); return; }
     const prop = /^prop(\d+)$/.exec(name);
     if (prop) {
         const field = fieldNames[Number(prop[1])];
@@ -632,11 +633,17 @@ function onEmit(name, payload) {
 }
 
 function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
+// Escape lets go of what is being placed, then of the selection, from the page or from the editor's frame
+function letGo() {
+    if (placing) { stopPlacing(T['inspect.cancelled']); return true; }
+    if (selected) { unselect(); return true; }
+    return false;
+}
+shell.onEscape(letGo);
 document.addEventListener('keydown', (event) => {
     if (!shell.editing() || event.ctrlKey || event.metaKey || typing(event.target)) return;
     if (event.key === 'Escape') {
-        if (placing) { event.preventDefault(); stopPlacing(T['inspect.cancelled']); }
-        else if (selected) { event.preventDefault(); unselect(); }
+        if (letGo()) event.preventDefault();
         return;
     }
     if (!selected) return;
