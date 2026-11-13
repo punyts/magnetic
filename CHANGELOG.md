@@ -2,6 +2,8 @@
 
 ## 0.1.0 (unreleased)
 
+- **`npm run start:live`** starts Magnetic with Node reading `../.env` (the workspace root's, which git ignores) when it exists, so the API key for the real agent can live in a file instead of the shell. The workspace's `npm run magnetic:live` uses it with the development users.
+- **Take one thing out of the chat.** Each component added to the chat is now a chip on the chat bar ("About:" and then the chips), with its own × to take it out; Clear still takes them all. Built on the new StateUI `chipList`. Test: `editor.browser.test.ts` (two added, one taken out, the other kept).
 - **The chat bar is even again.**
   - **One height.** The chat button, the request, the model menu and Send are all 36 px, 6 px apart, with the same space at both ends. Before, they were 32 and 36 px, aligned at the bottom, and 3 px apart.
   - **The request.** Its line sits in the middle of its box, it has 18 px corners so its focus ring is round like the bar, and its text starts 14 px in.

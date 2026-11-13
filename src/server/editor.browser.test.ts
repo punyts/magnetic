@@ -172,9 +172,28 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await editor.getByRole('button', { name: 'Add to chat' }).click();
 
         // Assert
-        await editor.getByText('About: text · b').waitFor({ timeout: 5000 });
+        await editor.getByRole('button', { name: 'Remove text · b' }).waitFor({ timeout: 5000 });
         expect(await page.evaluate('window.magneticShell.focus.slice()')).toEqual([`${HOME}.children.list.children.b`]);
         expect((await app()).revision).toBe(before);
+    }, 60_000);
+
+    it('should take one thing out of the chat with its chip, and keep the others', async () => {
+        // Arrange: two nodes added to the chat, each a chip on the chat bar
+        for (const [key, label] of [['a', 'text · a'], ['b', 'text · b']] as const) {
+            const point = await pointOf(page, `${HOME}.children.list.children.${key}`, 0.1);
+            await page.mouse.click(point.x, point.y);
+            await expect.poll(() => selectedLabel(page)).toBe(label);
+            await editor.getByRole('button', { name: 'Add to chat' }).click();
+        }
+        await editor.getByRole('button', { name: 'Remove text · b' }).waitFor({ timeout: 5000 });
+
+        // Act
+        await editor.getByRole('button', { name: 'Remove text · a' }).click();
+
+        // Assert
+        await editor.getByRole('button', { name: 'Remove text · a' }).waitFor({ state: 'detached', timeout: 5000 });
+        expect(await page.evaluate('window.magneticShell.focus.slice()')).toEqual([`${HOME}.children.list.children.b`]);
+        await editor.getByRole('button', { name: 'Remove text · b' }).waitFor({ timeout: 5000 });
     }, 60_000);
 
     it('should show a layout, its cells and its gaps while the pointer is over the layout, not over a child', async () => {

@@ -52,7 +52,7 @@ const HIDDEN_AT_FIRST = [
 /** The models of the editor's data */
 const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     'magnetic-editor': [
-        ...['appName', 'zoom', 'status', 'focus', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
+        ...['appName', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'size', type: 'string', default: 'desktop' },
         { op: 'set', field: 'tool', type: 'string', default: 'use' },
         { op: 'set', field: 'shareRight', type: 'string', default: 'use' },
@@ -60,6 +60,8 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'language', type: 'string', default: 'en' },
         { op: 'set', field: 'crumb', type: 'string', default: '' },
         { op: 'set', field: 'crumbs', type: 'object', default: {} },
+        // What the next request is about: a chip per thing, keyed by an id the page gives it
+        { op: 'set', field: 'focusItems', type: 'object', default: {} },
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
@@ -263,7 +265,12 @@ function chatBar(t: Texts): Record<string, unknown> {
         row(children, { padding: 'md', theme: { panel: { padding: '0px 14px' } }, '<-hidden': hidden });
     return float({ center: 'x', bottom: '12px', width: fit('640px') }, {
         status: line({ text: bound(`${E}.status`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noStatus`),
-        focus: line({ about: bound(`${E}.focus`, { textRole: 'caption', placement: { grow: 1 } }), clear: button(t['chat.clear'], 'focusClear') }, `${E}.noFocus`),
+        // Each thing the next request is about is a chip with its own ×; Clear takes them all
+        focus: line({
+            about: { component: 'text', textRole: 'caption', _text: t['chat.about'] },
+            chips: { component: 'chipList', size: 'sm', placement: { grow: 1 }, _label: t['chat.about'], '<-items': `${E}.focusItems`, on: { remove: emit('focusRemove') } },
+            clear: button(t['chat.clear'], 'focusClear')
+        }, `${E}.noFocus`),
         dataLine: line({ text: bound(`${E}.dataLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noDataLine`),
         bar: {
             component: 'panel',

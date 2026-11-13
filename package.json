@@ -22,7 +22,8 @@
         "build": "tsc -p tsconfig.build.json",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "test": "vitest run",
-        "start": "node dist/cli.js"
+        "start": "node dist/cli.js",
+        "start:live": "node --env-file-if-exists=../.env dist/cli.js"
     },
     "keywords": [
         "punyts",

@@ -379,12 +379,30 @@ function showToggles() {
     });
 }
 
-/** What the next request is about, each by the name it was given (a node as its component and key), else its path */
+/**
+ * What the next request is about, as removable chips: each by the name it was given (a node as its component and key),
+ * else its path. A path has dots, so each chip is keyed by a short id of its own, kept while the path is in the list
+ */
 const focusLabels = new Map();
+const focusIds = new Map();
+let focusCount = 0;
 function showFocus() {
     const paths = magneticShell.focus;
-    const names = paths.map((path) => focusLabels.get(path) || path);
-    ed({ focus: paths.length === 0 ? '' : fill(T['chat.about'], { paths: names.join(', ') }), noFocus: paths.length === 0 });
+    for (const path of [...focusIds.keys()]) if (!paths.includes(path)) focusIds.delete(path);
+    const items = {};
+    for (const path of paths) {
+        if (!focusIds.has(path)) focusIds.set(path, 'f' + (++focusCount));
+        items[focusIds.get(path)] = { text: focusLabels.get(path) || path };
+    }
+    ed({ focusItems: items, noFocus: paths.length === 0 });
+}
+
+/** Takes one thing out of what the next request is about, by the id of its chip */
+function removeFocus(id) {
+    const path = [...focusIds].find(([, chip]) => chip === id)?.[0];
+    const index = path === undefined ? -1 : magneticShell.focus.indexOf(path);
+    if (index >= 0) magneticShell.focus.splice(index, 1);
+    showFocus();
 }
 
 // Share: the links of this app, each with Copy and Revoke
@@ -483,6 +501,7 @@ emitListeners.push((name, payload) => {
         case 'stop': void post('/stop', {}); return;
         case 'idea1': case 'idea2': case 'idea3': void sendRequest(T['shell.' + name]); return;
         case 'focusClear': magneticShell.focus.length = 0; showFocus(); return;
+        case 'focusRemove': if (typeof value === 'string') removeFocus(value); return;
         case 'tab': if (typeof value === 'string') editorState.tab = value; return;
     }
     const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
