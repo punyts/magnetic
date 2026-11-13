@@ -2,6 +2,13 @@
 
 ## 0.1.0 (unreleased)
 
+- **The chat bar is even again.**
+  - **One height.** The chat button, the request, the model menu and Send are all 36 px, 6 px apart, with the same space at both ends. Before, they were 32 and 36 px, aligned at the bottom, and 3 px apart.
+  - **The request.** Its line sits in the middle of its box, it has 18 px corners so its focus ring is round like the bar, and its text starts 14 px in.
+  - **The corners and lines.** The bar keeps 25 px corners when the lines above it show, instead of rounding into a lozenge as a pill would. The "About" and status lines sit 14 px in, as the old ones did.
+  - A model name too long for its menu now ends in "…".
+  - Test: `editor.browser.test.ts` now checks the chat bar's spaces and heights with the top corners'.
+- **The top corners are spaced evenly.** Their parts are 6 px apart, as wide as the corners' own padding (it was 3 px, so the logo almost touched the name). Open is a soft button, so its box shows like the frame size menu's, and the menu is as tall as Open now that a field has no space under it for an empty message. Test: `editor.browser.test.ts` (one gap, the same padding at both ends, one height).
 - **The editor draws the old editor's icons.** The chat, Send, Use, Move, Select, zoom out, zoom in, fit and appearance buttons show the glyphs of the hand-written editor (41fa580) again, from the editor app's own icon set (`EDITOR_ICONS`, given to `ui_app_create` as `icons`) instead of the nearest Tabler icons. The old appearance circle is written as a path. A person's untouched editor is made again, since the definition changed. Tests: `editor.browser.test.ts` (each button draws its old paths), `inspectRoutes.test.ts` (the served document carries the icons, and the icons map leaves them out).
 - **The editor is held to the old design by a test.** `editor.browser.test.ts` measures the name and Share corners, the rail, the zoom and the chat bar at a wide window, and compares them with what the old editor (41fa580) measured. Heights may differ by 4% or 8 px, widths by 15%; the chat bar must be 640 px, and the corners sized by what they hold. It found the rail's toggles had lost the 4 px gap between them; they have it again.
 - **`npm run ui:build` and `npm run magnetic:dev`** in the workspace: the UI layers built in order in about 20 s, then Magnetic started.

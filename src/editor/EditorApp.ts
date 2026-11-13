@@ -164,6 +164,9 @@ const spacer = (): Record<string, unknown> => ({ component: 'panel', padding: 'n
 /** Magnetic's logo, as the frame (which has no network) can show it */
 const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64')}`;
 
+/** The row of a top corner: the gap between its parts as wide as the corner's own padding, so the spaces are even */
+const CORNER_ROW = { layout: { type: 'row', gap: 'md', align: 'center' } };
+
 /** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size and Open; as wide as they are, up to half the window */
 function nameCorner(t: Texts): Record<string, unknown> {
     return float({ x: '12px', y: '12px', maxWidth: 'max(calc(50% - 32px), calc(100% - 120px))' }, {
@@ -181,8 +184,9 @@ function nameCorner(t: Texts): Record<string, unknown> {
                 '<-value': `${E}.size`,
                 on: { change: emit('size') }
             },
-            open: button(t['shell.open'], 'open', { tone: 'accent' })
-        })
+            // Soft, so its box shows: every part of the bar is then a box with the same space either side
+            open: button(t['shell.open'], 'open', { tone: 'accent', variant: 'soft' })
+        }, CORNER_ROW)
     });
 }
 
@@ -192,7 +196,7 @@ function shareCorner(t: Texts): Record<string, unknown> {
         bar: row({
             prefs: icon(t['prefs.open'], 'prefs', 'prefs'),
             share: { component: 'button', size: 'sm', _title: t['shell.share'], on: { press: emit('share') } }
-        })
+        }, CORNER_ROW)
     });
 }
 
@@ -254,21 +258,30 @@ function zoom(t: Texts): Record<string, unknown> {
 
 /** The chat bar at the bottom: what the next request is about, the request, the model and Send */
 function chatBar(t: Texts): Record<string, unknown> {
+    // The lines above the bar sit in from its rounded ends, as the old ones did (0.9rem)
+    const line = (children: Record<string, unknown>, hidden: string): Record<string, unknown> =>
+        row(children, { padding: 'md', theme: { panel: { padding: '0px 14px' } }, '<-hidden': hidden });
     return float({ center: 'x', bottom: '12px', width: fit('640px') }, {
-        status: bound(`${E}.status`, { textRole: 'caption', '<-hidden': `${E}.noStatus` }),
-        focus: row({ about: bound(`${E}.focus`, { textRole: 'caption', placement: { grow: 1 } }), clear: button(t['chat.clear'], 'focusClear') }, { '<-hidden': `${E}.noFocus` }),
-        dataLine: bound(`${E}.dataLine`, { textRole: 'caption', '<-hidden': `${E}.noDataLine` }),
+        status: line({ text: bound(`${E}.status`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noStatus`),
+        focus: line({ about: bound(`${E}.focus`, { textRole: 'caption', placement: { grow: 1 } }), clear: button(t['chat.clear'], 'focusClear') }, `${E}.noFocus`),
+        dataLine: line({ text: bound(`${E}.dataLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noDataLine`),
         bar: {
             component: 'panel',
             padding: 'none',
-            // One line however narrow, as the old chat bar was: the request narrows, the buttons keep their size
-            layout: { type: 'row', gap: 'sm', align: 'end', wrap: false },
+            // One line however narrow, as the old chat bar was: the request narrows, the buttons keep their size. Every
+            // part is one height, so the row lines them up both at one line and, at the bottom, as the request grows
+            layout: { type: 'row', gap: 'md', align: 'end', wrap: false },
+            // The small controls of the bar are as tall as the request (36px), as the old bar's were
+            theme: { size: { control: { sm: '{size.control.md}' } } },
             children: {
                 chat: icon(t['shell.showChat'], 'chatToggle', 'chat'),
                 input: {
                     component: 'textareaField',
                     variant: 'ghost',
                     placement: { grow: 1 },
+                    // Round at one line, like the bar around it, so its focus ring follows the bar's shape; the text sits in
+                    // from the round ends, as the lines above it do
+                    theme: { control: { radius: '18px', padding: { inline: '14px' } } },
                     _label: t['shell.request'],
                     _placeholder: t['shell.placeholder'],
                     titlePosition: 'hidden',
@@ -278,10 +291,12 @@ function chatBar(t: Texts): Record<string, unknown> {
                     on: { send: [emit('chat.send'), { command: 'clear' }] }
                 },
                 model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
-                send: { component: 'button', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', on: { press: { command: 'send', target: '^bar.children.input' } } }
+                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', on: { press: { command: 'send', target: '^bar.children.input' } } }
             }
         }
-    }, { corners: 'pill' });
+        // A round end at one line (half its 50px height), and the same corners when the lines above it show, as the
+        // old bar's 1.6rem: a pill would round a taller bar into a lozenge
+    }, { theme: { panel: { radius: '25px' } } });
 }
 
 /** The chat above the bar: the conversation, and the agent's activity while it works */
