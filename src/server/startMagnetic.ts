@@ -16,6 +16,9 @@ import { AGENT_MODELS, modelChoice } from '../agent/models.js';
 import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME_APP, HomeApps } from '../home/HomeApp.js';
+import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
+import type { Preferences } from '../prefs/Preferences.js';
+import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { bindingsOf, logicOf, nodeAt, ownSettings, treeOf } from '../inspector/editInfo.js';
 import { COMPONENT_CATEGORIES, INSPECTOR_PATHS, InspectorApp, SYSTEM_USER_ID } from '../inspector/InspectorApp.js';
@@ -28,7 +31,7 @@ import type { OidcProvider } from '../auth/OidcSignIn.js';
 import { httpOnlyCookie, readCookie, SESSION_COOKIE, sessionCookie, SIGN_IN_COOKIE } from '../http/cookies.js';
 import { LOGO_SVG } from '../http/logo.js';
 import { linkPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
-import type { SharedApp } from '../http/pages.js';
+import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
@@ -246,7 +249,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const secure = options.secureCookies ?? publicOrigin?.startsWith('https://') ?? false;
     const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
     const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
-    const signInPageOf = (next: string, error?: string): string => signInPage({ devUsers, providers: providerButtons, next, ...(error !== undefined && { error }) });
+    const signInPageOf = (request: IncomingMessage, next: string, error?: string): string =>
+        signInPage({ devUsers, providers: providerButtons, next, look: { language: languageOf(request.headers['accept-language']), mode: 'system' }, ...(error !== undefined && { error }) });
     const workspaces = new Workspaces(
         {
             open: async (userId) => {
@@ -282,6 +286,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     };
     /** Each person's "Your apps", made with the tools the agent uses */
     const homes = new HomeApps(toolsOf, join(options.dataDir, 'users'));
+    const preferences = new PreferenceStore(join(options.dataDir, 'users'));
+    /** How Magnetic looks and speaks to a signed-in person */
+    const lookOf = (request: IncomingMessage, userId: string): Promise<Preferences> => preferences.read(userId, request.headers['accept-language']);
     /** The inspector the editor mounts beside the app, made in the system workspace */
     const inspector = new InspectorApp(
         async () => {
@@ -448,21 +455,23 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** `GET /`: the person's "Your apps", with the lists written into its data first */
     async function homeRoute(request: IncomingMessage, response: ServerResponse, user: User): Promise<void> {
         const services = await workspaces.get(user.id);
-        const homeId = await homes.id(services, user.id);
+        const look = await lookOf(request, user.id);
+        const t = textsOf(look.language);
+        const homeId = await homes.id(services, user.id, look.language);
         const all = await services.instanceViews.list();
-        const changed = (at: Date): string => `Changed ${at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+        const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
         const apps: HomeCard[] = [...all]
             .filter((app) => app.id !== homeId)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
             .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt) }));
-        const shared: HomeCard[] = (await sharedApps(user.id)).map((app) => ({ id: app.appId, name: app.name, note: `${app.ownerName} · ${app.right === 'use' ? 'use' : 'view only'}` }));
-        await homes.show(services, user.id, { apps, shared });
+        const shared: HomeCard[] = (await sharedApps(user.id)).map((app) => ({ id: app.appId, name: app.name, note: fill(t[app.right === 'use' ? 'home.sharedUse' : 'home.sharedView'], { owner: app.ownerName }) }));
+        await homes.show(services, user.id, { apps, shared }, look);
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHostPage(
             request,
             response,
-            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home) })
+            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home), look })
         );
     }
 
@@ -474,19 +483,21 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             else throw new HttpError(401, 'Sign in first', 'unauthorized');
             return;
         }
+        const look: PageLook = await lookOf(request, who.user.id);
+        const t = textsOf(look.language);
         const grant = await grants.byToken(token);
         if (grant === undefined) {
-            sendPage(response, linkPage({ title: 'Link not found', message: 'This link does not work. Ask the person who sent it for a new one.' }), 404);
+            sendPage(response, linkPage({ look, title: t['link.notFoundTitle'], message: t['link.notFound'] }), 404);
             return;
         }
         if (grant.revokedAt !== undefined) {
-            sendPage(response, linkPage({ title: grant.appName, message: 'This link was revoked by the person who shared it.' }), 410);
+            sendPage(response, linkPage({ look, title: grant.appName, message: t['link.revoked'] }), 410);
             return;
         }
         const owner = await workspaces.get(grant.ownerId);
         const app = await owner.instanceViews.find(grant.appId);
         if (app === undefined) {
-            sendPage(response, linkPage({ title: grant.appName, message: 'This app was deleted.' }), 404);
+            sendPage(response, linkPage({ look, title: grant.appName, message: t['link.deleted'] }), 404);
             return;
         }
         if (grant.ownerId === who.user.id) {
@@ -497,7 +508,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             await grants.join(grant.id, who.user.id);
             if (grant.right === 'remix') {
                 const sharer = await accounts.user(grant.ownerId);
-                sendPage(response, linkPage({ title: `Remix ${app.name}`, message: `${sharer?.name ?? 'Someone'} shared a copy of this app with you.`, remix: { token } }));
+                sendPage(response, linkPage({ look, title: fill(t['link.remixTitle'], { name: app.name }), message: fill(t['link.sharedCopy'], { name: sharer?.name ?? t['link.someone'] }), remix: { token } }));
             } else redirect(response, `/apps/${encodeURIComponent(grant.appId)}`);
             return;
         }
@@ -505,7 +516,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const mine = await workspaces.get(who.user.id);
         const copied = await copyAppParts(owner.parts, mine.parts, grant.appId);
         if (copied.kind !== 'copied') {
-            sendPage(response, linkPage({ title: `Remix ${app.name}`, message: copied.kind === 'failed' ? `The copy could not be made: ${copied.reason}` : 'This app was deleted.', remix: { token } }), copied.kind === 'failed' ? 500 : 404);
+            sendPage(response, linkPage({ look, title: fill(t['link.remixTitle'], { name: app.name }), message: copied.kind === 'failed' ? fill(t['link.copyFailed'], { reason: copied.reason }) : t['link.deleted'], remix: { token } }), copied.kind === 'failed' ? 500 : 404);
             return;
         }
         options.report.info('App remixed', { from: grant.appId, to: copied.app.id, parts: copied.parts.length });
@@ -531,7 +542,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (method === 'GET' && path === '/signin') {
             const next = safeNext(url.searchParams.get('next'));
             if ((await signedIn(request)) !== undefined) redirect(response, next);
-            else sendPage(response, signInPageOf(next));
+            else sendPage(response, signInPageOf(request, next));
             return true;
         }
         if (method === 'POST' && path === '/signin/dev') {
@@ -552,7 +563,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     started = await signIn.start(name, url.searchParams.get('next') ?? '/');
                 } catch (error) {
                     options.report.info('Sign-in could not start', { provider: name, error: error instanceof Error ? error.message : String(error) });
-                    sendPage(response, signInPageOf(safeNext(url.searchParams.get('next')), 'The sign-in provider could not be reached. Please try again in a moment.'), 502);
+                    sendPage(response, signInPageOf(request, safeNext(url.searchParams.get('next')), 'The sign-in provider could not be reached. Please try again in a moment.'), 502);
                     return true;
                 }
                 redirect(response, started.url, pendingCookie(started.key, 10 * 60));
@@ -565,7 +576,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             } catch (error) {
                 if (!(error instanceof SignInError)) throw error;
                 options.report.info('Sign-in did not finish', { provider: name, error: error.message });
-                sendPage(response, signInPageOf('/', error.message), 400, pendingCookie('', 0));
+                sendPage(response, signInPageOf(request, '/', error.message), 400, pendingCookie('', 0));
             }
             return true;
         }
@@ -608,8 +619,27 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (method === 'GET' && path === '/assets/inspector.json') {
-            if ((await signedIn(request)) === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
-            sendJson(response, 200, { ...(await inspector.mountable()), paths: INSPECTOR_PATHS });
+            const who = await signedIn(request);
+            if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const look = await lookOf(request, who.user.id);
+            sendJson(response, 200, { ...(await inspector.mountable(look.language)), paths: INSPECTOR_PATHS });
+            return true;
+        }
+        if (method === 'POST' && path === '/prefs') {
+            const who = await signedIn(request);
+            if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const body = await readJsonBody(request, MAX_FORM_BYTES);
+            const record = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+            const change: { mode?: Preferences['mode']; language?: Preferences['language'] } = {};
+            if (record['mode'] !== undefined) {
+                if (!isMode(record['mode'])) throw new HttpError(400, 'Unknown mode', 'invalid_request');
+                change.mode = record['mode'];
+            }
+            if (record['language'] !== undefined) {
+                if (!isLanguage(record['language'])) throw new HttpError(400, 'Unknown language', 'invalid_request');
+                change.language = record['language'];
+            }
+            sendJson(response, 200, await preferences.write(who.user.id, request.headers['accept-language'], change));
             return true;
         }
         if (method === 'POST' && path === '/new') {
@@ -648,8 +678,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     /** The page of an app, with the editor hidden (`editing` false) or shown */
-    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean): string {
+    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean, look: PageLook): string {
         return shellPage({
+            look,
             appId: app.id,
             name: app.name,
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
@@ -672,7 +703,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendHostPage(request, response, appShellPage(request, services, app, false));
+        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id)));
         return true;
     }
 
@@ -695,7 +726,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendHostPage(request, response, appShellPage(request, services, app, true));
+            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id)));
             return;
         }
         if (what === '/events' && method === 'GET') {

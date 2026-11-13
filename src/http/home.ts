@@ -1,5 +1,8 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
 import { FAVICON_LINK } from './logo.js';
+import { htmlOpen, schemeCss } from './pages.js';
+import type { PageLook } from './pages.js';
+import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
 export interface HomePageOptions {
     /** The id of the person's "Your apps" app */
@@ -10,6 +13,7 @@ export interface HomePageOptions {
     readonly chunk3d?: string;
     /** The sync namespace of the app's instance */
     readonly namespace: string;
+    readonly look: PageLook;
 }
 
 /**
@@ -19,17 +23,18 @@ export interface HomePageOptions {
 export function homePage(options: HomePageOptions): string {
     return [
         '<!doctype html>',
-        '<html lang="en">',
+        htmlOpen(options.look),
         '<head>',
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        '<title>Your apps · Magnetic</title>',
+        `<title>${escapeHtml(textsOf(options.look.language)['home.pageTitle'])}</title>`,
         FAVICON_LINK,
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/home.css">',
         '</head>',
-        `<body class="view home" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
+        `<body class="view home" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}" data-status="loading">`,
         '<p class="notice" id="notice" role="alert" hidden></p>',
+        textBlock(options.look.language),
         '<script type="module" src="/assets/home.js"></script>',
         '<script type="module" src="/assets/host.js"></script>',
         '</body>',
@@ -39,16 +44,18 @@ export function homePage(options: HomePageOptions): string {
 }
 
 /** `/assets/home.css`, after the host's `page.css` */
-export const HOME_CSS = `html, body.home { height: 100%; margin: 0; overflow: hidden; }
+export const HOME_CSS = `${schemeCss('--paper: #ffffff;', '--paper: #15171c;')}
+html, body.home { height: 100%; margin: 0; overflow: hidden; background: var(--paper); }
 .notice { position: fixed; z-index: 2; left: 50%; top: 1rem; transform: translateX(-50%); margin: 0; padding: 0.5rem 0.9rem; border-radius: 0.75rem; background: #c0392b; color: #fff; font: 0.9rem system-ui, sans-serif; box-shadow: 0 8px 24px rgba(20, 24, 40, 0.2); }
 .notice[hidden] { display: none; }
 `;
 
 /**
  * `/assets/home.js`: what the home app emits, raised on the page by the host script as `stateui:emit`. `open` goes to
- * an app, `create` makes one (`POST /new`, answered with its id) and opens its editor, `signout` signs out
+ * an app, `create` makes one (`POST /new`, answered with its id) and opens its editor, `signout` signs out, and `mode`
+ * and `language` keep the person's choice (`POST /prefs`) and load the page again in it
  */
-export const HOME_JS = String.raw`const notice = document.getElementById('notice');
+export const HOME_JS = String.raw`${SCRIPT_TEXTS}const notice = document.getElementById('notice');
 const APP_ID = /^[A-Za-z0-9-]{1,64}$/;
 let busy = false;
 
@@ -60,21 +67,31 @@ function say(message) {
 
 async function create(name) {
     if (busy) return;
-    if (typeof name !== 'string' || name.trim() === '') { say('Give the app a name first.'); return; }
+    if (typeof name !== 'string' || name.trim() === '') { say(T['home.nameFirst']); return; }
     busy = true;
     try {
         const response = await fetch('/new', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ name }).toString() });
         const answer = await response.json().catch(() => ({}));
         if (response.ok && typeof answer.id === 'string' && APP_ID.test(answer.id)) location.assign('/edit/' + encodeURIComponent(answer.id));
-        else say(answer.message || 'The app could not be made.');
-    } catch { say('The app could not be made. Check the connection.'); }
+        else say(answer.message || T['home.notMade']);
+    } catch { say(T['home.notMadeOffline']); }
     finally { busy = false; }
+}
+
+async function choose(change) {
+    if (document.documentElement.dataset.mode === change.mode || document.documentElement.lang === change.language) return;
+    try {
+        const response = await fetch('/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
+        if (!response.ok) throw new Error('refused');
+        location.reload();
+    } catch { say(T['prefs.failed']); }
 }
 
 addEventListener('stateui:emit', (event) => {
     const { name, payload } = event.detail || {};
     if (name === 'open' && typeof payload === 'string' && APP_ID.test(payload)) location.assign('/apps/' + encodeURIComponent(payload));
     else if (name === 'create') void create(payload);
+    else if ((name === 'mode' || name === 'language') && typeof payload === 'string') void choose({ [name]: payload });
     else if (name === 'signout') void fetch('/signout', { method: 'POST' }).finally(() => location.assign('/signin'));
 });
 `;

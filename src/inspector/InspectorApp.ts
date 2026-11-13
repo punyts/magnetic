@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
+import { textsOf } from '../http/text.js';
+import type { Texts } from '../http/text.js';
+import type { Language } from '../prefs/Preferences.js';
 import { run } from '../stateui/run.js';
 import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
 
@@ -41,7 +44,8 @@ const TABS = '$.screens.home.children.tabs.children';
  * breadcrumb's items and whole nodes into the `fields` and `detail` panels, and acts on every `emit`
  * (`crumb`, `remove`, `search`, `category`, `place`, `path`, `ask`, and `prop.<name>` from the generated fields)
  */
-const INSPECTOR_SCREEN = {
+function inspectorScreen(t: Texts): Record<string, unknown> {
+    return {
     component: 'panel',
     padding: 'none',
     children: {
@@ -51,17 +55,17 @@ const INSPECTOR_SCREEN = {
             children: {
                 properties: {
                     component: 'panel',
-                    placement: { _tab: 'Properties' },
+                    placement: { _tab: t['inspector.properties'] },
                     children: {
                         crumbs: { component: 'breadcrumb', items: {}, current: '', on: { select: { command: 'emit', target: 'crumb' } } },
-                        heading: { component: 'text', textRole: 'label', _text: 'Press S, then click a part of the app to see its properties.' },
+                        heading: { component: 'text', textRole: 'label', _text: t['inspect.pressS'] },
                         fields: { component: 'panel', padding: 'none', children: {} },
-                        remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', hidden: true, _title: 'Delete', on: { press: { command: 'emit', target: 'remove' } } }
+                        remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', hidden: true, _title: t['inspector.delete'], on: { press: { command: 'emit', target: 'remove' } } }
                     }
                 },
                 add: {
                     component: 'panel',
-                    placement: { _tab: 'Add' },
+                    placement: { _tab: t['inspector.add'] },
                     layout: { type: 'column', gap: 'sm' },
                     children: {
                         find: {
@@ -69,24 +73,24 @@ const INSPECTOR_SCREEN = {
                             padding: 'none',
                             layout: { type: 'row', gap: 'sm', align: 'end' },
                             children: {
-                                search: { component: 'searchBox', size: 'sm', placement: { grow: 1 }, _label: 'Find a component', _placeholder: 'Find a component', value: '', on: { change: { command: 'emit', target: 'search' } } },
+                                search: { component: 'searchBox', size: 'sm', placement: { grow: 1 }, _label: t['inspector.find'], _placeholder: t['inspector.find'], value: '', on: { change: { command: 'emit', target: 'search' } } },
                                 category: {
                                     component: 'selectField',
                                     size: 'sm',
-                                    _label: 'Category',
-                                    options: Object.fromEntries([['all', { _label: 'All' }], ...COMPONENT_CATEGORIES.map((name) => [name, { _label: name[0]?.toUpperCase() + name.slice(1) }])]),
+                                    _label: t['inspector.category'],
+                                    options: Object.fromEntries([['all', { _label: t['inspector.all'] }], ...COMPONENT_CATEGORIES.map((name) => [name, { _label: t[`inspector.cat.${name}`] }])]),
                                     value: 'all',
                                     on: { change: { command: 'emit', target: 'category' } }
                                 }
                             }
                         },
-                        hint: { component: 'text', textRole: 'caption', _text: 'Pick a component, then click where it goes in the app.' },
+                        hint: { component: 'text', textRole: 'caption', _text: t['inspector.pick'] },
                         cards: {
                             component: 'list',
                             '<-items': '$.data.components',
                             rowHeight: 'xl',
                             placement: { height: 'calc(100vh - 190px)' },
-                            _empty: 'No component matches.',
+                            _empty: t['inspector.noMatch'],
                             row: {
                                 component: 'card',
                                 elevation: 'flat',
@@ -101,7 +105,7 @@ const INSPECTOR_SCREEN = {
                 },
                 state: {
                     component: 'panel',
-                    placement: { _tab: 'State' },
+                    placement: { _tab: t['inspector.state'] },
                     layout: { type: 'column', gap: 'sm' },
                     children: {
                         paths: {
@@ -113,14 +117,15 @@ const INSPECTOR_SCREEN = {
                             on: { select: { command: 'emit', target: 'path' } }
                         },
                         detail: { component: 'panel', padding: 'none', children: {} },
-                        feedTitle: { component: 'text', textRole: 'label', _text: 'Changes' },
-                        feed: { component: 'list', '<-items': '$.data.feed', density: 'compact', placement: { height: '200px' }, _empty: 'Use the app to see its state change here.', row: { component: 'text', truncate: 1, '<-_text': '$row.line' } }
+                        feedTitle: { component: 'text', textRole: 'label', _text: t['inspector.changes'] },
+                        feed: { component: 'list', '<-items': '$.data.feed', density: 'compact', placement: { height: '200px' }, _empty: t['inspector.noChanges'], row: { component: 'text', truncate: 1, '<-_text': '$row.line' } }
                     }
                 }
             }
         }
     }
-};
+    };
+}
 
 /** Where the page writes in the inspector */
 export const INSPECTOR_PATHS = {
@@ -132,8 +137,10 @@ export const INSPECTOR_PATHS = {
     detail: `${TABS}.state.children.detail`
 } as const;
 
-const DEFINITION = {
-    title: 'Inspector',
+function definition(language: Language): Record<string, unknown> {
+    const t = textsOf(language);
+    return {
+    title: t['shell.inspector'],
     data: Object.fromEntries(
         [
             ['components', 'inspector-component'],
@@ -141,11 +148,19 @@ const DEFINITION = {
             ['feed', 'inspector-change']
         ].map(([name, model]) => [name, { model, scope: 'persona' }])
     ),
-    home: INSPECTOR_SCREEN
-};
+    home: inspectorScreen(t)
+    };
+}
 
 /** Changes when the definition does, so a system workspace made with an older one gets the new one */
-const STAMP = createHash('sha256').update(JSON.stringify({ MODELS, DEFINITION })).digest('hex').slice(0, 16);
+function stampOf(language: Language): string {
+    return createHash('sha256').update(JSON.stringify({ MODELS, definition: definition(language) })).digest('hex').slice(0, 16);
+}
+
+/** The inspector's app in a language: `inspector` in English, `inspector-de` and so on */
+function appName(language: Language): string {
+    return language === 'en' ? INSPECTOR_APP : `${INSPECTOR_APP}-${language}`;
+}
 
 /** What a page needs to mount the inspector with `stateuiHost.mount`: the assembled document and its icons */
 export interface MountableApp {
@@ -155,11 +170,12 @@ export interface MountableApp {
 
 /**
  * The inspector app the editor page mounts beside the app: a StateUI app made with the tools the agent uses, in
- * Magnetic's system workspace, and made again when Magnetic ships a new definition. The page drives it alone, so only
- * its assembled document is served (`/assets/inspector.json`); nothing of it is synced
+ * Magnetic's system workspace, one per language, and made again when Magnetic ships a new definition. The page drives
+ * it alone, so only its assembled document is served (`/assets/inspector.json`, in the person's language); nothing of
+ * it is synced
  */
 export class InspectorApp {
-    private built: Promise<MountableApp> | undefined;
+    private readonly built = new Map<Language, Promise<MountableApp>>();
 
     constructor(
         /** The system workspace, held until `release` */
@@ -169,30 +185,34 @@ export class InspectorApp {
         private readonly stampDir: string
     ) {}
 
-    /** The assembled inspector, made once per run of the server */
-    mountable(): Promise<MountableApp> {
-        if (this.built === undefined) {
-            this.built = this.build();
-            this.built.catch(() => (this.built = undefined));
+    /** The assembled inspector in a language, made once per run of the server */
+    mountable(language: Language = 'en'): Promise<MountableApp> {
+        let built = this.built.get(language);
+        if (built === undefined) {
+            built = this.build(language);
+            built.catch(() => this.built.delete(language));
+            this.built.set(language, built);
         }
-        return this.built;
+        return built;
     }
 
-    private async build(): Promise<MountableApp> {
+    private async build(language: Language): Promise<MountableApp> {
+        const name = appName(language);
+        const STAMP = stampOf(language);
         const { services, release } = await this.workspace();
         try {
             const tools = this.toolsOf(services);
-            const stampFile = join(this.stampDir, 'inspector.json');
+            const stampFile = join(this.stampDir, `${name}.json`);
             const stamp = (await readJson<{ stamp?: string }>(stampFile))?.stamp;
-            const listed = (await services.instanceViews.list()).find((candidate) => candidate.name === INSPECTOR_APP);
+            const listed = (await services.instanceViews.list()).find((candidate) => candidate.name === name);
             let app = listed === undefined ? undefined : await services.instanceViews.find(listed.id);
             if (app === undefined || stamp !== STAMP) {
-                if (app !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: INSPECTOR_APP, expectedRevision: app.revision });
+                if (app !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name, expectedRevision: app.revision });
                 const models = JSON.stringify(await run(tools, 'ui_list', { kind: 'models' }).catch(() => ({})));
                 for (const [model, operations] of Object.entries(MODELS)) {
                     if (!models.includes(`"${model}"`)) await run(tools, 'ui_model_write', { model, operations });
                 }
-                const created = await run(tools, 'ui_app_create', { name: INSPECTOR_APP, ...DEFINITION });
+                const created = await run(tools, 'ui_app_create', { name, ...definition(language) });
                 app = typeof created['id'] === 'string' ? await services.instanceViews.find(created['id']) : undefined;
                 if (app === undefined) throw new Error('ui_app_create gave no app');
                 await writeJsonAtomic(stampFile, { stamp: STAMP });

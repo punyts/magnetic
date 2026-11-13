@@ -158,6 +158,28 @@ describe('Agent turns', () => {
         expect(built).not.toContain('id="blank"');
     });
 
+    it("should keep a person's mode and language, show the editor in them, and refuse an unknown one", async () => {
+        // Arrange
+        const choose = (body: unknown): Promise<Response> => fetch(`${magnetic.origin}/prefs`, { method: 'POST', headers: { Cookie: alice, Origin: magnetic.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+        // Act
+        const chosen = await choose({ mode: 'dark', language: 'de' });
+        const editor = await (await fetch(`${magnetic.origin}/edit/${appId}`, { headers: { Cookie: alice } })).text();
+        const unknown = await choose({ language: 'xx' });
+        const signIn = await (await fetch(`${magnetic.origin}/signin`, { headers: { 'Accept-Language': 'fr-FR,fr;q=0.9' } })).text();
+        await choose({ mode: 'system', language: 'en' });
+
+        // Assert
+        expect(await chosen.json()).toEqual({ mode: 'dark', language: 'de' });
+        expect(editor).toContain('<html lang="de" data-mode="dark">');
+        expect(editor).toContain('data-mode="dark" data-locale="de"');
+        expect(editor).toContain('placeholder="Was sollen wir bauen?"');
+        expect(editor).toContain('id="magnetic-text"');
+        expect(unknown.status).toBe(400);
+        expect(signIn).toContain('<html lang="fr" data-mode="system">');
+        expect(signIn).toContain('Se connecter à Magnetic');
+    });
+
     it('should open an own app with the editor hidden and the editor chord named, and the editor with it shown', async () => {
         // Act
         const app = await (await fetch(`${magnetic.origin}/apps/${appId}`, { headers: { Cookie: alice } })).text();

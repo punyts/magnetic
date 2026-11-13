@@ -1,3 +1,5 @@
+import { SCRIPT_TEXTS } from './text.js';
+
 /**
  * `/assets/inspect.js`: the editor's inspector, after `/assets/shell.js` and `/assets/host.js`.
  *
@@ -15,7 +17,7 @@
  *   grid, at the point in an `adhoc` layout (its placement in pixels).
  * - State: `$.data` as a tree, what shows, reads and writes each path, and the changes as they happen.
  */
-export const INSPECT_JS = String.raw`const appId = document.body.dataset.appId;
+export const INSPECT_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId);
 const shell = window.magneticShell;
 const host = window.stateuiHost;
@@ -58,7 +60,7 @@ function says(message, bad) {
 function lastKey(path) { return path.slice(path.lastIndexOf('.') + 1); }
 function parentOf(path) { const match = /^(.*)\.children\.[^.]+$/.exec(path); return match ? match[1] : null; }
 function clip(text, size) { return text.length > size ? text.slice(0, size - 1) + '…' : text; }
-function preview(value) { return clip(value === undefined ? 'nothing' : JSON.stringify(value), 48); }
+function preview(value) { return clip(value === undefined ? T['inspect.nothing'] : JSON.stringify(value), 48); }
 function labelFor(name) {
     const words = name.replace(/^_/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
     return words.charAt(0).toUpperCase() + words.slice(1);
@@ -68,21 +70,21 @@ function nodeLabel(node) { return node.component + ' · ' + lastKey(node.path); 
 async function getJson(path) {
     const response = await fetch(base + path);
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.message || 'The request failed.');
+    if (!response.ok) throw new Error(body.message || T['inspect.requestFailed']);
     return body;
 }
 
 async function writeNodes(operations) {
-    says('Saving…');
+    says(T['inspect.saving']);
     const response = await fetch(base + '/nodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operations }) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
         const first = Array.isArray(body.errors) ? body.errors.find((error) => error.severity !== 'warning') || body.errors[0] : undefined;
-        says((first && first.message) || body.message || 'The change was refused.', true);
+        says((first && first.message) || body.message || T['inspect.changeRefused'], true);
         return undefined;
     }
-    says('Saved');
-    setTimeout(() => { if (statusLine.textContent === 'Saved') says(''); }, 1500);
+    says(T['inspect.saved']);
+    setTimeout(() => { if (statusLine.textContent === T['inspect.saved']) says(''); }, 1500);
     return body;
 }
 
@@ -206,7 +208,7 @@ function startPlacing(what) {
     drop = null;
     hover = null;
     shell.setTool('place');
-    says(what.component ? 'Click where the ' + what.component + ' goes. Escape cancels.' : 'Drop it where it goes. Escape cancels.');
+    says(what.component ? fill(T['inspect.placeComponent'], { component: what.component }) : T['inspect.placeDrop']);
     draw();
 }
 
@@ -229,7 +231,7 @@ function addedKey(result) {
 async function commitDrop() {
     const what = placing;
     const where = drop;
-    if (!where) { stopPlacing(); says('Point at a place inside a layout.', true); return; }
+    if (!where) { stopPlacing(); says(T['inspect.pointInside'], true); return; }
     const position = where.before ? { before: where.before } : where.after ? { after: where.after } : {};
     stopPlacing();
     if (what.component) {
@@ -300,7 +302,7 @@ function crumbsOf(path) {
     const list = [];
     let at;
     let rest;
-    if (steps[0] === 'app') { at = '$.app'; list.push({ path: at, label: 'App' }); rest = steps.slice(1); }
+    if (steps[0] === 'app') { at = '$.app'; list.push({ path: at, label: T['inspect.app'] }); rest = steps.slice(1); }
     else { at = '$.screens.' + steps[1]; list.push({ path: at, label: steps[1] + ' screen' }); rest = steps.slice(2); }
     for (const step of rest) {
         at += '.' + step;
@@ -326,7 +328,7 @@ function fieldsOf(info) {
         const linked = settings['<-' + name] || settings['<->' + name];
         const value = name in settings ? settings[name] : shape.default;
         const on = { change: { command: 'emit', target: 'prop' + index } };
-        if (typeof linked === 'string') children[key] = { component: 'textField', size: 'sm', _label: label + ' (linked)', value: linked, readonly: true };
+        if (typeof linked === 'string') children[key] = { component: 'textField', size: 'sm', _label: fill(T['inspect.linked'], { label }), value: linked, readonly: true };
         else if (shape.type === 'boolean') children[key] = { component: 'switchField', size: 'sm', _label: label, checked: value === true, on };
         else if (Array.isArray(shape.values) && shape.values.every((option) => typeof option === 'string' && option !== '')) children[key] = { component: 'selectField', size: 'sm', _label: label, options: Object.fromEntries(shape.values.map((option) => [option, { _label: option }])), value: typeof value === 'string' ? value : '', on };
         else if (shape.type === 'number' || shape.type === 'integer') children[key] = { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', on };
@@ -354,7 +356,7 @@ function clearProperties() {
     fieldNames = [];
     panel.write([
         { path: P.crumbs, value: { component: 'breadcrumb', items: {}, current: '', on: { select: { command: 'emit', target: 'crumb' } } } },
-        { path: P.heading + '._text', value: 'Press S, then click a part of the app to see its properties.' },
+        { path: P.heading + '._text', value: T['inspect.pressS'] },
         { path: P.fields, value: { component: 'panel', padding: 'none', children: {} } },
         { path: P.remove + '.hidden', value: true }
     ]);
@@ -520,7 +522,7 @@ function showPaths() {
 function showDetail(path) {
     if (!panel || !stateInfo) return;
     chosenPath = path;
-    const names = (list) => (list.length === 0 ? 'nothing' : list.slice(0, 8).join(', ') + (list.length > 8 ? ' and ' + (list.length - 8) + ' more' : ''));
+    const names = (list) => (list.length === 0 ? T['inspect.nothing'] : (list.length > 8 ? fill(T['inspect.andMore'], { list: list.slice(0, 8).join(', '), count: list.length - 8 }) : list.join(', ')));
     const shownBy = stateInfo.bindings.filter((binding) => related(binding.path, path)).map((binding) => lastKey(binding.node) + '.' + binding.property);
     const readBy = stateInfo.logic.filter((unit) => unit.reads.some((read) => related(read, path))).map((unit) => unit.kind + ' ' + unit.name);
     const writtenBy = stateInfo.logic.filter((unit) => unit.writes.some((write) => related(write, path))).map((unit) => unit.kind + ' ' + unit.name);
@@ -532,11 +534,11 @@ function showDetail(path) {
                 padding: 'none',
                 children: {
                     path: { component: 'text', textRole: 'label', _text: path },
-                    value: { component: 'text', _text: 'Value: ' + clip(JSON.stringify(valueAt(path)) || 'nothing', 300) },
-                    shown: { component: 'text', _text: 'Shown by: ' + names(shownBy) },
-                    read: { component: 'text', _text: 'Read by: ' + names(readBy) },
-                    written: { component: 'text', _text: 'Written by: ' + names(writtenBy) },
-                    ask: { component: 'button', size: 'sm', variant: 'soft', _title: 'Ask the agent about it', on: { press: { command: 'emit', target: 'ask' } } }
+                    value: { component: 'text', _text: fill(T['inspect.value'], { value: clip(JSON.stringify(valueAt(path)) || T['inspect.nothing'], 300) }) },
+                    shown: { component: 'text', _text: fill(T['inspect.shownBy'], { names: names(shownBy) }) },
+                    read: { component: 'text', _text: fill(T['inspect.readBy'], { names: names(readBy) }) },
+                    written: { component: 'text', _text: fill(T['inspect.writtenBy'], { names: names(writtenBy) }) },
+                    ask: { component: 'button', size: 'sm', variant: 'soft', _title: T['inspect.ask'], on: { press: { command: 'emit', target: 'ask' } } }
                 }
             }
         }
@@ -584,7 +586,7 @@ async function readTrace() {
 addEventListener('stateui:change', (event) => {
     const change = event.detail;
     if (!change || typeof change.path !== 'string' || !change.path.startsWith('$.data')) return;
-    addFeed((change.origin === 'user' ? 'You set ' : 'The app set ') + change.path + ' = ' + preview(change.value));
+    addFeed(fill(change.origin === 'user' ? T['inspect.youSet'] : T['inspect.appSet'], { path: change.path, value: preview(change.value) }));
     if (!stateInfo) return;
     setValueAt(change.path, change.value);
     flashing.set(change.path, Date.now());
@@ -650,7 +652,7 @@ function typing(target) { return target instanceof HTMLElement && (target.isCont
 document.addEventListener('keydown', (event) => {
     if (!shell.editing() || event.ctrlKey || event.metaKey || typing(event.target)) return;
     if (event.key === 'Escape') {
-        if (placing) { event.preventDefault(); stopPlacing('Cancelled.'); }
+        if (placing) { event.preventDefault(); stopPlacing(T['inspect.cancelled']); }
         else if (selected) { event.preventDefault(); unselect(); }
         return;
     }
@@ -674,13 +676,13 @@ document.getElementById('inspector-close').addEventListener('click', () => { clo
         const app = await response.json();
         P = app.paths;
         holder.addEventListener('stateui:emit', onEmit);
-        holder.addEventListener('stateui:ready', () => { panel.write([{ path: '$.theme.active.mode', value: 'system' }]); showLibrary(); showFeed(); if (selected) showProperties(selected.info); });
-        panel = host.mount(holder, app, 'Inspector');
+        holder.addEventListener('stateui:ready', () => { showLibrary(); showFeed(); if (selected) showProperties(selected.info); });
+        panel = host.mount(holder, app, T['shell.inspector']);
         const listed = await getJson('/components');
         library = listed.components || [];
         showLibrary();
     } catch {
-        says('The inspector could not load.', true);
+        says(T['inspect.failed'], true);
     }
 })();
 `;

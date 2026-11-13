@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
+import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
+import type { Language, Preferences } from '../prefs/Preferences.js';
+import { textsOf } from '../http/text.js';
+import type { Texts } from '../http/text.js';
 import { run } from '../stateui/run.js';
 import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
 
@@ -41,52 +45,67 @@ function grid(records: string): Record<string, unknown> {
 /** Where the home app keeps the name typed for a new app */
 const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.value';
 
+/** Where the home app keeps the person's choices of mode and language, which its menus show */
+const TOP = '$.screens.home.children.page.children.top.children';
+
 /**
- * The home screen, in a centred column: Magnetic and Sign out (`signout`), a field and a button that make an app
- * (`create`, with the name), the person's apps and the apps shared with them. Each `emit` reaches the page
- * (`stateui:emit`), whose script acts on it
+ * The home screen, in a centred column: Magnetic, the menus of mode and language (`mode`, `language`) and Sign out
+ * (`signout`), a field and a button that make an app (`create`, with the name), the person's apps and the apps shared
+ * with them. Each `emit` reaches the page (`stateui:emit`), whose script acts on it
  */
-const HOME_SCREEN = {
-    component: 'panel',
-    padding: 'lg',
-    layout: { type: 'grid', cols: 12, collapseBelow: 'md' },
-    children: {
-        page: {
-            component: 'panel',
-            padding: 'none',
-            placement: { col: 3, span: 8 },
-            layout: { type: 'column', gap: 'lg' },
-            children: {
-                top: {
-                    component: 'panel',
-                    padding: 'none',
-                    layout: { type: 'row', align: 'center' },
-                    children: {
-                        title: { component: 'text', textRole: 'title', placement: { grow: 1 }, _text: 'Magnetic' },
-                        signout: { component: 'button', variant: 'ghost', size: 'sm', _title: 'Sign out', on: { press: { command: 'emit', target: 'signout' } } }
-                    }
-                },
-                new: {
-                    component: 'panel',
-                    bordered: true,
-                    _title: 'Make an app',
-                    _description: 'Name it, and the editor opens on a blank app: tell the agent what to build.',
-                    layout: { type: 'row', align: 'end', gap: 'sm' },
-                    children: {
-                        make: { component: 'textField', placement: { grow: 1 }, _label: 'Name', _placeholder: 'Such as Reading list', value: '' },
-                        create: { component: 'button', _title: 'Make', on: { press: { command: 'emit', target: 'create', from: MAKE_VALUE } } }
-                    }
-                },
-                appsTitle: { component: 'text', textRole: 'heading', _text: 'Your apps' },
-                appsHint: { component: 'text', textRole: 'caption', _text: 'Open an app to use it. Press Ctrl+Shift+E in an app to edit it with the agent.' },
-                apps: grid('$.data.apps'),
-                sharedTitle: { component: 'text', textRole: 'heading', _text: 'Shared with you' },
-                sharedHint: { component: 'text', textRole: 'caption', _text: 'Apps other people share with you show here.' },
-                shared: grid('$.data.shared')
+function homeScreen(t: Texts): Record<string, unknown> {
+    const menu = (target: string, label: string, options: Record<string, { _label: string }>): Record<string, unknown> => ({
+        component: 'selectField',
+        size: 'sm',
+        _label: label,
+        options,
+        value: '',
+        on: { change: { command: 'emit', target, from: `${TOP}.${target}.value` } }
+    });
+    return {
+        component: 'panel',
+        padding: 'lg',
+        layout: { type: 'grid', cols: 12, collapseBelow: 'md' },
+        children: {
+            page: {
+                component: 'panel',
+                padding: 'none',
+                placement: { col: 3, span: 8 },
+                layout: { type: 'column', gap: 'lg' },
+                children: {
+                    top: {
+                        component: 'panel',
+                        padding: 'none',
+                        layout: { type: 'row', align: 'end', gap: 'sm', wrap: true },
+                        children: {
+                            title: { component: 'text', textRole: 'title', placement: { grow: 1 }, _text: 'Magnetic' },
+                            mode: menu('mode', t['prefs.mode'], Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }]))),
+                            language: menu('language', t['prefs.language'], Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }]))),
+                            signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
+                        }
+                    },
+                    new: {
+                        component: 'panel',
+                        bordered: true,
+                        _title: t['home.makeTitle'],
+                        _description: t['home.makeText'],
+                        layout: { type: 'row', align: 'end', gap: 'sm' },
+                        children: {
+                            make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], value: '' },
+                            create: { component: 'button', _title: t['home.make'], on: { press: { command: 'emit', target: 'create', from: MAKE_VALUE } } }
+                        }
+                    },
+                    appsTitle: { component: 'text', textRole: 'heading', _text: t['home.appsTitle'] },
+                    appsHint: { component: 'text', textRole: 'caption', _text: t['home.appsText'] },
+                    apps: grid('$.data.apps'),
+                    sharedTitle: { component: 'text', textRole: 'heading', _text: t['home.sharedTitle'] },
+                    sharedHint: { component: 'text', textRole: 'caption', _text: t['home.sharedText'] },
+                    shared: grid('$.data.shared')
+                }
             }
         }
-    }
-};
+    };
+}
 
 /** The fields of an app card */
 const CARD_FIELDS = [
@@ -95,20 +114,26 @@ const CARD_FIELDS = [
     { op: 'set', field: 'note', type: 'string' }
 ];
 
-/** The definition of the home app, beside its name */
-const HOME_DEFINITION = { title: 'Your apps', data: { apps: { model: CARD_MODEL, scope: 'persona' }, shared: { model: CARD_MODEL, scope: 'persona' } }, home: HOME_SCREEN };
+/** The definition of the home app in a language, beside its name */
+function homeDefinition(language: Language): Record<string, unknown> {
+    const t = textsOf(language);
+    return { title: t['home.appsTitle'], data: { apps: { model: CARD_MODEL, scope: 'persona' }, shared: { model: CARD_MODEL, scope: 'persona' } }, home: homeScreen(t) };
+}
 
-/** Changes when the definition does, so a workspace made with an older one gets the new one */
-const HOME_STAMP = createHash('sha256').update(JSON.stringify({ CARD_FIELDS, HOME_DEFINITION })).digest('hex').slice(0, 16);
+/** Changes when the definition does, or its language, so a workspace made with another one gets the new one */
+function homeStamp(language: Language): string {
+    return createHash('sha256').update(JSON.stringify({ CARD_FIELDS, definition: homeDefinition(language) })).digest('hex').slice(0, 16);
+}
 
 /**
  * Each person's "Your apps": a StateUI app in their own workspace, built with the same tools the agent uses. It is made
- * the first time it is needed, and made again when Magnetic ships a new definition (the stamp in
- * `users/<id>/magnetic/home.json` differs); each visit writes the lists of apps into its data, so it is never stale
+ * the first time it is needed, and made again when Magnetic ships a new definition or the person changes language (the
+ * stamp in `users/<id>/magnetic/home.json` differs); each visit writes the lists of apps and the person's choices into
+ * its data, so it is never stale
  */
 export class HomeApps {
-    /** The id of each workspace's home app, once known */
-    private readonly ids = new WeakMap<Services, Promise<string>>();
+    /** The id of each workspace's home app, once known, and the language it was made in */
+    private readonly ids = new WeakMap<Services, { readonly language: Language; readonly id: Promise<string> }>();
 
     constructor(
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
@@ -116,18 +141,18 @@ export class HomeApps {
         private readonly usersDir: string
     ) {}
 
-    /** The id of the home app of a person's workspace, making it first when it has none */
-    id(services: Services, userId: string): Promise<string> {
-        let found = this.ids.get(services);
-        if (found === undefined) {
-            found = this.ensure(services, userId);
-            found.catch(() => this.ids.delete(services));
-            this.ids.set(services, found);
-        }
-        return found;
+    /** The id of the home app of a person's workspace in a language, making it first when it has none in that language */
+    id(services: Services, userId: string, language: Language = 'en'): Promise<string> {
+        const known = this.ids.get(services);
+        if (known !== undefined && known.language === language) return known.id;
+        const id = (known?.id.catch(() => undefined) ?? Promise.resolve()).then(() => this.ensure(services, userId, language));
+        id.catch(() => this.ids.delete(services));
+        this.ids.set(services, { language, id });
+        return id;
     }
 
-    private async ensure(services: Services, userId: string): Promise<string> {
+    private async ensure(services: Services, userId: string, language: Language): Promise<string> {
+        const HOME_STAMP = homeStamp(language);
         const stampFile = join(this.usersDir, userId, 'magnetic', 'home.json');
         const stamp = (await readJson<{ stamp?: string }>(stampFile))?.stamp;
         const existing = (await services.instanceViews.list()).find((app) => app.name === HOME_APP);
@@ -138,15 +163,15 @@ export class HomeApps {
         if (!JSON.stringify(models).includes(`"${CARD_MODEL}"`)) {
             await run(tools, 'ui_model_write', { model: CARD_MODEL, operations: CARD_FIELDS });
         }
-        const created = await run(tools, 'ui_app_create', { name: HOME_APP, ...HOME_DEFINITION });
+        const created = await run(tools, 'ui_app_create', { name: HOME_APP, ...homeDefinition(language) });
         if (typeof created['id'] !== 'string') throw new Error('ui_app_create gave no id');
         await writeJsonAtomic(stampFile, { stamp: HOME_STAMP });
         return created['id'];
     }
 
     /** The lists the home app holds now, in their order */
-    async read(services: Services, userId: string): Promise<HomeData> {
-        await this.id(services, userId);
+    async read(services: Services, userId: string, language: Language = 'en'): Promise<HomeData> {
+        await this.id(services, userId, language);
         const tools = this.toolsOf(services);
         const list = async (path: string): Promise<HomeCard[]> => {
             const body = await run(tools, 'ui_state_get', { app: HOME_APP, path, full: true });
@@ -156,12 +181,17 @@ export class HomeApps {
         return { apps: await list('$.data.apps'), shared: await list('$.data.shared') };
     }
 
-    /** Writes the lists into the home app's data, which its open views follow at once, and empties the name field */
-    async show(services: Services, userId: string, data: HomeData): Promise<void> {
-        await this.id(services, userId);
+    /**
+     * Writes the lists into the home app's data, which its open views follow at once, sets its menus to the person's
+     * choices and empties the name field
+     */
+    async show(services: Services, userId: string, data: HomeData, prefs: Preferences = { mode: 'system', language: 'en' }): Promise<void> {
+        await this.id(services, userId, prefs.language);
         const tools = this.toolsOf(services);
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.apps', value: byId(data.apps), logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.shared', value: byId(data.shared), logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: MAKE_VALUE, value: '', logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.mode.value`, value: prefs.mode, logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.language.value`, value: prefs.language, logic: false });
     }
 }

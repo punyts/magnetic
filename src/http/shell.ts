@@ -1,6 +1,11 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
 import { CONTEXT_TOGGLES } from '../agent/AgentTurns.js';
+import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
 import { FAVICON_LINK, LOGO_MARK } from './logo.js';
+import { htmlOpen, schemeCss } from './pages.js';
+import type { PageLook } from './pages.js';
+import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
+import type { Texts } from './text.js';
 
 export interface ShellPageOptions {
     readonly appId: string;
@@ -17,22 +22,27 @@ export interface ShellPageOptions {
     readonly editing: boolean;
     /** True: the app has nothing on its screens yet, and the editor says what to do over the empty frame */
     readonly blank?: boolean;
+    /** The person's language and mode */
+    readonly look: PageLook;
 }
 
-/** Ideas a blank app offers to start from; one fills the chat box */
-const BLANK_IDEAS = [
-    'A reading list: each book with a title, an author and a status, and a filter by status',
-    'A habit tracker: a few daily habits to tick off, and a streak for each',
-    'A booking form for a small studio: name, email, a date and a time slot, and a thank-you screen'
-];
+/** Over a blank app's frame: what to do first, and ideas to start from; an idea fills the chat box */
+function blankHint(t: Texts): string {
+    const ideas = [t['shell.idea1'], t['shell.idea2'], t['shell.idea3']];
+    return `<section class="float blank" id="blank" aria-label="${escapeHtml(t['shell.blank'])}"><strong>${escapeHtml(t['shell.blankTitle'])}</strong><p>${escapeHtml(t['shell.blankText'])}</p><div class="ideas">${ideas.map((idea) => `<button type="button" class="idea">${escapeHtml(idea)}</button>`).join('')}</div></section>`;
+}
 
-/** Over a blank app's frame: what to do first, and ideas to start from */
-const blankHint = `<section class="float blank" id="blank" aria-label="A blank app"><strong>This app is blank</strong><p>Tell the agent what to build in the box below: what the app is for, what it keeps, and what people do with it. Or start from an idea:</p><div class="ideas">${BLANK_IDEAS.map((idea) => `<button type="button" class="idea">${escapeHtml(idea)}</button>`).join('')}</div></section>`;
+/** The sheet of the person's choices: light, dark or the system's, and the language; a change loads the page again */
+function prefsSheet(t: Texts, look: PageLook): string {
+    const modes = MODES.map((mode) => `<option value="${mode}"${mode === look.mode ? ' selected' : ''}>${escapeHtml(t[`prefs.${mode}`])}</option>`).join('');
+    const languages = LANGUAGES.map((language) => `<option value="${language}"${language === look.language ? ' selected' : ''}>${escapeHtml(LANGUAGE_NAMES[language])}</option>`).join('');
+    return `<section class="float sheet prefs" id="prefs" aria-label="${escapeHtml(t['prefs.title'])}" hidden><label for="prefs-mode">${escapeHtml(t['prefs.mode'])}</label><select id="prefs-mode">${modes}</select><label for="prefs-language">${escapeHtml(t['prefs.language'])}</label><select id="prefs-language">${languages}</select><p class="small status" id="prefs-status" role="status"></p></section>`;
+}
 
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
 export const EDIT_KEY = 'mod+shift+e';
 
-const TOGGLE_LABELS: Record<(typeof CONTEXT_TOGGLES)[number], string> = { theme: 'Theme', layout: 'Layout', data: 'Data', logic: 'Logic', screens: 'Screens' };
+
 
 /** Line icons drawn in the text colour */
 const svg = (path: string): string =>
@@ -46,7 +56,8 @@ const ICONS = {
     hand: svg('<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V11M14 6.5a1.5 1.5 0 0 1 3 0V11M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/>'),
     minus: svg('<path d="M5 12h14"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
-    fit: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')
+    fit: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+    prefs: svg('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>')
 };
 
 /** The sizes the app's frame can have on the canvas; the first is the default */
@@ -56,7 +67,9 @@ export const FRAME_SIZES = [
     { id: 'phone', label: 'Phone', width: 390, height: 844 }
 ] as const;
 
-const sizeMenu = `<label class="hidden" for="frame-size">Frame size</label><select id="frame-size" title="The size of the app's frame">${FRAME_SIZES.map((size) => `<option value="${size.id}" data-width="${size.width}" data-height="${size.height}">${size.label}</option>`).join('')}</select>`;
+function sizeMenu(t: Texts): string {
+    return `<label class="hidden" for="frame-size">${escapeHtml(t['shell.frameSize'])}</label><select id="frame-size" title="${escapeHtml(t['shell.frameSizeTitle'])}">${FRAME_SIZES.map((size) => `<option value="${size.id}" data-width="${size.width}" data-height="${size.height}">${escapeHtml(t[`shell.size.${size.id}`])}</option>`).join('')}</select>`;
+}
 
 /**
  * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window, and Ctrl+Shift+E (Cmd+Shift+E on
@@ -71,15 +84,17 @@ const sizeMenu = `<label class="hidden" for="frame-size">Frame size</label><sele
  * on it; `/assets/shell.js` runs the chat
  */
 export function shellPage(options: ShellPageOptions): string {
+    const t = textsOf(options.look.language);
+    const h = (key: keyof Texts): string => escapeHtml(t[key]);
     const models = options.models ?? [];
     const menu =
         models.length < 2
             ? ''
-            : `<label class="hidden" for="model">Model</label><select id="model" title="The model the agent uses">${models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.label)}</option>`).join('')}</select>`;
-    const toggles = CONTEXT_TOGGLES.map((name) => `<button type="button" class="toggle" data-context="${name}" aria-pressed="false">${TOGGLE_LABELS[name]}</button>`).join('');
+            : `<label class="hidden" for="model">${h('shell.model')}</label><select id="model" title="${h('shell.modelTitle')}">${models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.label)}</option>`).join('')}</select>`;
+    const toggles = CONTEXT_TOGGLES.map((name) => `<button type="button" class="toggle" data-context="${name}" aria-pressed="false">${h(`shell.toggle.${name}`)}</button>`).join('');
     return [
         '<!doctype html>',
-        '<html lang="en">',
+        htmlOpen(options.look),
         '<head>',
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -88,39 +103,40 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}" data-status="loading">`,
         '<main class="board" id="board" aria-label="Canvas">',
         `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div><div class="overlay" id="overlay" aria-hidden="true"></div></div></div>`,
         '</main>',
-        `<header class="float corner start"><a href="/" class="back" title="All your apps">${LOGO_MARK}<span class="hidden">All your apps</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="Open the app on its own">Open</a></header>`,
-        '<div class="float corner end"><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">Share</button></div>',
-        '<nav class="float rail" aria-label="Tools">',
-        `<div class="tools" role="group" aria-label="Pointer"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="Use the app (V)" aria-label="Use the app">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="Move the canvas (H, or hold Space)" aria-label="Move the canvas">${ICONS.hand}</button><button type="button" class="tool icon" data-tool="select" aria-pressed="false" title="Select a part of the app (S)" aria-label="Select a part of the app">${ICONS.select}</button></div>`,
-        `<div class="shows" role="group" aria-label="Show the agent"><span class="rail-label" aria-hidden="true">Show</span>${toggles}</div>`,
+        `<header class="float corner start"><a href="/" class="back" title="${h('shell.allApps')}">${LOGO_MARK}<span class="hidden">${h('shell.allApps')}</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu(t)}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="${h('shell.openTitle')}">${h('shell.open')}</a></header>`,
+        `<div class="float corner end"><button type="button" id="prefs-open" class="icon" aria-expanded="false" aria-controls="prefs" title="${h('prefs.open')}" aria-label="${h('prefs.open')}">${ICONS.prefs}</button><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">${h('shell.share')}</button></div>`,
+        prefsSheet(t, options.look),
+        `<nav class="float rail" aria-label="${h('shell.tools')}">`,
+        `<div class="tools" role="group" aria-label="${h('shell.pointer')}"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="${h('shell.useKey')}" aria-label="${h('shell.use')}">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="${h('shell.moveKey')}" aria-label="${h('shell.move')}">${ICONS.hand}</button><button type="button" class="tool icon" data-tool="select" aria-pressed="false" title="${h('shell.selectKey')}" aria-label="${h('shell.select')}">${ICONS.select}</button></div>`,
+        `<div class="shows" role="group" aria-label="${h('shell.showAgent')}"><span class="rail-label" aria-hidden="true">${h('shell.show')}</span>${toggles}</div>`,
         '</nav>',
-        '<div class="float zoom" role="group" aria-label="Zoom">',
-        `<button type="button" class="icon" id="zoom-out" title="Zoom out (-)" aria-label="Zoom out">${ICONS.minus}</button>`,
-        '<button type="button" id="zoom-reset" title="Zoom to 100% (0)">100%</button>',
-        `<button type="button" class="icon" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">${ICONS.plus}</button>`,
-        `<button type="button" class="icon" id="zoom-fit" title="Fit the app (1)" aria-label="Fit the app">${ICONS.fit}</button>`,
+        `<div class="float zoom" role="group" aria-label="${h('shell.zoom')}">`,
+        `<button type="button" class="icon" id="zoom-out" title="${h('shell.zoomOutKey')}" aria-label="${h('shell.zoomOut')}">${ICONS.minus}</button>`,
+        `<button type="button" id="zoom-reset" title="${h('shell.zoomReset')}">100%</button>`,
+        `<button type="button" class="icon" id="zoom-in" title="${h('shell.zoomInKey')}" aria-label="${h('shell.zoomIn')}">${ICONS.plus}</button>`,
+        `<button type="button" class="icon" id="zoom-fit" title="${h('shell.fitKey')}" aria-label="${h('shell.fit')}">${ICONS.fit}</button>`,
         '</div>',
-        options.blank === true ? blankHint : '',
-        '<aside class="float inspector" id="inspector" aria-label="Inspector" hidden>',
-        `<header class="bar"><strong>Inspector</strong><span class="small muted status" id="inspector-status" role="status"></span><span class="spacer"></span><button type="button" id="inspector-close" class="icon" title="Close the inspector" aria-label="Close the inspector">${ICONS.close}</button></header>`,
+        options.blank === true ? blankHint(t) : '',
+        `<aside class="float inspector" id="inspector" aria-label="${h('shell.inspector')}" hidden>`,
+        `<header class="bar"><strong>${h('shell.inspector')}</strong><span class="small muted status" id="inspector-status" role="status"></span><span class="spacer"></span><button type="button" id="inspector-close" class="icon" title="${h('shell.closeInspector')}" aria-label="${h('shell.closeInspector')}">${ICONS.close}</button></header>`,
         '<div class="inspector-frame" id="inspector-frame"></div>',
         '</aside>',
-        '<section class="float sheet share" id="share" aria-label="Share this app" hidden>',
-        '<form class="share-new" id="share-new"><label for="share-right">People with the link can</label><div class="row"><select id="share-right"><option value="use" selected>use it, with their own data</option><option value="view">look at it, live and read only</option><option value="remix">copy it, to change their copy</option></select><button type="submit" class="primary">Make link</button></div></form>',
-        '<p class="small muted">Everyone signs in to open a link. Revoking a link takes the app back from everyone who opened it, and their browsers delete what they kept of it. A remix is a copy: revoking stops new remixes, but the copies already made belong to the people who made them.</p>',
+        `<section class="float sheet share" id="share" aria-label="${h('shell.shareThis')}" hidden>`,
+        `<form class="share-new" id="share-new"><label for="share-right">${h('shell.shareCan')}</label><div class="row"><select id="share-right"><option value="use" selected>${h('shell.right.use')}</option><option value="view">${h('shell.right.view')}</option><option value="remix">${h('shell.right.remix')}</option></select><button type="submit" class="primary">${h('shell.makeLink')}</button></div></form>`,
+        `<p class="small muted">${h('shell.shareNote')}</p>`,
         '<p class="small status" id="share-status" role="status"></p>',
         '<ol class="links" id="links"></ol>',
         '</section>',
-        '<aside class="dock" aria-label="Build with the agent">',
-        '<section class="float panel" id="panel" aria-label="Chat" hidden>',
-        `<header class="bar"><strong>Chat</strong><span class="spacer"></span><button type="button" id="chat-close" class="icon" title="Close the chat" aria-label="Close the chat">${ICONS.close}</button></header>`,
+        `<aside class="dock" aria-label="${h('shell.build')}">`,
+        `<section class="float panel" id="panel" aria-label="${h('shell.chat')}" hidden>`,
+        `<header class="bar"><strong>${h('shell.chat')}</strong><span class="spacer"></span><button type="button" id="chat-close" class="icon" title="${h('shell.closeChat')}" aria-label="${h('shell.closeChat')}">${ICONS.close}</button></header>`,
         '<ol class="log" id="log" aria-live="polite"></ol>',
-        '<section class="drawer" id="drawer" aria-label="Agent activity" hidden>',
-        '<header class="bar"><strong>Activity</strong><span class="spacer"></span><button type="button" id="pin" aria-pressed="false">Keep open</button><button type="button" id="stop" class="stop">Stop</button></header>',
+        `<section class="drawer" id="drawer" aria-label="${h('shell.activityLabel')}" hidden>`,
+        `<header class="bar"><strong>${h('shell.activity')}</strong><span class="spacer"></span><button type="button" id="pin" aria-pressed="false">${h('shell.keepOpen')}</button><button type="button" id="stop" class="stop">${h('shell.stop')}</button></header>`,
         '<p class="note" id="note"></p>',
         '<ol class="calls" id="calls"></ol>',
         '</section>',
@@ -129,13 +145,14 @@ export function shellPage(options: ShellPageOptions): string {
         '<p class="status" id="status" role="status"></p>',
         '<p class="focus small" id="focus" hidden></p>',
         '<p class="data-line small" id="data-line" hidden></p>',
-        `<div class="row"><button type="button" id="chat-open" class="icon" aria-expanded="false" aria-controls="panel" title="Show the chat" aria-label="Show the chat">${ICONS.chat}</button>`,
-        '<label class="hidden" for="text">Your request</label>',
-        '<textarea id="text" name="text" rows="1" maxlength="4000" placeholder="What shall we build?" required></textarea>',
-        `${menu}<button type="submit" class="primary icon" id="send" title="Send (Enter)" aria-label="Send">${ICONS.send}</button></div>`,
+        `<div class="row"><button type="button" id="chat-open" class="icon" aria-expanded="false" aria-controls="panel" title="${h('shell.showChat')}" aria-label="${h('shell.showChat')}">${ICONS.chat}</button>`,
+        `<label class="hidden" for="text">${h('shell.request')}</label>`,
+        `<textarea id="text" name="text" rows="1" maxlength="4000" placeholder="${h('shell.placeholder')}" required></textarea>`,
+        `${menu}<button type="submit" class="primary icon" id="send" title="${h('shell.sendKey')}" aria-label="${h('shell.send')}">${ICONS.send}</button></div>`,
         '</form>',
         '</aside>',
-        '<p class="hint" id="hint" role="status" hidden>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> to edit</p>',
+        `<p class="hint" id="hint" role="status" hidden>${h('shell.hintBefore')} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> ${h('shell.hintAfter')}</p>`,
+        textBlock(options.look.language),
         '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/host.js"></script>',
         '<script type="module" src="/assets/inspect.js"></script>',
@@ -146,8 +163,10 @@ export function shellPage(options: ShellPageOptions): string {
 }
 
 /** `/assets/shell.css`, after the host's `page.css` */
-export const SHELL_CSS = `:root { color-scheme: light dark; --ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; --dot: #c9cdd6; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1); }
-@media (prefers-color-scheme: dark) { :root { --ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; --dot: #353a45; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35); } }
+export const SHELL_CSS = `${schemeCss(
+    '--ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; --dot: #c9cdd6; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1);',
+    '--ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; --dot: #353a45; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);'
+)}
 html, body.shell { height: 100%; margin: 0; overflow: hidden; }
 body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--soft); }
 .board { position: fixed; inset: 0; overflow: hidden; touch-action: none; cursor: default; background-color: var(--soft); background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); }
@@ -253,6 +272,10 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .float.blank .ideas { display: flex; flex-direction: column; gap: 0.5rem; }
 .float.blank .idea { text-align: left; padding: 0.6rem 0.8rem; line-height: 1.35; }
 .float.blank .idea:hover { background: var(--soft); border-color: var(--accent); }
+.float.sheet.prefs { z-index: 3; display: grid; gap: 0.35rem; width: 15rem; }
+.float.sheet.prefs[hidden] { display: none; }
+.float.sheet.prefs label { font-size: 0.85rem; color: var(--muted); }
+.float.sheet.prefs label + select { margin-bottom: 0.4rem; }
 .float.blank[hidden], body:has(#panel:not([hidden])) .float.blank { display: none; }
 #chat-open[aria-expanded="true"] { color: var(--accent); }
 #pin[aria-pressed="true"] { background: var(--line); }
@@ -299,7 +322,7 @@ body.shell.editing .hint { display: none; }
  * The activity drawer opens with the first tool call and closes 4 seconds after the turn ends, unless the pointer or
  * the focus is in it or it is kept open
  */
-export const SHELL_JS = String.raw`const appId = document.body.dataset.appId;
+export const SHELL_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId);
 const log = document.getElementById('log');
 const drawer = document.getElementById('drawer');
@@ -315,7 +338,7 @@ const panel = document.getElementById('panel');
 const chatOpen = document.getElementById('chat-open');
 const chatClose = document.getElementById('chat-close');
 const CLOSE_AFTER_MS = 4000;
-const OUTCOMES = { stopped: 'Stopped.', limit: 'Reached a limit.', refused: 'The model declined.', failed: 'Something went wrong.', budget: 'Out of budget.' };
+const OUTCOMES = { stopped: T['chat.stopped'], limit: T['chat.limit'], refused: T['chat.refused'], failed: T['chat.failed'], budget: T['chat.budget'] };
 let running = false;
 let current = null;
 let closeTimer = null;
@@ -344,7 +367,7 @@ function finishAgent(entry) {
     if (entry.text !== undefined && bubble.querySelector('.say').textContent === '') bubble.querySelector('.say').textContent = entry.text;
     if (entry.tools && entry.tools.length > 0) {
         const details = el('details');
-        details.append(el('summary', '', entry.tools.length === 1 ? '1 step' : entry.tools.length + ' steps'));
+        details.append(el('summary', '', entry.tools.length === 1 ? T['chat.oneStep'] : fill(T['chat.steps'], { count: entry.tools.length })));
         const list = el('ol');
         for (const tool of entry.tools) list.append(el('li', '', (tool.ok ? '' : '✗ ') + tool.name + (tool.summary ? ' — ' + tool.summary : '') + ' → ' + tool.result));
         details.append(list);
@@ -353,7 +376,7 @@ function finishAgent(entry) {
     if (entry.outcome !== 'finished' || entry.message) {
         bubble.append(el('span', entry.outcome === 'finished' ? 'outcome' : 'outcome bad', entry.message || OUTCOMES[entry.outcome] || ''));
     }
-    if (bubble.querySelector('.say').textContent === '' && bubble.childElementCount === 1) bubble.querySelector('.say').textContent = '(done)';
+    if (bubble.querySelector('.say').textContent === '' && bubble.childElementCount === 1) bubble.querySelector('.say').textContent = T['chat.done'];
     current = null;
     scrollDown();
 }
@@ -362,8 +385,8 @@ function setRunning(value) {
     running = value;
     send.disabled = value;
     stop.disabled = !value;
-    if (value) { status.className = 'status'; status.textContent = 'Working…'; }
-    else if (status.textContent === 'Working…') status.textContent = '';
+    if (value) { status.className = 'status'; status.textContent = T['chat.working']; }
+    else if (status.textContent === T['chat.working']) status.textContent = '';
 }
 
 // The chat panel opens above the chat bar and closes with its button or Escape; the bar stays
@@ -371,7 +394,7 @@ function showChat(open) {
     if (panel.hidden === !open) return;
     panel.hidden = !open;
     chatOpen.setAttribute('aria-expanded', String(open));
-    chatOpen.title = open ? 'Hide the chat' : 'Show the chat';
+    chatOpen.title = open ? T['shell.hideChat'] : T['shell.showChat'];
     chatOpen.setAttribute('aria-label', chatOpen.title);
     if (open) scrollDown();
 }
@@ -423,7 +446,7 @@ function showHistory(history) {
         if (entry.role === 'person') addPerson(entry.text);
         else finishAgent(entry);
     }
-    if (history.length === 0) log.append(el('li', 'empty', 'Describe the app you want, or a change to this one. Turn on Layout, Data or the others at the left to show the agent those parts first.'));
+    if (history.length === 0) log.append(el('li', 'empty', T['chat.empty']));
     scrollDown();
 }
 
@@ -478,12 +501,12 @@ function handle(event) {
 
 const events = new EventSource(base + '/events');
 events.onmessage = (message) => handle(JSON.parse(message.data));
-events.onerror = () => { if (events.readyState === EventSource.CLOSED) { status.className = 'status bad'; status.textContent = 'Disconnected. Reload the page.'; } };
+events.onerror = () => { if (events.readyState === EventSource.CLOSED) { status.className = 'status bad'; status.textContent = T['chat.disconnected']; } };
 
 async function post(path, body) {
     const response = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (response.ok) return undefined;
-    try { return (await response.json()).message || 'The request was refused.'; } catch { return 'The request was refused.'; }
+    try { return (await response.json()).message || T['chat.requestRefused']; } catch { return T['chat.requestRefused']; }
 }
 
 // A blank app's hint: an idea fills the chat box; the first request sent puts the hint away
@@ -498,7 +521,7 @@ form.addEventListener('submit', async (event) => {
     send.disabled = true;
     const focus = magneticShell.focus.slice();
     const refused = await post('/turns', { text: value, context, ...(model && { model: model.value }), ...(focus.length > 0 && { focus }) });
-    if (refused === undefined) { if (blank) blank.hidden = true; text.value = ''; fitText(); magneticShell.focus.length = 0; showFocus(); status.textContent = status.textContent === 'Working…' ? status.textContent : ''; return; }
+    if (refused === undefined) { if (blank) blank.hidden = true; text.value = ''; fitText(); magneticShell.focus.length = 0; showFocus(); status.textContent = status.textContent === T['chat.working'] ? status.textContent : ''; return; }
     send.disabled = running;
     status.className = 'status bad';
     status.textContent = refused;
@@ -528,7 +551,7 @@ const shareForm = document.getElementById('share-new');
 const shareRight = document.getElementById('share-right');
 const shareStatus = document.getElementById('share-status');
 const links = document.getElementById('links');
-const RIGHTS = { use: 'Use, with their own data', view: 'Look, read only', remix: 'Remix, as a copy' };
+const RIGHTS = { use: T['share.use'], view: T['share.view'], remix: T['share.remix'] };
 
 function shareSays(message, bad) { shareStatus.className = bad ? 'small status bad' : 'small status'; shareStatus.textContent = message || ''; }
 
@@ -537,29 +560,29 @@ function showLinks(grants) {
     for (const grant of grants) {
         const item = el('li', grant.revoked ? 'revoked' : '');
         const head = el('div', 'head');
-        const opened = grant.members === 1 ? '1 person opened it' : grant.members + ' people opened it';
-        head.append(el('strong', '', RIGHTS[grant.right] || grant.right), el('span', 'muted', grant.revoked ? 'Revoked · ' + opened : opened));
+        const opened = grant.members === 1 ? T['share.openedOne'] : fill(T['share.opened'], { count: grant.members });
+        head.append(el('strong', '', RIGHTS[grant.right] || grant.right), el('span', 'muted', grant.revoked ? fill(T['share.revokedLine'], { opened }) : opened));
         item.append(head);
         if (!grant.revoked) {
             const url = el('input');
             url.readOnly = true;
             url.value = grant.url;
-            url.setAttribute('aria-label', 'Link');
+            url.setAttribute('aria-label', T['share.link']);
             url.addEventListener('focus', () => url.select());
             const row = el('div', 'row');
-            const copy = el('button', '', 'Copy');
+            const copy = el('button', '', T['share.copy']);
             copy.type = 'button';
             copy.addEventListener('click', async () => {
-                try { await navigator.clipboard.writeText(grant.url); shareSays('Link copied.'); }
-                catch { url.focus(); shareSays('Copy the selected link.'); }
+                try { await navigator.clipboard.writeText(grant.url); shareSays(T['share.copied']); }
+                catch { url.focus(); shareSays(T['share.copySelected']); }
             });
-            const revoke = el('button', 'stop', 'Revoke');
+            const revoke = el('button', 'stop', T['share.revoke']);
             revoke.type = 'button';
             revoke.addEventListener('click', async () => {
-                if (!confirm('Revoke this link? Everyone who opened it loses the app.')) return;
+                if (!confirm(T['share.revokeConfirm'])) return;
                 const refused = await post('/share/' + encodeURIComponent(grant.id) + '/revoke', {});
                 if (refused !== undefined) { shareSays(refused, true); return; }
-                shareSays('Link revoked.');
+                shareSays(T['share.revokedDone']);
                 await loadLinks();
             });
             row.append(copy, revoke);
@@ -567,7 +590,7 @@ function showLinks(grants) {
         }
         links.append(item);
     }
-    if (grants.length === 0) links.append(el('li', 'muted small', 'No links yet.'));
+    if (grants.length === 0) links.append(el('li', 'muted small', T['share.none']));
 }
 
 async function loadLinks() {
@@ -575,7 +598,7 @@ async function loadLinks() {
         const response = await fetch(base + '/share');
         if (!response.ok) throw new Error('refused');
         showLinks((await response.json()).grants);
-    } catch { shareSays('The links could not be loaded.', true); }
+    } catch { shareSays(T['share.loadFailed'], true); }
 }
 
 function showShare(open) {
@@ -584,14 +607,32 @@ function showShare(open) {
     if (open) { shareSays(''); void loadLinks(); }
 }
 
-shareOpen.addEventListener('click', () => showShare(share.hidden));
+shareOpen.addEventListener('click', () => { showPrefs(false); showShare(share.hidden); });
+
+// The person's choices: light, dark or the system's, and the language. A change is kept (POST /prefs) and the page
+// loads again in it
+const prefs = document.getElementById('prefs');
+const prefsOpen = document.getElementById('prefs-open');
+const prefsStatus = document.getElementById('prefs-status');
+function showPrefs(open) { prefs.hidden = !open; prefsOpen.setAttribute('aria-expanded', String(open)); if (open) prefsStatus.textContent = ''; }
+prefsOpen.addEventListener('click', () => { showShare(false); showPrefs(prefs.hidden); });
+prefs.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); showPrefs(false); prefsOpen.focus(); } });
+async function choose(change) {
+    try {
+        const response = await fetch('/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
+        if (!response.ok) throw new Error('refused');
+        location.reload();
+    } catch { prefsStatus.className = 'small status bad'; prefsStatus.textContent = T['prefs.failed']; }
+}
+document.getElementById('prefs-mode').addEventListener('change', (event) => void choose({ mode: event.target.value }));
+document.getElementById('prefs-language').addEventListener('change', (event) => void choose({ language: event.target.value }));
 share.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); showShare(false); shareOpen.focus(); } });
 
 shareForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const refused = await post('/share', { right: shareRight.value });
     if (refused !== undefined) { shareSays(refused, true); return; }
-    shareSays('Link made. Copy it and send it.');
+    shareSays(T['share.made']);
     await loadLinks();
 });
 
@@ -797,6 +838,7 @@ function setEditing(on) {
         text.focus();
     } else {
         showShare(false);
+        showPrefs(false);
         if (spaceHeld) { spaceHeld = false; showTool(); }
         const frame = artboard.querySelector('iframe');
         if (frame) frame.focus();
@@ -810,9 +852,9 @@ const focusLine = document.getElementById('focus');
 function showFocus() {
     const paths = magneticShell.focus;
     focusLine.hidden = paths.length === 0;
-    focusLine.textContent = paths.length === 0 ? '' : 'About: ' + paths.join(', ');
+    focusLine.textContent = paths.length === 0 ? '' : fill(T['chat.about'], { paths: paths.join(', ') });
     if (paths.length > 0) {
-        const clear = el('button', '', 'Clear');
+        const clear = el('button', '', T['chat.clear']);
         clear.type = 'button';
         clear.addEventListener('click', () => { magneticShell.focus.length = 0; showFocus(); });
         focusLine.append(clear);

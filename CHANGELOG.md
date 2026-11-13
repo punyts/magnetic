@@ -2,6 +2,8 @@
 
 ## 0.1.0 (unreleased)
 
+- **Dark mode and four languages.** Each person picks light, dark or the system's look, and English, German, French or Spanish: in two menus at the top of Your apps, and in a sheet beside Share in the editor. The choice is kept per person (`users/<id>/magnetic/prefs.json`, `POST /prefs`); until they choose, Magnetic follows the system and the browser's language. Every page follows it: the sign-in and link pages, Your apps, the editor, the chat, the share sheet, the inspector (one app per language) and the app frame itself, whose components speak the language too. The words are in `src/http/text.ts`, checked complete for every language by the type. Tests: `Preferences.test.ts`, `agentRoutes.test.ts`.
+
 - **The inspector matches the editor.** It follows the system's light or dark setting, as the editor's panels do, and switches when it changes.
 
 - **A blank app says what to do.** The editor of an app with nothing on its screens shows, over the empty frame, a note to tell the agent what to build and three ideas; an idea fills the chat box, and the note goes once a request is sent (and while the chat is open). Test: `agentRoutes.test.ts`.
