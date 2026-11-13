@@ -160,6 +160,28 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         expect((await app()).revision).toBe(before);
     }, 60_000);
 
+    it('should show a layout, its cells and its gaps while the pointer is over the layout, not over a child', async () => {
+        // Arrange: the middle of the grid is the gap between its two columns
+        const gap = await pointOf(page, `${HOME}.children.grid`, 0.5, 0.5);
+        const gamma = await pointOf(page, `${HOME}.children.grid.children.c`, 0.3);
+
+        // Act
+        await page.mouse.move(gap.x, gap.y);
+        const tag = await page.locator('#overlay .box.layout .tag').textContent({ timeout: 5000 });
+        const cells = await page.locator('#overlay .cell').count();
+        const gutters = await page.locator('#overlay .gutter').count();
+        const items = await page.locator('#overlay .item').count();
+        await page.mouse.move(gamma.x, gamma.y);
+        await expect.poll(() => page.locator('#overlay .box.hover .tag').textContent()).toBe('text · c');
+
+        // Assert
+        expect(tag).toBe('panel · grid · grid cols 2');
+        expect(cells).toBe(2);
+        expect(gutters).toBe(1);
+        expect(items).toBe(2);
+        expect(await page.locator('#overlay .box.layout').count()).toBe(0);
+    }, 60_000);
+
     it('should place a component between the children of a column, as one write', async () => {
         // Arrange
         const before = (await app()).revision;

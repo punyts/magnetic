@@ -32,6 +32,8 @@ const MAX_FEED = 40;
 
 let selected = null;
 let hover = null;
+/** Where the pointer was when hover was found: over the gaps of a layout rather than one of its children, the layout shows */
+let hoverAt = null;
 let placing = null;
 let drop = null;
 let crumbPaths = [];
@@ -121,7 +123,8 @@ function addBox(rect, className, label) {
 function draw() {
     overlay.replaceChildren();
     if (selected && selected.rect && !(placing && placing.move)) addBox(selected.rect, 'selected', selected.label);
-    if (!placing && hover && !(selected && hover.path === selected.path)) addBox(hover.rect, 'hover', nodeLabel(hover));
+    if (!placing && hover && overLayout(hover, hoverAt)) drawLayout(hover);
+    else if (!placing && hover && !(selected && hover.path === selected.path)) addBox(hover.rect, 'hover', nodeLabel(hover));
     if (placing && drop) {
         addBox(drop.target.rect, 'target', 'into ' + nodeLabel(drop.target));
         if (drop.line) {
@@ -140,6 +143,58 @@ function draw() {
     }
 }
 
+// A layout shows itself when the pointer is over the layout and not over one of its children: in a gap, an empty
+// track or the empty part of the area. Its area is outlined, its children are boxes, its gaps hatched and, in a grid,
+// every cell outlined, filled or not; the tag says the layout and its settings
+function overLayout(node, point) {
+    return Boolean(node.area && point && inside(node.area.rect, point) && !node.children.some((child) => inside(child.rect, point)));
+}
+
+function layoutLabel(node) {
+    const settings = Object.entries(node.area.settings).map(([name, value]) => (value === '' || value === 'true' ? name : name + ' ' + value));
+    return [nodeLabel(node), [node.layout || 'column', ...settings].join(' ')].join(' · ');
+}
+
+function piece(className, rect) {
+    if (!(rect.width > 0.5 && rect.height > 0.5)) return;
+    const element = document.createElement('div');
+    element.className = className;
+    rectStyle(element, rect);
+    overlay.append(element);
+}
+
+function drawLayout(node) {
+    const { rect, flow, gap, columns, rows } = node.area;
+    addBox(rect, 'layout', layoutLabel(node));
+    if (flow === 'grid' && columns) {
+        const heights = rows && rows.length > 0 ? rows : [rect.height];
+        let y = rect.y;
+        heights.forEach((height, row) => {
+            if (row > 0) piece('gutter', { x: rect.x, y: y - gap.row, width: rect.width, height: gap.row });
+            let x = rect.x;
+            columns.forEach((width, column) => {
+                if (column > 0 && row === 0) piece('gutter', { x: x - gap.column, y: rect.y, width: gap.column, height: rect.height });
+                piece('cell', { x, y, width, height });
+                x += width + gap.column;
+            });
+            y += height + gap.row;
+        });
+    } else if (flow === 'row' || flow === 'column') {
+        const across = flow === 'row';
+        const items = node.children.map((child) => child.rect).sort((a, b) => (across ? a.x - b.x : a.y - b.y));
+        for (let index = 1; index < items.length; index++) {
+            const a = items[index - 1];
+            const b = items[index];
+            // Only between neighbours on the same line: a wrapped row starts a new line
+            if (across && (b.y >= a.y + a.height || a.y >= b.y + b.height)) continue;
+            if (!across && (b.x >= a.x + a.width || a.x >= b.x + b.width)) continue;
+            if (across) piece('gutter', { x: a.x + a.width, y: Math.min(a.y, b.y), width: b.x - a.x - a.width, height: Math.max(a.y + a.height, b.y + b.height) - Math.min(a.y, b.y) });
+            else piece('gutter', { x: Math.min(a.x, b.x), y: a.y + a.height, width: Math.max(a.x + a.width, b.x + b.width) - Math.min(a.x, b.x), height: b.y - a.y - a.height });
+        }
+    }
+    for (const child of node.children) piece('item', child.rect);
+}
+
 // One question to the frame at a time; the last point asked for wins
 let asking = false;
 let waiting = null;
@@ -153,7 +208,10 @@ async function inspectAt(point) {
             waiting = null;
             const answer = await host.inspect({ at });
             if (placing) dropAt(answer, at);
-            else hover = answer && answer.nodes[0] ? answer.nodes[0] : null;
+            else {
+                hover = answer && answer.nodes[0] ? answer.nodes[0] : null;
+                hoverAt = at;
+            }
             draw();
         }
     } finally {

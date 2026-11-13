@@ -110,6 +110,11 @@ body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; he
 .overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .overlay .box { position: absolute; box-sizing: border-box; border: calc(1.5px / var(--zoom, 1)) solid var(--accent); border-radius: calc(3px / var(--zoom, 1)); }
 .overlay .box.hover { border-style: dashed; opacity: 0.8; }
+/* A layout shown while the pointer is over it: its area, its children, its gaps and the cells of a grid */
+.overlay .box.layout { border-style: dotted; background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.overlay .item { position: absolute; box-sizing: border-box; border: calc(1px / var(--zoom, 1)) solid color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.overlay .cell { position: absolute; box-sizing: border-box; border: calc(1px / var(--zoom, 1)) dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.overlay .gutter { position: absolute; background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--accent) 40%, transparent) 0 calc(1.5px / var(--zoom, 1)), transparent 0 calc(5px / var(--zoom, 1))); }
 .overlay .box.target { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .overlay .tag { position: absolute; left: -1px; bottom: 100%; margin-bottom: calc(2px / var(--zoom, 1)); padding: calc(1px / var(--zoom, 1)) calc(5px / var(--zoom, 1)); font: calc(11px / var(--zoom, 1)) system-ui, sans-serif; color: var(--paper); background: var(--accent); border-radius: calc(3px / var(--zoom, 1)); white-space: nowrap; }
 .overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
