@@ -674,7 +674,7 @@ document.getElementById('inspector-close').addEventListener('click', () => { clo
         const app = await response.json();
         P = app.paths;
         holder.addEventListener('stateui:emit', onEmit);
-        holder.addEventListener('stateui:ready', () => { showLibrary(); showFeed(); if (selected) showProperties(selected.info); });
+        holder.addEventListener('stateui:ready', () => { panel.write([{ path: '$.theme.active.mode', value: 'system' }]); showLibrary(); showFeed(); if (selected) showProperties(selected.info); });
         panel = host.mount(holder, app, 'Inspector');
         const listed = await getJson('/components');
         library = listed.components || [];

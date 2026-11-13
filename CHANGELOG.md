@@ -2,6 +2,8 @@
 
 ## 0.1.0 (unreleased)
 
+- **The inspector matches the editor.** It follows the system's light or dark setting, as the editor's panels do, and switches when it changes.
+
 - **A blank app says what to do.** The editor of an app with nothing on its screens shows, over the empty frame, a note to tell the agent what to build and three ideas; an idea fills the chat box, and the note goes once a request is sent (and while the chat is open). Test: `agentRoutes.test.ts`.
 - **Your apps, laid out.** The home page is a centred column: Magnetic and Sign out, a "Make an app" box with the name field beside its button, then your apps and the apps shared with you as tight rows of cards; it fills a phone's width.
 - **The inspector has room.** Add lists each component as a card with its name and a short summary, in a list that fills the panel; the State tab's tree and its changes feed have heights of their own, so the tree shows more than one row.
