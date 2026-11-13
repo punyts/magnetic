@@ -457,7 +457,14 @@ function showLibrary() {
     if (!panel) return;
     const words = search.trim().toLowerCase();
     const shown = library.filter((component) => (category === 'all' || component.category === category) && (words === '' || (component.name + ' ' + component.summary).toLowerCase().includes(words))).slice(0, 60);
-    panel.write([{ path: '$.data.components', value: Object.fromEntries(shown.map((component, index) => ['k' + index, { id: 'k' + index, name: component.name, summary: component.summary }])) }]);
+    panel.write([{ path: '$.data.components', value: Object.fromEntries(shown.map((component, index) => ['k' + index, { id: 'k' + index, name: component.name, summary: brief(component.summary) }])) }]);
+}
+
+/** A component's summary cut to what fits two lines of a card: its first clause, at most 64 characters on a word */
+function brief(summary) {
+    const clause = String(summary || '').split(/[:;(]/)[0].trim().replace(/,$/, '');
+    if (clause.length <= 64) return clause;
+    return clause.slice(0, 64).replace(/[\s,]+\S*$/, '') + '…';
 }
 
 // The State tab: $.data as a tree, and what uses the chosen path

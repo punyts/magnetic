@@ -55,6 +55,15 @@ const MAX_FOCUS = 5;
 /** An app part, as the views find it */
 type AppPart = NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>;
 
+/** True when no screen of an app has anything on it yet: a new app, before the agent builds it */
+function isBlank(body: unknown): boolean {
+    const screens = isRecord(body) && isRecord(body['screens']) ? Object.values(body['screens']) : [];
+    return screens.every((screen) => {
+        const root = isRecord(screen) ? screen['root'] : undefined;
+        return !isRecord(root) || !isRecord(root['children']) || Object.keys(root['children']).length === 0;
+    });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -647,7 +656,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
             namespace: services.instanceViews.namespace(app),
             models: turns.models.map(modelChoice),
-            editing
+            editing,
+            blank: isBlank(app.body)
         });
     }
 

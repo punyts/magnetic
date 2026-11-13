@@ -15,7 +15,19 @@ export interface ShellPageOptions {
     readonly models?: readonly { readonly id: string; readonly label: string }[];
     /** True: the editor shows (`/edit/<appId>`); false: the app fills the window (`/apps/<appId>`) until Ctrl+Shift+E */
     readonly editing: boolean;
+    /** True: the app has nothing on its screens yet, and the editor says what to do over the empty frame */
+    readonly blank?: boolean;
 }
+
+/** Ideas a blank app offers to start from; one fills the chat box */
+const BLANK_IDEAS = [
+    'A reading list: each book with a title, an author and a status, and a filter by status',
+    'A habit tracker: a few daily habits to tick off, and a streak for each',
+    'A booking form for a small studio: name, email, a date and a time slot, and a thank-you screen'
+];
+
+/** Over a blank app's frame: what to do first, and ideas to start from */
+const blankHint = `<section class="float blank" id="blank" aria-label="A blank app"><strong>This app is blank</strong><p>Tell the agent what to build in the box below: what the app is for, what it keeps, and what people do with it. Or start from an idea:</p><div class="ideas">${BLANK_IDEAS.map((idea) => `<button type="button" class="idea">${escapeHtml(idea)}</button>`).join('')}</div></section>`;
 
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
 export const EDIT_KEY = 'mod+shift+e';
@@ -92,6 +104,7 @@ export function shellPage(options: ShellPageOptions): string {
         `<button type="button" class="icon" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">${ICONS.plus}</button>`,
         `<button type="button" class="icon" id="zoom-fit" title="Fit the app (1)" aria-label="Fit the app">${ICONS.fit}</button>`,
         '</div>',
+        options.blank === true ? blankHint : '',
         '<aside class="float inspector" id="inspector" aria-label="Inspector" hidden>',
         `<header class="bar"><strong>Inspector</strong><span class="small muted status" id="inspector-status" role="status"></span><span class="spacer"></span><button type="button" id="inspector-close" class="icon" title="Close the inspector" aria-label="Close the inspector">${ICONS.close}</button></header>`,
         '<div class="inspector-frame" id="inspector-frame"></div>',
@@ -234,6 +247,13 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .float button.stop { border-color: var(--bad); color: var(--bad); }
 .float button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 2.2rem; height: 2.2rem; flex: none; border: 0; border-radius: 50%; }
 .float button.icon:not(.primary):hover { background: var(--soft); }
+.float.blank { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(30rem, calc(100vw - 2rem)); padding: 1.25rem 1.25rem 1rem; text-align: center; }
+.float.blank strong { font-size: 1.1rem; }
+.float.blank p { margin: 0.5rem 0 1rem; color: var(--muted); line-height: 1.45; }
+.float.blank .ideas { display: flex; flex-direction: column; gap: 0.5rem; }
+.float.blank .idea { text-align: left; padding: 0.6rem 0.8rem; line-height: 1.35; }
+.float.blank .idea:hover { background: var(--soft); border-color: var(--accent); }
+.float.blank[hidden], body:has(#panel:not([hidden])) .float.blank { display: none; }
 #chat-open[aria-expanded="true"] { color: var(--accent); }
 #pin[aria-pressed="true"] { background: var(--line); }
 #share-open[aria-expanded="true"] { filter: brightness(0.9); }
@@ -466,6 +486,10 @@ async function post(path, body) {
     try { return (await response.json()).message || 'The request was refused.'; } catch { return 'The request was refused.'; }
 }
 
+// A blank app's hint: an idea fills the chat box; the first request sent puts the hint away
+const blank = document.getElementById('blank');
+if (blank) for (const idea of blank.querySelectorAll('.idea')) idea.addEventListener('click', () => { text.value = idea.textContent; fitText(); text.focus(); });
+
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const value = text.value.trim();
@@ -474,7 +498,7 @@ form.addEventListener('submit', async (event) => {
     send.disabled = true;
     const focus = magneticShell.focus.slice();
     const refused = await post('/turns', { text: value, context, ...(model && { model: model.value }), ...(focus.length > 0 && { focus }) });
-    if (refused === undefined) { text.value = ''; fitText(); magneticShell.focus.length = 0; showFocus(); status.textContent = status.textContent === 'Working…' ? status.textContent : ''; return; }
+    if (refused === undefined) { if (blank) blank.hidden = true; text.value = ''; fitText(); magneticShell.focus.length = 0; showFocus(); status.textContent = status.textContent === 'Working…' ? status.textContent : ''; return; }
     send.disabled = running;
     status.className = 'status bad';
     status.textContent = refused;

@@ -62,25 +62,35 @@ const INSPECTOR_SCREEN = {
                 add: {
                     component: 'panel',
                     placement: { _tab: 'Add' },
+                    layout: { type: 'column', gap: 'sm' },
                     children: {
-                        search: { component: 'searchBox', size: 'sm', _label: 'Find a component', _placeholder: 'Find a component', value: '', on: { change: { command: 'emit', target: 'search' } } },
-                        category: {
-                            component: 'selectField',
-                            size: 'sm',
-                            _label: 'Category',
-                            options: Object.fromEntries([['all', { _label: 'All' }], ...COMPONENT_CATEGORIES.map((name) => [name, { _label: name[0]?.toUpperCase() + name.slice(1) }])]),
-                            value: 'all',
-                            on: { change: { command: 'emit', target: 'category' } }
+                        find: {
+                            component: 'panel',
+                            padding: 'none',
+                            layout: { type: 'row', gap: 'sm', align: 'end' },
+                            children: {
+                                search: { component: 'searchBox', size: 'sm', placement: { grow: 1 }, _label: 'Find a component', _placeholder: 'Find a component', value: '', on: { change: { command: 'emit', target: 'search' } } },
+                                category: {
+                                    component: 'selectField',
+                                    size: 'sm',
+                                    _label: 'Category',
+                                    options: Object.fromEntries([['all', { _label: 'All' }], ...COMPONENT_CATEGORIES.map((name) => [name, { _label: name[0]?.toUpperCase() + name.slice(1) }])]),
+                                    value: 'all',
+                                    on: { change: { command: 'emit', target: 'category' } }
+                                }
+                            }
                         },
-                        hint: { component: 'text', _text: 'Pick a component, then click where it goes in the app.' },
+                        hint: { component: 'text', textRole: 'caption', _text: 'Pick a component, then click where it goes in the app.' },
                         cards: {
                             component: 'list',
                             '<-items': '$.data.components',
-                            divided: true,
+                            rowHeight: 'xl',
+                            placement: { height: 'calc(100vh - 190px)' },
                             _empty: 'No component matches.',
                             row: {
                                 component: 'card',
                                 elevation: 'flat',
+                                padding: 'sm',
                                 interactive: true,
                                 '<-_title': '$row.name',
                                 '<-_subtitle': '$row.summary',
@@ -92,17 +102,19 @@ const INSPECTOR_SCREEN = {
                 state: {
                     component: 'panel',
                     placement: { _tab: 'State' },
+                    layout: { type: 'column', gap: 'sm' },
                     children: {
                         paths: {
                             component: 'tree',
                             '<-records': '$.data.paths',
                             selectable: 'single',
                             density: 'compact',
+                            placement: { height: 'calc(100vh - 360px)' },
                             on: { select: { command: 'emit', target: 'path' } }
                         },
                         detail: { component: 'panel', padding: 'none', children: {} },
                         feedTitle: { component: 'text', textRole: 'label', _text: 'Changes' },
-                        feed: { component: 'list', '<-items': '$.data.feed', density: 'compact', _empty: 'Use the app to see its state change here.', row: { component: 'text', truncate: 1, '<-_text': '$row.line' } }
+                        feed: { component: 'list', '<-items': '$.data.feed', density: 'compact', placement: { height: '200px' }, _empty: 'Use the app to see its state change here.', row: { component: 'text', truncate: 1, '<-_text': '$row.line' } }
                     }
                 }
             }

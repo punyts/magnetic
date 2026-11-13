@@ -2,6 +2,10 @@
 
 ## 0.1.0 (unreleased)
 
+- **A blank app says what to do.** The editor of an app with nothing on its screens shows, over the empty frame, a note to tell the agent what to build and three ideas; an idea fills the chat box, and the note goes once a request is sent (and while the chat is open). Test: `agentRoutes.test.ts`.
+- **Your apps, laid out.** The home page is a centred column: Magnetic and Sign out, a "Make an app" box with the name field beside its button, then your apps and the apps shared with you as tight rows of cards; it fills a phone's width.
+- **The inspector has room.** Add lists each component as a card with its name and a short summary, in a list that fills the panel; the State tab's tree and its changes feed have heights of their own, so the tree shows more than one row.
+
 - **Closing the inspector lets the selection go.** The inspector's close button, pressing the Select tool again, or V (the Use tool) now clears the selected part's outline and closes the inspector. The Hand tool keeps both. Test: `editor.browser.test.ts`.
 - **The inspector starts closed.** The editor opens with the Use tool on and the inspector hidden; the Select tool opens it. While hidden it still loads (it is invisible, not removed), so it opens with its tabs ready. Test: `editor.browser.test.ts`.
 - **Fix: the chat closes.** Its close button and Escape closed the chat, then put the focus back in the chat bar, and focusing the bar opens the chat, so it opened again at once. The focus a close puts back no longer opens it. Test: `editor.browser.test.ts`.

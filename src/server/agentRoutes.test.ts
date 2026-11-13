@@ -142,6 +142,22 @@ describe('Agent turns', () => {
         expect((await fetch(`${magnetic.origin}/assets/shell.js`)).headers.get('content-type')).toMatch(/^text\/javascript/);
     });
 
+    it('should say what to do over a blank app, with ideas, and not over an app that has something on it', async () => {
+        // Arrange
+        const tools = createStateUiTools(await magnetic.workspaces.get(aliceId));
+        const made = await tools.find((candidate) => candidate.name === 'ui_app_create')!.run({ name: 'built-board', home: { component: 'panel', children: { hello: { component: 'text', _text: 'Hello' } } } });
+        const builtId = (made.body as { id: string }).id;
+
+        // Act
+        const blank = await (await fetch(`${magnetic.origin}/edit/${appId}`, { headers: { Cookie: alice } })).text();
+        const built = await (await fetch(`${magnetic.origin}/edit/${builtId}`, { headers: { Cookie: alice } })).text();
+
+        // Assert
+        expect(blank).toContain('id="blank"');
+        expect(blank.match(/class="idea"/g)).toHaveLength(3);
+        expect(built).not.toContain('id="blank"');
+    });
+
     it('should open an own app with the editor hidden and the editor chord named, and the editor with it shown', async () => {
         // Act
         const app = await (await fetch(`${magnetic.origin}/apps/${appId}`, { headers: { Cookie: alice } })).text();

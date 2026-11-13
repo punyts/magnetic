@@ -32,26 +32,59 @@ function byId(cards: readonly HomeCard[]): Record<string, HomeCard> {
 function grid(records: string): Record<string, unknown> {
     return {
         component: 'recordGrid',
+        theme: { recordgrid: { itemheight: 'calc({size.control.md} * 2)' } },
         '<-records': records,
         row: { component: 'card', elevation: 'flat', interactive: true, '<-_title': '$row.name', '<-_subtitle': '$row.note', on: { press: { command: 'emit', target: 'open', from: '$row.id' } } }
     };
 }
 
+/** Where the home app keeps the name typed for a new app */
+const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.value';
+
 /**
- * The home screen: a field and a button that make an app (`create`, with the name), the person's apps, the apps
- * shared with them and Sign out (`signout`). Each `emit` reaches the page (`stateui:emit`), whose script acts on it
+ * The home screen, in a centred column: Magnetic and Sign out (`signout`), a field and a button that make an app
+ * (`create`, with the name), the person's apps and the apps shared with them. Each `emit` reaches the page
+ * (`stateui:emit`), whose script acts on it
  */
 const HOME_SCREEN = {
     component: 'panel',
-    _title: 'Your apps',
-    _description: 'Open an app to use it. Press Ctrl+Shift+E in an app to edit it with the agent.',
+    padding: 'lg',
+    layout: { type: 'grid', cols: 12, collapseBelow: 'md' },
     children: {
-        make: { component: 'textField', _label: 'Make an app', _placeholder: 'Its name, such as Reading list', value: '' },
-        create: { component: 'button', _title: 'Make', on: { press: { command: 'emit', target: 'create', from: '$.screens.home.children.make.value' } } },
-        apps: grid('$.data.apps'),
-        sharedTitle: { component: 'text', textRole: 'label', _text: 'Shared with you' },
-        shared: grid('$.data.shared'),
-        signout: { component: 'button', variant: 'ghost', _title: 'Sign out', on: { press: { command: 'emit', target: 'signout' } } }
+        page: {
+            component: 'panel',
+            padding: 'none',
+            placement: { col: 3, span: 8 },
+            layout: { type: 'column', gap: 'lg' },
+            children: {
+                top: {
+                    component: 'panel',
+                    padding: 'none',
+                    layout: { type: 'row', align: 'center' },
+                    children: {
+                        title: { component: 'text', textRole: 'title', placement: { grow: 1 }, _text: 'Magnetic' },
+                        signout: { component: 'button', variant: 'ghost', size: 'sm', _title: 'Sign out', on: { press: { command: 'emit', target: 'signout' } } }
+                    }
+                },
+                new: {
+                    component: 'panel',
+                    bordered: true,
+                    _title: 'Make an app',
+                    _description: 'Name it, and the editor opens on a blank app: tell the agent what to build.',
+                    layout: { type: 'row', align: 'end', gap: 'sm' },
+                    children: {
+                        make: { component: 'textField', placement: { grow: 1 }, _label: 'Name', _placeholder: 'Such as Reading list', value: '' },
+                        create: { component: 'button', _title: 'Make', on: { press: { command: 'emit', target: 'create', from: MAKE_VALUE } } }
+                    }
+                },
+                appsTitle: { component: 'text', textRole: 'heading', _text: 'Your apps' },
+                appsHint: { component: 'text', textRole: 'caption', _text: 'Open an app to use it. Press Ctrl+Shift+E in an app to edit it with the agent.' },
+                apps: grid('$.data.apps'),
+                sharedTitle: { component: 'text', textRole: 'heading', _text: 'Shared with you' },
+                sharedHint: { component: 'text', textRole: 'caption', _text: 'Apps other people share with you show here.' },
+                shared: grid('$.data.shared')
+            }
+        }
     }
 };
 
@@ -129,6 +162,6 @@ export class HomeApps {
         const tools = this.toolsOf(services);
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.apps', value: byId(data.apps), logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.shared', value: byId(data.shared), logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.screens.home.children.make.value', value: '', logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: MAKE_VALUE, value: '', logic: false });
     }
 }
