@@ -50,8 +50,8 @@ const TOP = '$.screens.home.children.page.children.top.children';
 
 /**
  * The home screen, in a centred column: Magnetic, the menus of mode and language (`mode`, `language`) and Sign out
- * (`signout`), a field and a button that make an app (`create`, with the name), the person's apps and the apps shared
- * with them. Each `emit` reaches the page (`stateui:emit`), whose script acts on it
+ * (`signout`), a field and a button that make an app (`create`, with the name), the person's apps, the apps shared
+ * with them, and their editor (`editEditor`, `resetEditor`). Each `emit` reaches the page (`stateui:emit`), whose script acts on it
  */
 function homeScreen(t: Texts): Record<string, unknown> {
     const menu = (target: string, label: string, options: Record<string, { _label: string }>): Record<string, unknown> => ({
@@ -100,7 +100,18 @@ function homeScreen(t: Texts): Record<string, unknown> {
                     apps: grid('$.data.apps'),
                     sharedTitle: { component: 'text', textRole: 'heading', _text: t['home.sharedTitle'] },
                     sharedHint: { component: 'text', textRole: 'caption', _text: t['home.sharedText'] },
-                    shared: grid('$.data.shared')
+                    shared: grid('$.data.shared'),
+                    editor: {
+                        component: 'panel',
+                        bordered: true,
+                        _title: t['home.editorTitle'],
+                        _description: t['home.editorText'],
+                        layout: { type: 'row', gap: 'sm', align: 'center', wrap: true },
+                        children: {
+                            edit: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editEditor'], on: { press: { command: 'emit', target: 'editEditor' } } },
+                            reset: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetEditor'], on: { press: { command: 'emit', target: 'resetEditor' } } }
+                        }
+                    }
                 }
             }
         }

@@ -1,14 +1,14 @@
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
- * `/assets/inspect.js`: the editor's inspector, after `/assets/shell.js` and `/assets/host.js`.
+ * `/assets/inspect.js`: the editor's inspector, after `/assets/host.js` and `/assets/shell.js`.
  *
- * The inspector is a StateUI app (`/assets/inspector.json`) the page mounts beside the app with `stateuiHost.mount`
- * and fills itself: the page writes its records and whole nodes into it and acts on its emits. The page asks the app
- * frame about its nodes with `stateuiHost.inspect` and draws the hover, the selection and where a node lands on an
- * overlay above the frame, in the frame's own pixels (the overlay is inside the artboard, so it pans and zooms with
- * it). Every change goes to the server as one checked `ui_nodes_write` (`POST /edit/<id>/nodes`), and the app
- * follows through its sync, as it does for the agent.
+ * The inspector's tabs are part of the editor app (`magneticShell.editor`): this script writes what they show into the
+ * editor's data (`$.data.editor` and the lists `components`, `paths`, `feed`), fills its `propertyFields` panel with
+ * a field per property, and acts on its emits. It asks the app frame about its nodes with `stateuiHost.inspect` and
+ * draws the hover, the selection and where a node lands on an overlay above the frame, in the frame's own pixels (the
+ * overlay is inside the artboard, so it pans and zooms with it). Every change goes to the server as one checked
+ * `ui_nodes_write` (`POST /edit/<id>/nodes`), and the app follows through its sync, as it does for the agent.
  *
  * - Select (S): hover outlines a node, a click selects it; the breadcrumb selects a parent; Escape lets go.
  * - Properties: a field per property of the node's component, saved as a `set`; Delete removes the node.
@@ -24,17 +24,12 @@ const host = window.stateuiHost;
 const artboard = document.getElementById('artboard');
 const shield = document.getElementById('shield');
 const overlay = document.getElementById('overlay');
-const inspectorPanel = document.getElementById('inspector');
-const holder = document.getElementById('inspector-frame');
-const statusLine = document.getElementById('inspector-status');
-const dataLine = document.getElementById('data-line');
+const editor = shell ? shell.editor : null;
 const TEXT_SAVE_MS = 600;
 const FLASH_MS = 1200;
 const MAX_PATHS = 400;
 const MAX_FEED = 40;
 
-let panel = null;
-let P = null;
 let selected = null;
 let hover = null;
 let placing = null;
@@ -52,9 +47,14 @@ const feed = [];
 let feedCount = 0;
 const saveTimers = new Map();
 
-function says(message, bad) {
-    statusLine.textContent = message || '';
-    statusLine.className = 'small muted status' + (bad ? ' bad' : '');
+function says(message) {
+    editor.set({ inspectorStatus: message || '' });
+}
+
+/** Shows a tab of the editor's sidebar, also when it shows it already */
+function showTab(name) {
+    editor.set({ tab: '' });
+    editor.set({ tab: name });
 }
 
 function lastKey(path) { return path.slice(path.lastIndexOf('.') + 1); }
@@ -84,7 +84,8 @@ async function writeNodes(operations) {
         return undefined;
     }
     says(T['inspect.saved']);
-    setTimeout(() => { if (statusLine.textContent === T['inspect.saved']) says(''); }, 1500);
+    shell.editorChanged();
+    setTimeout(() => { if (editor.state.inspectorStatus === T['inspect.saved']) says(''); }, 1500);
     return body;
 }
 
@@ -282,17 +283,17 @@ shield.addEventListener('pointerup', async (event) => {
 });
 shield.addEventListener('pointerleave', () => { if (!press) { hover = null; draw(); } });
 
-// Leaving the inspector (its close button, or back to using the app) lets the selection go too: nothing stays
-// outlined in an app you are using. Panning with the hand keeps both, to move around what you inspect
+// The Select tool opens the inspector. Closing it, or going back to using the app, lets the selection go too: nothing
+// stays outlined in an app you are using. Panning with the hand keeps both, to move around what you inspect
 function closeInspector() {
-    inspectorPanel.hidden = true;
+    shell.showInspector(false);
     if (selected) unselect();
 }
 
 shell.onTool((tool) => {
     if (tool !== 'place' && placing) { placing = null; drop = null; }
     if (tool !== 'select' && tool !== 'place') hover = null;
-    if (tool === 'select') inspectorPanel.hidden = false;
+    if (tool === 'select') shell.showInspector(true);
     if (tool === 'use') closeInspector();
     draw();
 });
@@ -337,29 +338,26 @@ function fieldsOf(info) {
     return { component: 'panel', padding: 'none', children };
 }
 
+/** Fills the editor's propertyFields panel, wherever the editor keeps it */
+function writeFields(node) {
+    const at = editor.pathOf('propertyFields');
+    if (at) editor.write([{ path: at, value: node }]);
+}
+
 function showProperties(info) {
     const crumbs = crumbsOf(info.path);
     crumbPaths = crumbs.map((crumb) => crumb.path);
     const items = Object.fromEntries(crumbs.map((crumb, index) => ['c' + index, { _label: crumb.label }]));
     const summary = info.component && info.component.summary ? '. ' + info.component.summary : '';
-    panel.write([
-        { path: P.crumbs, value: { component: 'breadcrumb', items, current: 'c' + (crumbs.length - 1), on: { select: { command: 'emit', target: 'crumb' } } } },
-        { path: P.heading + '._text', value: info.settings.component + summary },
-        { path: P.fields, value: fieldsOf(info) },
-        { path: P.remove + '.hidden', value: parentOf(info.path) === null }
-    ]);
+    editor.set({ crumbs: items, crumb: 'c' + (crumbs.length - 1), noSelection: false, heading: info.settings.component + summary, cannotRemove: parentOf(info.path) === null });
+    writeFields(fieldsOf(info));
 }
 
 function clearProperties() {
-    if (!panel) return;
     crumbPaths = [];
     fieldNames = [];
-    panel.write([
-        { path: P.crumbs, value: { component: 'breadcrumb', items: {}, current: '', on: { select: { command: 'emit', target: 'crumb' } } } },
-        { path: P.heading + '._text', value: T['inspect.pressS'] },
-        { path: P.fields, value: { component: 'panel', padding: 'none', children: {} } },
-        { path: P.remove + '.hidden', value: true }
-    ]);
+    editor.set({ crumbs: {}, crumb: '', noSelection: true, heading: T['inspect.pressS'], cannotRemove: true });
+    writeFields({ component: 'panel', padding: 'none', children: {} });
 }
 
 async function refreshRect() {
@@ -386,11 +384,9 @@ async function select(path) {
         return;
     }
     selected = { path, info, rect: null, label: info.settings.component + ' · ' + lastKey(path) };
-    inspectorPanel.hidden = false;
-    if (panel) {
-        showProperties(info);
-        panel.command(P.tabs, 'select', 'properties');
-    }
+    showProperties(info);
+    shell.showInspector(true);
+    showTab('properties');
     await refreshRect();
     if (selected && !selected.rect) settle();
 }
@@ -456,10 +452,9 @@ function saveProperty(name, value, wait) {
 
 // The component library, filtered by the search and the category
 function showLibrary() {
-    if (!panel) return;
     const words = search.trim().toLowerCase();
     const shown = library.filter((component) => (category === 'all' || component.category === category) && (words === '' || (component.name + ' ' + component.summary).toLowerCase().includes(words))).slice(0, 60);
-    panel.write([{ path: '$.data.components', value: Object.fromEntries(shown.map((component, index) => ['k' + index, { id: 'k' + index, name: component.name, summary: brief(component.summary) }])) }]);
+    editor.write([{ path: '$.data.components', value: Object.fromEntries(shown.map((component, index) => ['k' + index, { id: 'k' + index, name: component.name, summary: brief(component.summary) }])) }]);
 }
 
 /** A component's summary cut to what fits two lines of a card: its first clause, at most 64 characters on a word */
@@ -500,7 +495,7 @@ function setValueAt(path, value) {
 }
 
 function showPaths() {
-    if (!panel || !stateInfo) return;
+    if (!stateInfo) return;
     const records = {};
     const keyOf = new Map();
     pathKeys = [];
@@ -516,33 +511,24 @@ function showPaths() {
         if (branch && depth < 6) for (const [name, inner] of Object.entries(value).slice(0, 100)) visit(inner, path + '.' + name, path, depth + 1);
     };
     visit(stateInfo.data, '$.data', null, 0);
-    panel.write([{ path: '$.data.paths', value: records }]);
+    editor.write([{ path: '$.data.paths', value: records }]);
 }
 
 function showDetail(path) {
-    if (!panel || !stateInfo) return;
+    if (!stateInfo) return;
     chosenPath = path;
     const names = (list) => (list.length === 0 ? T['inspect.nothing'] : (list.length > 8 ? fill(T['inspect.andMore'], { list: list.slice(0, 8).join(', '), count: list.length - 8 }) : list.join(', ')));
     const shownBy = stateInfo.bindings.filter((binding) => related(binding.path, path)).map((binding) => lastKey(binding.node) + '.' + binding.property);
     const readBy = stateInfo.logic.filter((unit) => unit.reads.some((read) => related(read, path))).map((unit) => unit.kind + ' ' + unit.name);
     const writtenBy = stateInfo.logic.filter((unit) => unit.writes.some((write) => related(write, path))).map((unit) => unit.kind + ' ' + unit.name);
-    panel.write([
-        {
-            path: P.detail,
-            value: {
-                component: 'panel',
-                padding: 'none',
-                children: {
-                    path: { component: 'text', textRole: 'label', _text: path },
-                    value: { component: 'text', _text: fill(T['inspect.value'], { value: clip(JSON.stringify(valueAt(path)) || T['inspect.nothing'], 300) }) },
-                    shown: { component: 'text', _text: fill(T['inspect.shownBy'], { names: names(shownBy) }) },
-                    read: { component: 'text', _text: fill(T['inspect.readBy'], { names: names(readBy) }) },
-                    written: { component: 'text', _text: fill(T['inspect.writtenBy'], { names: names(writtenBy) }) },
-                    ask: { component: 'button', size: 'sm', variant: 'soft', _title: T['inspect.ask'], on: { press: { command: 'emit', target: 'ask' } } }
-                }
-            }
-        }
-    ]);
+    editor.set({
+        noDetail: false,
+        detailPath: path,
+        detailValue: fill(T['inspect.value'], { value: clip(JSON.stringify(valueAt(path)) || T['inspect.nothing'], 300) }),
+        detailShown: fill(T['inspect.shownBy'], { names: names(shownBy) }),
+        detailRead: fill(T['inspect.readBy'], { names: names(readBy) }),
+        detailWritten: fill(T['inspect.writtenBy'], { names: names(writtenBy) })
+    });
 }
 
 async function loadState() {
@@ -557,8 +543,7 @@ async function loadState() {
 }
 
 function showFeed() {
-    if (!panel) return;
-    panel.write([{ path: '$.data.feed', value: Object.fromEntries(feed.map((entry) => [entry.id, entry])) }]);
+    editor.write([{ path: '$.data.feed', value: Object.fromEntries(feed.map((entry) => [entry.id, entry])) }]);
 }
 
 function addFeed(line) {
@@ -599,24 +584,21 @@ addEventListener('stateui:change', (event) => {
     traceTimer = setTimeout(readTrace, 800);
 });
 
-// The Data toggle shows the shape of the data above the chat bar
-async function showDataLine() {
-    const toggle = document.querySelector('.toggle[data-context="data"]');
-    if (!toggle || toggle.getAttribute('aria-pressed') !== 'true') { dataLine.hidden = true; return; }
+// The Data switch shows the shape of the data under the chat
+async function showDataLine(on) {
+    if (!on) { editor.set({ dataLine: '', noDataLine: true }); return; }
     try {
         const state = await getJson('/state');
         const parts = Object.entries(state.data || {}).map(([name, value]) => name + (value && typeof value === 'object' ? ' (' + Object.keys(value).length + ')' : ': ' + preview(value)));
-        dataLine.textContent = 'Data: ' + (parts.length === 0 ? 'none yet' : parts.slice(0, 12).join(' · '));
-        dataLine.hidden = false;
+        editor.set({ dataLine: 'Data: ' + (parts.length === 0 ? 'none yet' : parts.slice(0, 12).join(' · ')), noDataLine: false });
     } catch {
-        dataLine.hidden = true;
+        editor.set({ dataLine: '', noDataLine: true });
     }
 }
-for (const toggle of document.querySelectorAll('.toggle[data-context="data"]')) toggle.addEventListener('click', () => setTimeout(showDataLine, 0));
 
-function onEmit(event) {
-    const { name, payload } = event.detail || {};
+function onEmit(name, payload) {
     if (typeof name !== 'string') return;
+    if (name === 'showData') { void showDataLine(Boolean(valueOf(payload))); return; }
     const prop = /^prop(\d+)$/.exec(name);
     if (prop) {
         const field = fieldNames[Number(prop[1])];
@@ -645,6 +627,7 @@ function onEmit(event) {
         }
         case 'ask': if (chosenPath) shell.ask(chosenPath); return;
         case 'tab': if (String(valueOf(payload)) === 'state') void loadState(); return;
+        case 'inspectorClose': closeInspector(); if (shell.tool() !== 'use') shell.setTool('use'); return;
     }
 }
 
@@ -666,23 +649,17 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-document.getElementById('inspector-close').addEventListener('click', () => { closeInspector(); if (shell.tool() !== 'use') shell.setTool('use'); });
-
 (async function start() {
     if (!host || !shell) return;
+    editor.onEmit(onEmit);
+    // The editor writes again what it shows each time it (re)loads
+    editor.onReady(() => { showLibrary(); showFeed(); if (selected) showProperties(selected.info); else clearProperties(); });
     try {
-        const response = await fetch('/assets/inspector.json');
-        if (!response.ok) throw new Error('not served');
-        const app = await response.json();
-        P = app.paths;
-        holder.addEventListener('stateui:emit', onEmit);
-        holder.addEventListener('stateui:ready', () => { showLibrary(); showFeed(); if (selected) showProperties(selected.info); });
-        panel = host.mount(holder, app, T['shell.inspector']);
         const listed = await getJson('/components');
         library = listed.components || [];
         showLibrary();
     } catch {
-        says(T['inspect.failed'], true);
+        says(T['inspect.failed']);
     }
 })();
 `;

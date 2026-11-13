@@ -142,7 +142,7 @@ describe('Agent turns', () => {
         expect((await fetch(`${magnetic.origin}/assets/shell.js`)).headers.get('content-type')).toMatch(/^text\/javascript/);
     });
 
-    it('should say what to do over a blank app, with ideas, and not over an app that has something on it', async () => {
+    it('should tell the editor that an app is blank, so it shows its ideas, and not for an app that has something on it', async () => {
         // Arrange
         const tools = createStateUiTools(await magnetic.workspaces.get(aliceId));
         const made = await tools.find((candidate) => candidate.name === 'ui_app_create')!.run({ name: 'built-board', home: { component: 'panel', children: { hello: { component: 'text', _text: 'Hello' } } } });
@@ -153,9 +153,8 @@ describe('Agent turns', () => {
         const built = await (await fetch(`${magnetic.origin}/edit/${builtId}`, { headers: { Cookie: alice } })).text();
 
         // Assert
-        expect(blank).toContain('id="blank"');
-        expect(blank.match(/class="idea"/g)).toHaveLength(3);
-        expect(built).not.toContain('id="blank"');
+        expect(blank).toContain('data-blank="true"');
+        expect(built).not.toContain('data-blank');
     });
 
     it("should keep a person's mode and language, show the editor in them, and refuse an unknown one", async () => {
@@ -173,7 +172,7 @@ describe('Agent turns', () => {
         expect(await chosen.json()).toEqual({ mode: 'dark', language: 'de' });
         expect(editor).toContain('<html lang="de" data-mode="dark">');
         expect(editor).toContain('data-mode="dark" data-locale="de"');
-        expect(editor).toContain('placeholder="Was sollen wir bauen?"');
+        expect(editor).toContain('"shell.placeholder":"Was sollen wir bauen?"');
         expect(editor).toContain('id="magnetic-text"');
         expect(unknown.status).toBe(400);
         expect(signIn).toContain('<html lang="fr" data-mode="system">');
@@ -464,8 +463,8 @@ describe('Agent turns', () => {
         expect(request.fallbacks).toBe('default');
         expect(refused.status).toBe(400);
         expect(model.requests).toHaveLength(1);
-        expect(editor).toContain('<select id="model"');
-        expect(editor.indexOf('value="claude-haiku-5-5"')).toBeLessThan(editor.indexOf('value="claude-opus-5-5"'));
+        expect(editor).toContain('id="magnetic-models"');
+        expect(editor.indexOf('"id":"claude-haiku-5-5"')).toBeLessThan(editor.indexOf('"id":"claude-opus-5-5"'));
     });
 
     it('should end a turn as soon as it spends the last of the budget', async () => {

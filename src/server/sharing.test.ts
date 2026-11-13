@@ -274,7 +274,7 @@ describe('Magnetic sharing', () => {
 
         // Assert
         expect(offer.status).toBe(200);
-        expect(await offer.text()).toContain(`action="/s/${link.token}/remix"`);
+        expect(await offer.text()).toContain(`"post":"/s/${link.token}/remix"`);
         expect(remixed.status).toBe(303);
         expect(copyId).not.toBe(appId);
         expect(copy.status).toBe(200);

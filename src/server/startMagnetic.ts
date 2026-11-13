@@ -21,7 +21,10 @@ import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { bindingsOf, logicOf, nodeAt, ownSettings, treeOf } from '../inspector/editInfo.js';
-import { COMPONENT_CATEGORIES, INSPECTOR_PATHS, InspectorApp, SYSTEM_USER_ID } from '../inspector/InspectorApp.js';
+import { COMPONENT_CATEGORIES, SYSTEM_USER_ID } from '../inspector/constants.js';
+import { DefaultEditor, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
+import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
+import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
 import { run } from '../stateui/run.js';
 import type { HomeCard } from '../home/HomeApp.js';
 import type { User } from '../accounts/Accounts.js';
@@ -30,7 +33,7 @@ import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
 import type { OidcProvider } from '../auth/OidcSignIn.js';
 import { httpOnlyCookie, readCookie, SESSION_COOKIE, sessionCookie, SIGN_IN_COOKIE } from '../http/cookies.js';
 import { LOGO_SVG } from '../http/logo.js';
-import { linkPage, MAGNETIC_CSS, MAGNETIC_PAGE_CSP, signInPage } from '../http/pages.js';
+import { MAGNETIC_CSS, MAGNETIC_PAGE_CSP } from '../http/pages.js';
 import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
@@ -249,8 +252,30 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const secure = options.secureCookies ?? publicOrigin?.startsWith('https://') ?? false;
     const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
     const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
-    const signInPageOf = (request: IncomingMessage, next: string, error?: string): string =>
-        signInPage({ devUsers, providers: providerButtons, next, look: { language: languageOf(request.headers['accept-language']), mode: 'system' }, ...(error !== undefined && { error }) });
+    /** The sign-in page, a StateUI app in the browser's language: a button per provider and per development user */
+    const signInPageOf = async (request: IncomingMessage, next: string, error?: string): Promise<string> => {
+        const look: PageLook = { language: languageOf(request.headers['accept-language']), mode: 'system' };
+        const t = textsOf(look.language);
+        const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
+        return appPage({
+            look,
+            title: t['signin.title'],
+            runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
+            app: await pageApps.document(PAGE_APPS.signIn),
+            data: { '$.data.signin': { error: error ?? '', noError: error === undefined, labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name })])) } },
+            actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } } }
+        });
+    };
+    /** A share link's page, a StateUI app: why the link does not open an app, or the offer to remix it */
+    const linkPageOf = async (request: IncomingMessage, look: PageLook, title: string, message: string, remix?: string): Promise<string> =>
+        appPage({
+            look,
+            title,
+            runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
+            app: await pageApps.document(PAGE_APPS.link),
+            data: { '$.data.link': { title, message, noRemix: remix === undefined } },
+            actions: { home: { go: '/' }, ...(remix !== undefined && { remix: { post: `/s/${encodeURIComponent(remix)}/remix` } }) }
+        });
     const workspaces = new Workspaces(
         {
             open: async (userId) => {
@@ -289,20 +314,21 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const preferences = new PreferenceStore(join(options.dataDir, 'users'));
     /** How Magnetic looks and speaks to a signed-in person */
     const lookOf = (request: IncomingMessage, userId: string): Promise<Preferences> => preferences.read(userId, request.headers['accept-language']);
-    /** The inspector the editor mounts beside the app, made in the system workspace */
-    const inspector = new InspectorApp(
-        async () => {
-            const release = workspaces.retain(SYSTEM_USER_ID);
-            try {
-                return { services: await workspaces.get(SYSTEM_USER_ID), release };
-            } catch (error) {
-                release();
-                throw error;
-            }
-        },
-        toolsOf,
-        join(options.dataDir, 'users', SYSTEM_USER_ID, 'magnetic')
-    );
+    /** Each person's editor, an app of their own made with the tools the agent uses */
+    const editors = new EditorApps(toolsOf, join(options.dataDir, 'users'));
+    /** Magnetic's own editor, in the system workspace: what a person gets when theirs does not load */
+    const systemWorkspace = async (): Promise<{ services: Services; release: () => void }> => {
+        const release = workspaces.retain(SYSTEM_USER_ID);
+        try {
+            return { services: await workspaces.get(SYSTEM_USER_ID), release };
+        } catch (error) {
+            release();
+            throw error;
+        }
+    };
+    const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, join(options.dataDir, 'users', SYSTEM_USER_ID, 'magnetic'));
+    /** Magnetic's own pages before a person's workspace (sign in, share links), as StateUI apps */
+    const pageApps = new PageApps(systemWorkspace, toolsOf, join(options.dataDir, 'users', SYSTEM_USER_ID, 'magnetic'), { providers: providerButtons, devUsers });
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
@@ -446,6 +472,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
     }
 
+    /** Sends one of Magnetic's own pages made as a StateUI app: its frame comes from the runtime origin */
+    function sendAppPage(request: IncomingMessage, response: ServerResponse, html: string, status = 200, cookie?: string): void {
+        response.writeHead(status, {
+            ...(cookie !== undefined && { 'Set-Cookie': cookie }),
+            ...COMMON_HEADERS,
+            'Referrer-Policy': 'same-origin',
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': hostPageCsp(runtimeOriginOf(request)),
+            'Cache-Control': 'no-store'
+        });
+        response.end(html);
+    }
+
     /** Sends a page that runs an app: its frame comes from the runtime origin */
     function sendHostPage(request: IncomingMessage, response: ServerResponse, html: string): void {
         response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': hostPageCsp(runtimeOriginOf(request)), 'Cache-Control': 'no-store' });
@@ -461,7 +500,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const all = await services.instanceViews.list();
         const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
         const apps: HomeCard[] = [...all]
-            .filter((app) => app.id !== homeId)
+            .filter((app) => app.id !== homeId && app.name !== EDITOR_APP)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
             .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt) }));
         const shared: HomeCard[] = (await sharedApps(user.id)).map((app) => ({ id: app.appId, name: app.name, note: fill(t[app.right === 'use' ? 'home.sharedUse' : 'home.sharedView'], { owner: app.ownerName }) }));
@@ -487,17 +526,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const t = textsOf(look.language);
         const grant = await grants.byToken(token);
         if (grant === undefined) {
-            sendPage(response, linkPage({ look, title: t['link.notFoundTitle'], message: t['link.notFound'] }), 404);
+            sendAppPage(request, response, await linkPageOf(request, look, t['link.notFoundTitle'], t['link.notFound']), 404);
             return;
         }
         if (grant.revokedAt !== undefined) {
-            sendPage(response, linkPage({ look, title: grant.appName, message: t['link.revoked'] }), 410);
+            sendAppPage(request, response, await linkPageOf(request, look, grant.appName, t['link.revoked']), 410);
             return;
         }
         const owner = await workspaces.get(grant.ownerId);
         const app = await owner.instanceViews.find(grant.appId);
         if (app === undefined) {
-            sendPage(response, linkPage({ look, title: grant.appName, message: t['link.deleted'] }), 404);
+            sendAppPage(request, response, await linkPageOf(request, look, grant.appName, t['link.deleted']), 404);
             return;
         }
         if (grant.ownerId === who.user.id) {
@@ -508,7 +547,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             await grants.join(grant.id, who.user.id);
             if (grant.right === 'remix') {
                 const sharer = await accounts.user(grant.ownerId);
-                sendPage(response, linkPage({ look, title: fill(t['link.remixTitle'], { name: app.name }), message: fill(t['link.sharedCopy'], { name: sharer?.name ?? t['link.someone'] }), remix: { token } }));
+                sendAppPage(request, response, await linkPageOf(request, look, fill(t['link.remixTitle'], { name: app.name }), fill(t['link.sharedCopy'], { name: sharer?.name ?? t['link.someone'] }), token));
             } else redirect(response, `/apps/${encodeURIComponent(grant.appId)}`);
             return;
         }
@@ -516,7 +555,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const mine = await workspaces.get(who.user.id);
         const copied = await copyAppParts(owner.parts, mine.parts, grant.appId);
         if (copied.kind !== 'copied') {
-            sendPage(response, linkPage({ look, title: fill(t['link.remixTitle'], { name: app.name }), message: copied.kind === 'failed' ? fill(t['link.copyFailed'], { reason: copied.reason }) : t['link.deleted'], remix: { token } }), copied.kind === 'failed' ? 500 : 404);
+            sendAppPage(request, response, await linkPageOf(request, look, fill(t['link.remixTitle'], { name: app.name }), copied.kind === 'failed' ? fill(t['link.copyFailed'], { reason: copied.reason }) : t['link.deleted'], token), copied.kind === 'failed' ? 500 : 404);
             return;
         }
         options.report.info('App remixed', { from: grant.appId, to: copied.app.id, parts: copied.parts.length });
@@ -542,7 +581,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (method === 'GET' && path === '/signin') {
             const next = safeNext(url.searchParams.get('next'));
             if ((await signedIn(request)) !== undefined) redirect(response, next);
-            else sendPage(response, signInPageOf(request, next));
+            else sendAppPage(request, response, await signInPageOf(request, next));
             return true;
         }
         if (method === 'POST' && path === '/signin/dev') {
@@ -563,7 +602,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     started = await signIn.start(name, url.searchParams.get('next') ?? '/');
                 } catch (error) {
                     options.report.info('Sign-in could not start', { provider: name, error: error instanceof Error ? error.message : String(error) });
-                    sendPage(response, signInPageOf(request, safeNext(url.searchParams.get('next')), 'The sign-in provider could not be reached. Please try again in a moment.'), 502);
+                    sendAppPage(request, response, await signInPageOf(request, safeNext(url.searchParams.get('next')), 'The sign-in provider could not be reached. Please try again in a moment.'), 502);
                     return true;
                 }
                 redirect(response, started.url, pendingCookie(started.key, 10 * 60));
@@ -576,7 +615,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             } catch (error) {
                 if (!(error instanceof SignInError)) throw error;
                 options.report.info('Sign-in did not finish', { provider: name, error: error.message });
-                sendPage(response, signInPageOf(request, '/', error.message), 400, pendingCookie('', 0));
+                sendAppPage(request, response, await signInPageOf(request, '/', error.message), 400, pendingCookie('', 0));
             }
             return true;
         }
@@ -602,6 +641,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/css', SHELL_CSS);
             return true;
         }
+        if (method === 'GET' && path === '/assets/app-page.css') {
+            sendAsset(response, 'text/css', APP_PAGE_CSS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/app-page.js') {
+            sendAsset(response, 'text/javascript', APP_PAGE_JS);
+            return true;
+        }
         if (method === 'GET' && path === '/assets/home.css') {
             sendAsset(response, 'text/css', HOME_CSS);
             return true;
@@ -618,11 +665,27 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/javascript', INSPECT_JS);
             return true;
         }
-        if (method === 'GET' && path === '/assets/inspector.json') {
+        if (method === 'GET' && path === '/assets/editor.json') {
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
-            const look = await lookOf(request, who.user.id);
-            sendJson(response, 200, { ...(await inspector.mountable(look.language)), paths: INSPECTOR_PATHS });
+            if (url.searchParams.get('editor') === 'default') {
+                sendJson(response, 200, { ...(await defaultEditor.document()), fallback: true });
+                return true;
+            }
+            try {
+                sendJson(response, 200, await editors.document(await workspaces.get(who.user.id), who.user.id));
+            } catch (error) {
+                options.report.info('A person\'s editor did not load', { error: error instanceof Error ? error.message : String(error) });
+                sendJson(response, 200, { ...(await defaultEditor.document()), fallback: true });
+            }
+            return true;
+        }
+        if (method === 'POST' && (path === '/editor' || path === '/editor/reset')) {
+            const who = await signedIn(request);
+            if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const services = await workspaces.get(who.user.id);
+            const id = path === '/editor' ? await editors.id(services, who.user.id) : await editors.reset(services, who.user.id);
+            sendJson(response, 200, { id });
             return true;
         }
         if (method === 'POST' && path === '/prefs') {

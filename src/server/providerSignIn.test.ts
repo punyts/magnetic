@@ -93,7 +93,8 @@ describe('Signing in with an OpenID Connect provider', () => {
         const html = await (await get(`${magnetic.origin}/signin?next=${encodeURIComponent('/apps/abc')}`)).text();
 
         // Assert
-        expect(html).toContain(`href="/auth/mock?next=%2Fapps%2Fabc"`);
+        expect(html).toContain(`"go":"/auth/{id}?next=%2Fapps%2Fabc"`);
+        expect(html).toContain('"target":"provider","value":"mock"');
         expect(html).toContain('Sign in with Mock');
     });
 

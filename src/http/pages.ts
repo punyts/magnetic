@@ -1,7 +1,4 @@
-import { escapeHtml } from '@punyts/stateui-mcp';
 import type { Language, Mode } from '../prefs/Preferences.js';
-import { FAVICON_LINK, LOGO_MARK } from './logo.js';
-import { fill, textsOf } from './text.js';
 
 /** How a page of Magnetic looks and speaks: the person's choice, or the browser's language and the system's mode */
 export interface PageLook {
@@ -49,87 +46,10 @@ form.new input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 0.5rem;
 .stack { display: grid; gap: 0.75rem; max-width: 20rem; }
 `;
 
-function page(look: PageLook, title: string, body: string): string {
-    return [
-        '<!doctype html>',
-        htmlOpen(look),
-        '<head>',
-        '<meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        `<title>${escapeHtml(title)}</title>`,
-        FAVICON_LINK,
-        '<link rel="stylesheet" href="/assets/magnetic.css">',
-        '</head>',
-        `<body><main>${body}</main></body>`,
-        '</html>',
-        ''
-    ].join('\n');
-}
-
-export interface SignInPageOptions {
-    /** The test users of a development server, each a button; empty on a public server */
-    readonly devUsers: readonly string[];
-    /** The providers people sign in with, each a button that starts its flow at `/auth/<name>` */
-    readonly providers: readonly { readonly name: string; readonly label: string }[];
-    /** Where to go after signing in, a path of this server already made safe; default `/` */
-    readonly next?: string;
-    /** Why the last sign-in did not finish */
-    readonly error?: string;
-    readonly look: PageLook;
-}
-
-/** `GET /signin` */
-export function signInPage(options: SignInPageOptions): string {
-    const t = textsOf(options.look.language);
-    const next = options.next ?? '/';
-    const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
-    const nextField = next === '/' ? '' : `<input type="hidden" name="next" value="${escapeHtml(next)}">`;
-    const providers = options.providers.map((provider) => `<a class="button primary" href="/auth/${escapeHtml(provider.name)}${escapeHtml(query)}">${escapeHtml(provider.label)}</a>`).join('\n');
-    const dev = options.devUsers
-        .map((name) => `<form class="inline" method="post" action="/signin/dev"><input type="hidden" name="user" value="${escapeHtml(name)}">${nextField}<button type="submit">${escapeHtml(fill(t['signin.as'], { name }))}</button></form>`)
-        .join('\n');
-    return page(
-        options.look,
-        t['signin.title'],
-        [
-            `<header><h1 class="brand">${LOGO_MARK}Magnetic</h1></header>`,
-            `<p>${escapeHtml(t['signin.tagline'])}</p>`,
-            options.error === undefined ? '' : `<p class="error" role="alert">${escapeHtml(options.error)}</p>`,
-            `<div class="stack">${providers}</div>`,
-            options.devUsers.length === 0 ? '' : `<h2>${escapeHtml(t['signin.devTitle'])}</h2><p class="muted">${escapeHtml(t['signin.devNote'])}</p><div class="stack">${dev}</div>`,
-            options.providers.length === 0 && options.devUsers.length === 0 ? `<p class="muted">${escapeHtml(t['signin.none'])}</p>` : ''
-        ].join('\n')
-    );
-}
-
 /** An app another person shared with the user */
 export interface SharedApp {
     readonly appId: string;
     readonly name: string;
     readonly right: 'view' | 'use';
     readonly ownerName: string;
-}
-
-export interface LinkPageOptions {
-    readonly title: string;
-    readonly message: string;
-    /** A live remix link: the page offers to copy the app */
-    readonly remix?: { readonly token: string };
-    readonly look: PageLook;
-}
-
-/** `GET /s/<token>` when the link does not open an app at once: a remix offer, or why the link does not work */
-export function linkPage(options: LinkPageOptions): string {
-    const t = textsOf(options.look.language);
-    return page(
-        options.look,
-        options.title,
-        [
-            `<header><h1>${escapeHtml(options.title)}</h1><a href="/">${escapeHtml(t['link.yourApps'])}</a></header>`,
-            `<p>${escapeHtml(options.message)}</p>`,
-            options.remix === undefined
-                ? ''
-                : `<form method="post" action="/s/${escapeHtml(options.remix.token)}/remix"><button type="submit" class="primary">${escapeHtml(t['link.remix'])}</button></form><p class="muted">${escapeHtml(t['link.remixNote'])}</p>`
-        ].join('\n')
-    );
 }

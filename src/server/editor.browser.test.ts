@@ -67,7 +67,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     let magnetic: RunningMagnetic;
     let browser: Browser;
     let page: Page;
-    let inspector: FrameLocator;
+    /** The editor: a StateUI app in a frame over the canvas, the inspector one of its panels */
+    let editor: FrameLocator;
     /** Whether the inspector showed, and which tool was on, once the page had loaded and before the select tool */
     let onLoad: { open: boolean; tool: unknown };
     let alice: string;
@@ -89,9 +90,12 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     const nextRevision = async (from: number): Promise<void> => {
         await expect.poll(async () => (await app()).revision, { timeout: 10_000 }).toBe(from + 1);
     };
+    /** The inspector shows: its Add tab is on screen */
+    const inspectorOpen = (): Promise<boolean> => editor.getByRole('tab', { name: 'Add' }).isVisible();
+    const toolButton = (name: string) => editor.getByRole('radio', { name });
     const pick = async (component: string): Promise<void> => {
-        await inspector.getByRole('tab', { name: 'Add' }).click();
-        await inspector.getByText(component, { exact: true }).first().click();
+        await editor.getByRole('tab', { name: 'Add' }).click();
+        await editor.getByText(component, { exact: true }).first().click();
         await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('place');
     };
 
@@ -128,13 +132,15 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await context.addCookies([{ name, value, url: magnetic.origin }]);
         page = await context.newPage();
         await page.goto(`${magnetic.origin}/edit/${appId}`);
-        inspector = page.frameLocator('#inspector-frame iframe');
-        await inspector.getByRole('tab', { name: 'Add' }).waitFor({ state: 'attached', timeout: 20_000 });
+        editor = page.frameLocator('#editor iframe');
+        await editor.getByRole('radio', { name: 'Use the app (V)' }).waitFor({ timeout: 20_000 });
+        // The editor says where its panels are, and the canvas fits the app between them
+        await expect.poll(() => page.evaluate("document.getElementById('editor').style.clipPath.startsWith('path')"), { timeout: 20_000 }).toBe(true);
         await expect.poll(async () => (await pointOf(page, `${HOME}.children.list.children.b`).catch(() => undefined)) !== undefined, { timeout: 20_000 }).toBe(true);
-        onLoad = { open: await page.locator('#inspector').isVisible(), tool: await page.evaluate('window.magneticShell.tool()') };
+        onLoad = { open: await inspectorOpen(), tool: await page.evaluate('window.magneticShell.tool()') };
         await page.mouse.click(5, 450);
         await page.keyboard.press('s');
-        await inspector.getByRole('tab', { name: 'Add' }).waitFor({ timeout: 5000 });
+        await editor.getByRole('tab', { name: 'Add' }).waitFor({ timeout: 5000 });
     }, 60_000);
 
     it('should select a node by clicking it, and its parent from the breadcrumb, without writing anything', async () => {
@@ -145,12 +151,12 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         // Act
         await page.mouse.click(beta.x, beta.y);
         const clicked = await selectedLabel(page);
-        await inspector.getByText('list', { exact: true }).click();
+        await editor.getByText('list', { exact: true }).click();
         await expect.poll(() => selectedLabel(page)).toBe('panel · list');
 
         // Assert
         expect(clicked).toBe('text · b');
-        await inspector.getByText('Text', { exact: true }).waitFor({ state: 'detached', timeout: 5000 });
+        await editor.getByText('Text', { exact: true }).waitFor({ state: 'detached', timeout: 5000 });
         expect((await app()).revision).toBe(before);
     }, 60_000);
 
@@ -224,72 +230,68 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should open the editor with the inspector closed and the use tool on, and open the inspector with the select tool', async () => {
         // Assert
         expect(onLoad).toEqual({ open: false, tool: 'use' });
-        expect(await page.locator('#inspector').isVisible()).toBe(true);
+        expect(await inspectorOpen()).toBe(true);
     });
 
     it('should let the selection go and close the inspector when the inspector closes or the select tool is left', async () => {
-        const inspectorPanel = page.locator('#inspector');
         const outline = page.locator('#overlay .box.selected');
-        const selectTool = page.locator('.tool[data-tool="select"]');
+        const selectTool = toolButton('Select a part of the app (S)');
         /** Turns the select tool on, picks the list's first text and waits for its outline and the inspector */
         const pick = async (): Promise<void> => {
-            if ((await selectTool.getAttribute('aria-pressed')) !== 'true') await selectTool.click();
+            if ((await selectTool.getAttribute('aria-checked')) !== 'true') await selectTool.click();
             const alpha = await pointOf(page, `${HOME}.children.list.children.a`, 0.1);
             await page.mouse.click(alpha.x, alpha.y);
             await expect.poll(() => selectedLabel(page)).toBe('text · a');
-            await inspectorPanel.waitFor({ state: 'visible', timeout: 5000 });
+            await expect.poll(inspectorOpen).toBe(true);
         };
         const letGo = async (): Promise<void> => {
             await outline.waitFor({ state: 'detached', timeout: 5000 });
-            await inspectorPanel.waitFor({ state: 'hidden', timeout: 5000 });
+            await expect.poll(inspectorOpen).toBe(false);
         };
 
         // The inspector's close button
         await pick();
-        await page.locator('#inspector-close').click();
+        await editor.getByRole('button', { name: 'Close the inspector' }).click();
         await letGo();
-        expect(await page.locator('.tool[data-tool="use"]').getAttribute('aria-pressed')).toBe('true');
+        await expect.poll(() => toolButton('Use the app (V)').getAttribute('aria-checked')).toBe('true');
 
-        // Pressing the select tool again turns it off
+        // Back to using the app with the Use tool
         await pick();
-        await selectTool.click();
+        await toolButton('Use the app (V)').click();
         await letGo();
-        expect(await selectTool.getAttribute('aria-pressed')).toBe('false');
 
         // Back to using the app with V
         await pick();
         await page.mouse.move(5, 450);
+        await page.mouse.click(5, 450);
         await page.keyboard.press('v');
         await letGo();
 
         // Panning with the hand keeps the selection and the inspector
         await pick();
-        await page.locator('.tool[data-tool="move"]').click();
-        await page.waitForTimeout(200);
-        expect([await outline.count(), await inspectorPanel.isVisible()]).toEqual([1, true]);
-        await page.locator('.tool[data-tool="select"]').click();
-        await page.keyboard.press('Escape');
+        await toolButton('Move the canvas (H, or hold Space)').click();
+        await page.waitForTimeout(300);
+        expect([await outline.count(), await inspectorOpen()]).toEqual([1, true]);
     }, 60_000);
 
-    it('should close the chat with its close button and with Escape, keeping the focus in the chat bar', async () => {
-        // Arrange: focusing the chat bar opens the chat
-        const panel = page.locator('#panel');
-        const bar = page.locator('#ask textarea');
-        await bar.focus();
-        await panel.waitFor({ state: 'visible', timeout: 5000 });
+    it('should open the chat with its button and close it with its close button', async () => {
+        // Arrange
+        const chat = editor.getByText('Describe the app you want, or a change to this one.', { exact: false });
 
-        // Act and Assert: the close button closes it and the focus it puts back in the bar does not open it again
-        await page.locator('#chat-close').click();
-        await panel.waitFor({ state: 'hidden', timeout: 5000 });
-        await page.waitForTimeout(200);
-        expect(await panel.isHidden()).toBe(true);
-        expect(await bar.evaluate((element) => element.matches(':focus'))).toBe(true);
+        // Act and Assert
+        await editor.getByRole('button', { name: 'Show the chat' }).click();
+        await chat.waitFor({ state: 'visible', timeout: 5000 });
+        await editor.getByRole('button', { name: 'Close the chat' }).click();
+        await chat.waitFor({ state: 'hidden', timeout: 5000 });
+    }, 60_000);
 
-        // The chat button opens it again, and Escape closes it the same way
-        await page.locator('#chat-open').click();
-        await panel.waitFor({ state: 'visible', timeout: 5000 });
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(200);
-        expect(await panel.isHidden()).toBe(true);
+    it('should let clicks beside the panels through to the canvas, and clip the editor to its panels', async () => {
+        // Act
+        const clip = await page.evaluate("getComputedStyle(document.getElementById('editor')).clipPath");
+        const below = await page.evaluate('document.elementFromPoint(700, 450) && document.elementFromPoint(700, 450).closest("#board") !== null');
+
+        // Assert
+        expect(String(clip)).toMatch(/^path\(/);
+        expect(below).toBe(true);
     }, 60_000);
 });

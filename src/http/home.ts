@@ -53,7 +53,8 @@ html, body.home { height: 100%; margin: 0; overflow: hidden; background: var(--p
 /**
  * `/assets/home.js`: what the home app emits, raised on the page by the host script as `stateui:emit`. `open` goes to
  * an app, `create` makes one (`POST /new`, answered with its id) and opens its editor, `signout` signs out, and `mode`
- * and `language` keep the person's choice (`POST /prefs`) and load the page again in it
+ * and `language` keep the person's choice (`POST /prefs`) and load the page again in it, `editEditor` opens the person's
+ * editor in the editor and `resetEditor` puts it back to Magnetic's
  */
 export const HOME_JS = String.raw`${SCRIPT_TEXTS}const notice = document.getElementById('notice');
 const APP_ID = /^[A-Za-z0-9-]{1,64}$/;
@@ -78,6 +79,17 @@ async function create(name) {
     finally { busy = false; }
 }
 
+// The person's editor is an app of theirs: open it in the editor, or put it back to Magnetic's
+async function editor(path) {
+    try {
+        const response = await fetch(path, { method: 'POST' });
+        const answer = await response.json().catch(() => ({}));
+        if (!response.ok || typeof answer.id !== 'string' || !APP_ID.test(answer.id)) throw new Error('refused');
+        if (path === '/editor') location.assign('/edit/' + encodeURIComponent(answer.id));
+        else say(T['home.resetDone']);
+    } catch { say(T['home.notMade']); }
+}
+
 async function choose(change) {
     if (document.documentElement.dataset.mode === change.mode || document.documentElement.lang === change.language) return;
     try {
@@ -92,6 +104,8 @@ addEventListener('stateui:emit', (event) => {
     if (name === 'open' && typeof payload === 'string' && APP_ID.test(payload)) location.assign('/apps/' + encodeURIComponent(payload));
     else if (name === 'create') void create(payload);
     else if ((name === 'mode' || name === 'language') && typeof payload === 'string') void choose({ [name]: payload });
+    else if (name === 'editEditor') void editor('/editor');
+    else if (name === 'resetEditor') { if (confirm(T['home.resetConfirm'])) void editor('/editor/reset'); }
     else if (name === 'signout') void fetch('/signout', { method: 'POST' }).finally(() => location.assign('/signin'));
 });
 `;

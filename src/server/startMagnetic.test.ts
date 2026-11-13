@@ -120,8 +120,9 @@ describe('Magnetic', () => {
 
             // Assert
             expect(response.status).toBe(200);
-            expect(response.headers.get('content-security-policy')).toContain("form-action 'self'");
-            // With no-referrer a browser posts the form with Origin: null, which the same-origin check refuses
+            // The page is a StateUI app: it posts with fetch, not a form, and its frame comes from the runtime origin
+            expect(response.headers.get('content-security-policy')).toMatch(/frame-src http:\/\/127\.0\.0\.1:\d+/);
+            // With no-referrer a browser posts with Origin: null, which the same-origin check refuses
             expect(response.headers.get('referrer-policy')).toBe('same-origin');
             expect(html).toContain('Sign in as alice');
             expect(html).toContain('Sign in as bob');

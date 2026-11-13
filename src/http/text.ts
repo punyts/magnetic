@@ -194,7 +194,20 @@ const EN = {
     'inspector.pick': 'Pick a component, then click where it goes in the app.',
     'inspector.noMatch': 'No component matches.',
     'inspector.changes': 'Changes',
-    'inspector.noChanges': 'Use the app to see its state change here.'
+    'inspector.noChanges': 'Use the app to see its state change here.',
+    'editor.title': "Editor",
+    'editor.you': "You",
+    'editor.agent': "Agent",
+    'editor.fallback': "Your editor could not load, so this is Magnetic's own. Fix yours, or reset it from Your apps.",
+    'editor.zoomFit': "Fit",
+    'editor.close': 'Close',
+    'home.editorTitle': "Your editor",
+    'home.editorText': "Magnetic's editor is an app of yours too: change it like any other, by hand or with the agent. Reset it to start again from Magnetic's.",
+    'home.editEditor': "Edit the editor",
+    'home.resetEditor': "Reset the editor",
+    'home.resetConfirm': "Reset the editor? Your changes to it are lost, and it starts again from Magnetic's.",
+    'home.resetDone': "The editor is Magnetic's again.",
+    'link.home': "Your apps"
 } as const;
 
 export type TextKey = keyof typeof EN;
@@ -377,7 +390,20 @@ const DE: Texts = {
     'inspector.pick': 'Wähl eine Komponente und klick dann dorthin, wo sie in der App hinkommt.',
     'inspector.noMatch': 'Keine Komponente passt.',
     'inspector.changes': 'Änderungen',
-    'inspector.noChanges': 'Benutz die App, um hier ihre Zustandsänderungen zu sehen.'
+    'inspector.noChanges': 'Benutz die App, um hier ihre Zustandsänderungen zu sehen.',
+    'editor.title': "Editor",
+    'editor.you': "Du",
+    'editor.agent': "Agent",
+    'editor.fallback': "Dein Editor konnte nicht geladen werden, darum ist das der von Magnetic. Repariere deinen oder setz ihn unter Deine Apps zurück.",
+    'editor.zoomFit': "Einpassen",
+    'editor.close': 'Schließen',
+    'home.editorTitle': "Dein Editor",
+    'home.editorText': "Der Editor von Magnetic ist auch eine deiner Apps: Ändere ihn wie jede andere, von Hand oder mit dem Agenten. Setz ihn zurück, um wieder mit dem von Magnetic anzufangen.",
+    'home.editEditor': "Den Editor bearbeiten",
+    'home.resetEditor': "Den Editor zurücksetzen",
+    'home.resetConfirm': "Den Editor zurücksetzen? Deine Änderungen daran gehen verloren, und er fängt wieder mit dem von Magnetic an.",
+    'home.resetDone': "Der Editor ist wieder der von Magnetic.",
+    'link.home': "Deine Apps"
 };
 
 const FR: Texts = {
@@ -557,7 +583,20 @@ const FR: Texts = {
     'inspector.pick': 'Choisissez un composant, puis cliquez là où il va dans l’application.',
     'inspector.noMatch': 'Aucun composant ne correspond.',
     'inspector.changes': 'Modifications',
-    'inspector.noChanges': 'Utilisez l’application pour voir son état changer ici.'
+    'inspector.noChanges': 'Utilisez l’application pour voir son état changer ici.',
+    'editor.title': "Éditeur",
+    'editor.you': "Vous",
+    'editor.agent': "Agent",
+    'editor.fallback': "Votre éditeur n’a pas pu se charger, voici donc celui de Magnetic. Réparez le vôtre ou réinitialisez-le depuis Vos applications.",
+    'editor.zoomFit': "Ajuster",
+    'editor.close': 'Fermer',
+    'home.editorTitle': "Votre éditeur",
+    'home.editorText': "L’éditeur de Magnetic est aussi une de vos applications : modifiez-le comme les autres, à la main ou avec l’agent. Réinitialisez-le pour repartir de celui de Magnetic.",
+    'home.editEditor': "Modifier l’éditeur",
+    'home.resetEditor': "Réinitialiser l’éditeur",
+    'home.resetConfirm': "Réinitialiser l’éditeur ? Vos modifications sont perdues, et il repart de celui de Magnetic.",
+    'home.resetDone': "L’éditeur est de nouveau celui de Magnetic.",
+    'link.home': "Vos applications"
 };
 
 const ES: Texts = {
@@ -737,7 +776,20 @@ const ES: Texts = {
     'inspector.pick': 'Elige un componente y luego haz clic donde va en la aplicación.',
     'inspector.noMatch': 'Ningún componente coincide.',
     'inspector.changes': 'Cambios',
-    'inspector.noChanges': 'Usa la aplicación para ver aquí cómo cambia su estado.'
+    'inspector.noChanges': 'Usa la aplicación para ver aquí cómo cambia su estado.',
+    'editor.title': "Editor",
+    'editor.you': "Tú",
+    'editor.agent': "Agente",
+    'editor.fallback': "Tu editor no se pudo cargar, así que este es el de Magnetic. Arregla el tuyo o restablécelo desde Tus aplicaciones.",
+    'editor.zoomFit': "Ajustar",
+    'editor.close': 'Cerrar',
+    'home.editorTitle': "Tu editor",
+    'home.editorText': "El editor de Magnetic también es una de tus aplicaciones: cámbialo como cualquier otra, a mano o con el agente. Restablécelo para empezar de nuevo desde el de Magnetic.",
+    'home.editEditor': "Editar el editor",
+    'home.resetEditor': "Restablecer el editor",
+    'home.resetConfirm': "¿Restablecer el editor? Tus cambios se pierden y vuelve a empezar desde el de Magnetic.",
+    'home.resetDone': "El editor vuelve a ser el de Magnetic.",
+    'link.home': "Tus aplicaciones"
 };
 
 const ALL: Record<Language, Texts> = { en: EN, de: DE, fr: FR, es: ES };

@@ -1,11 +1,8 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
-import { CONTEXT_TOGGLES } from '../agent/AgentTurns.js';
-import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
-import { FAVICON_LINK, LOGO_MARK } from './logo.js';
+import { FAVICON_LINK } from './logo.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
-import type { Texts } from './text.js';
 
 export interface ShellPageOptions {
     readonly appId: string;
@@ -20,45 +17,14 @@ export interface ShellPageOptions {
     readonly models?: readonly { readonly id: string; readonly label: string }[];
     /** True: the editor shows (`/edit/<appId>`); false: the app fills the window (`/apps/<appId>`) until Ctrl+Shift+E */
     readonly editing: boolean;
-    /** True: the app has nothing on its screens yet, and the editor says what to do over the empty frame */
+    /** True: the app has nothing on its screens yet, and the editor offers ideas to start from */
     readonly blank?: boolean;
     /** The person's language and mode */
     readonly look: PageLook;
 }
 
-/** Over a blank app's frame: what to do first, and ideas to start from; an idea fills the chat box */
-function blankHint(t: Texts): string {
-    const ideas = [t['shell.idea1'], t['shell.idea2'], t['shell.idea3']];
-    return `<section class="float blank" id="blank" aria-label="${escapeHtml(t['shell.blank'])}"><strong>${escapeHtml(t['shell.blankTitle'])}</strong><p>${escapeHtml(t['shell.blankText'])}</p><div class="ideas">${ideas.map((idea) => `<button type="button" class="idea">${escapeHtml(idea)}</button>`).join('')}</div></section>`;
-}
-
-/** The sheet of the person's choices: light, dark or the system's, and the language; a change loads the page again */
-function prefsSheet(t: Texts, look: PageLook): string {
-    const modes = MODES.map((mode) => `<option value="${mode}"${mode === look.mode ? ' selected' : ''}>${escapeHtml(t[`prefs.${mode}`])}</option>`).join('');
-    const languages = LANGUAGES.map((language) => `<option value="${language}"${language === look.language ? ' selected' : ''}>${escapeHtml(LANGUAGE_NAMES[language])}</option>`).join('');
-    return `<section class="float sheet prefs" id="prefs" aria-label="${escapeHtml(t['prefs.title'])}" hidden><label for="prefs-mode">${escapeHtml(t['prefs.mode'])}</label><select id="prefs-mode">${modes}</select><label for="prefs-language">${escapeHtml(t['prefs.language'])}</label><select id="prefs-language">${languages}</select><p class="small status" id="prefs-status" role="status"></p></section>`;
-}
-
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
 export const EDIT_KEY = 'mod+shift+e';
-
-
-
-/** Line icons drawn in the text colour */
-const svg = (path: string): string =>
-    `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
-const ICONS = {
-    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-    chat: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
-    send: svg('<path d="M12 19V5M5 12l7-7 7 7"/>'),
-    pointer: svg('<path d="M5 3l14 8-6 2-3 6z"/>'),
-    select: svg('<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><path d="M10 10l7 3-3 1-1 3z"/>'),
-    hand: svg('<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V11M14 6.5a1.5 1.5 0 0 1 3 0V11M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/>'),
-    minus: svg('<path d="M5 12h14"/>'),
-    plus: svg('<path d="M12 5v14M5 12h14"/>'),
-    fit: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
-    prefs: svg('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>')
-};
 
 /** The sizes the app's frame can have on the canvas; the first is the default */
 export const FRAME_SIZES = [
@@ -67,31 +33,20 @@ export const FRAME_SIZES = [
     { id: 'phone', label: 'Phone', width: 390, height: 844 }
 ] as const;
 
-function sizeMenu(t: Texts): string {
-    return `<label class="hidden" for="frame-size">${escapeHtml(t['shell.frameSize'])}</label><select id="frame-size" title="${escapeHtml(t['shell.frameSizeTitle'])}">${FRAME_SIZES.map((size) => `<option value="${size.id}" data-width="${size.width}" data-height="${size.height}">${escapeHtml(t[`shell.size.${size.id}`])}</option>`).join('')}</select>`;
-}
-
 /**
  * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window, and Ctrl+Shift+E (Cmd+Shift+E on
- * a Mac) lays the editor over it, and takes it away again, without loading the page again. The address follows.
- * The app has the keyboard while it has the focus, so the host script asks the runtime for the chord
- * (`data-host-keys`) and raises it on the page as `stateui:key`.
+ * a Mac) brings the editor around it, and takes it away again, without loading the page again. The address follows.
  *
- * With the editor, the app is a frame on a canvas that pans and zooms, and the editor floats on it: the name and
- * frame size at the top left, Share at the top right, the tools and context toggles on a rail at the left, the zoom at
- * the bottom right and a chat bar at the bottom centre that opens into the chat. The body carries what the StateUI host script
- * (`/assets/host.js`) reads to build the app frame, as `/apps/<appId>` does, so the app is live while the agent works
- * on it; `/assets/shell.js` runs the chat
+ * The canvas is the page's: the app's live frame on a board that fills the window, pans and zooms. The editor is a
+ * StateUI app of the person's own (`/assets/editor.json`, their `magnetic-editor`): panels floating over the canvas,
+ * in a frame that covers the window above it. The page clips that frame to the panels (the frame says where they are,
+ * and again whenever they move), so the rest of the window is the canvas's. The page drives the editor through its
+ * data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to build the app frame,
+ * so the app is live while the agent works on it
  */
 export function shellPage(options: ShellPageOptions): string {
     const t = textsOf(options.look.language);
-    const h = (key: keyof Texts): string => escapeHtml(t[key]);
-    const models = options.models ?? [];
-    const menu =
-        models.length < 2
-            ? ''
-            : `<label class="hidden" for="model">${h('shell.model')}</label><select id="model" title="${h('shell.modelTitle')}">${models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.label)}</option>`).join('')}</select>`;
-    const toggles = CONTEXT_TOGGLES.map((name) => `<button type="button" class="toggle" data-context="${name}" aria-pressed="false">${h(`shell.toggle.${name}`)}</button>`).join('');
+    const models = (options.models ?? []).map((model) => ({ id: model.id, label: model.label }));
     return [
         '<!doctype html>',
         htmlOpen(options.look),
@@ -103,58 +58,16 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}" data-status="loading">`,
-        '<main class="board" id="board" aria-label="Canvas">',
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        '<div class="editor" id="editor"></div>',
+        '<main class="board" id="board" tabindex="-1">',
         `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div><div class="overlay" id="overlay" aria-hidden="true"></div></div></div>`,
         '</main>',
-        `<header class="float corner start"><a href="/" class="back" title="${h('shell.allApps')}">${LOGO_MARK}<span class="hidden">${h('shell.allApps')}</span></a><strong class="name">${escapeHtml(options.name)}</strong>${sizeMenu(t)}<a href="/apps/${escapeHtml(options.appId)}" target="_blank" rel="noopener" class="open" title="${h('shell.openTitle')}">${h('shell.open')}</a></header>`,
-        `<div class="float corner end"><button type="button" id="prefs-open" class="icon" aria-expanded="false" aria-controls="prefs" title="${h('prefs.open')}" aria-label="${h('prefs.open')}">${ICONS.prefs}</button><button type="button" id="share-open" class="primary" aria-expanded="false" aria-controls="share">${h('shell.share')}</button></div>`,
-        prefsSheet(t, options.look),
-        `<nav class="float rail" aria-label="${h('shell.tools')}">`,
-        `<div class="tools" role="group" aria-label="${h('shell.pointer')}"><button type="button" class="tool icon" data-tool="use" aria-pressed="true" title="${h('shell.useKey')}" aria-label="${h('shell.use')}">${ICONS.pointer}</button><button type="button" class="tool icon" data-tool="move" aria-pressed="false" title="${h('shell.moveKey')}" aria-label="${h('shell.move')}">${ICONS.hand}</button><button type="button" class="tool icon" data-tool="select" aria-pressed="false" title="${h('shell.selectKey')}" aria-label="${h('shell.select')}">${ICONS.select}</button></div>`,
-        `<div class="shows" role="group" aria-label="${h('shell.showAgent')}"><span class="rail-label" aria-hidden="true">${h('shell.show')}</span>${toggles}</div>`,
-        '</nav>',
-        `<div class="float zoom" role="group" aria-label="${h('shell.zoom')}">`,
-        `<button type="button" class="icon" id="zoom-out" title="${h('shell.zoomOutKey')}" aria-label="${h('shell.zoomOut')}">${ICONS.minus}</button>`,
-        `<button type="button" id="zoom-reset" title="${h('shell.zoomReset')}">100%</button>`,
-        `<button type="button" class="icon" id="zoom-in" title="${h('shell.zoomInKey')}" aria-label="${h('shell.zoomIn')}">${ICONS.plus}</button>`,
-        `<button type="button" class="icon" id="zoom-fit" title="${h('shell.fitKey')}" aria-label="${h('shell.fit')}">${ICONS.fit}</button>`,
-        '</div>',
-        options.blank === true ? blankHint(t) : '',
-        `<aside class="float inspector" id="inspector" aria-label="${h('shell.inspector')}" hidden>`,
-        `<header class="bar"><strong>${h('shell.inspector')}</strong><span class="small muted status" id="inspector-status" role="status"></span><span class="spacer"></span><button type="button" id="inspector-close" class="icon" title="${h('shell.closeInspector')}" aria-label="${h('shell.closeInspector')}">${ICONS.close}</button></header>`,
-        '<div class="inspector-frame" id="inspector-frame"></div>',
-        '</aside>',
-        `<section class="float sheet share" id="share" aria-label="${h('shell.shareThis')}" hidden>`,
-        `<form class="share-new" id="share-new"><label for="share-right">${h('shell.shareCan')}</label><div class="row"><select id="share-right"><option value="use" selected>${h('shell.right.use')}</option><option value="view">${h('shell.right.view')}</option><option value="remix">${h('shell.right.remix')}</option></select><button type="submit" class="primary">${h('shell.makeLink')}</button></div></form>`,
-        `<p class="small muted">${h('shell.shareNote')}</p>`,
-        '<p class="small status" id="share-status" role="status"></p>',
-        '<ol class="links" id="links"></ol>',
-        '</section>',
-        `<aside class="dock" aria-label="${h('shell.build')}">`,
-        `<section class="float panel" id="panel" aria-label="${h('shell.chat')}" hidden>`,
-        `<header class="bar"><strong>${h('shell.chat')}</strong><span class="spacer"></span><button type="button" id="chat-close" class="icon" title="${h('shell.closeChat')}" aria-label="${h('shell.closeChat')}">${ICONS.close}</button></header>`,
-        '<ol class="log" id="log" aria-live="polite"></ol>',
-        `<section class="drawer" id="drawer" aria-label="${h('shell.activityLabel')}" hidden>`,
-        `<header class="bar"><strong>${h('shell.activity')}</strong><span class="spacer"></span><button type="button" id="pin" aria-pressed="false">${h('shell.keepOpen')}</button><button type="button" id="stop" class="stop">${h('shell.stop')}</button></header>`,
-        '<p class="note" id="note"></p>',
-        '<ol class="calls" id="calls"></ol>',
-        '</section>',
-        '</section>',
-        '<form class="float ask" id="ask">',
-        '<p class="status" id="status" role="status"></p>',
-        '<p class="focus small" id="focus" hidden></p>',
-        '<p class="data-line small" id="data-line" hidden></p>',
-        `<div class="row"><button type="button" id="chat-open" class="icon" aria-expanded="false" aria-controls="panel" title="${h('shell.showChat')}" aria-label="${h('shell.showChat')}">${ICONS.chat}</button>`,
-        `<label class="hidden" for="text">${h('shell.request')}</label>`,
-        `<textarea id="text" name="text" rows="1" maxlength="4000" placeholder="${h('shell.placeholder')}" required></textarea>`,
-        `${menu}<button type="submit" class="primary icon" id="send" title="${h('shell.sendKey')}" aria-label="${h('shell.send')}">${ICONS.send}</button></div>`,
-        '</form>',
-        '</aside>',
-        `<p class="hint" id="hint" role="status" hidden>${h('shell.hintBefore')} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> ${h('shell.hintAfter')}</p>`,
+        `<p class="hint" id="hint" role="status" hidden>${escapeHtml(t['shell.hintBefore'])} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> ${escapeHtml(t['shell.hintAfter'])}</p>`,
+        `<script type="application/json" id="magnetic-models">${JSON.stringify(models).replace(/</g, '\\u003c')}</script>`,
         textBlock(options.look.language),
-        '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/host.js"></script>',
+        '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/inspect.js"></script>',
         '</body>',
         '</html>',
@@ -162,14 +75,20 @@ export function shellPage(options: ShellPageOptions): string {
     ].join('\n');
 }
 
-/** `/assets/shell.css`, after the host's `page.css` */
+/** `/assets/shell.css`, after the host's `page.css`: the canvas, and the editor's frame around it */
 export const SHELL_CSS = `${schemeCss(
-    '--ink: #1b1d22; --muted: #5d6470; --line: #d9dce2; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --bad: #c0392b; --good: #23824a; --dot: #c9cdd6; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1);',
-    '--ink: #e8eaee; --muted: #a2a8b3; --line: #343842; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --bad: #ff8a7a; --good: #6fd39a; --dot: #353a45; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);'
+    '--ink: #1b1d22; --muted: #5d6470; --paper: #ffffff; --soft: #f3f4f7; --accent: #3047d8; --dot: #c9cdd6; --shadow: 0 2px 6px rgba(20, 24, 40, 0.08), 0 8px 24px rgba(20, 24, 40, 0.1);',
+    '--ink: #e8eaee; --muted: #a2a8b3; --paper: #15171c; --soft: #1e2128; --accent: #8c9cff; --dot: #353a45; --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);'
 )}
 html, body.shell { height: 100%; margin: 0; overflow: hidden; }
-body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--soft); }
-.board { position: fixed; inset: 0; overflow: hidden; touch-action: none; cursor: default; background-color: var(--soft); background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); }
+body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+/* The editor's frame covers the window above the canvas, clipped to its panels (the script sets the clip); until the
+   panels are known nothing of it shows. Without the editor it is out of sight but loaded, to come back at once */
+.editor { position: fixed; inset: 0; z-index: 2; clip-path: inset(0 calc(100% - 1px) calc(100% - 1px) 0); }
+.editor iframe { width: 100%; height: 100%; border: 0; display: block; }
+body.shell:not(.editing) .editor { visibility: hidden; pointer-events: none; }
+/* The canvas fills the window under the editor */
+.board { position: fixed; inset: 0; z-index: 1; overflow: hidden; touch-action: none; cursor: default; background-color: var(--soft); background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); }
 .board.moving, .board.moving .shield { cursor: grab; }
 .board.dragging, .board.dragging .shield { cursor: grabbing; }
 .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
@@ -188,114 +107,9 @@ body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; he
 .overlay .tag { position: absolute; left: -1px; bottom: 100%; margin-bottom: calc(2px / var(--zoom, 1)); padding: calc(1px / var(--zoom, 1)) calc(5px / var(--zoom, 1)); font: calc(11px / var(--zoom, 1)) system-ui, sans-serif; color: var(--paper); background: var(--accent); border-radius: calc(3px / var(--zoom, 1)); white-space: nowrap; }
 .overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
 .overlay .dot { position: absolute; width: calc(10px / var(--zoom, 1)); height: calc(10px / var(--zoom, 1)); margin: calc(-5px / var(--zoom, 1)); border-radius: 50%; background: var(--accent); }
-.inspector { top: 4rem; right: 0.75rem; bottom: 4.5rem; width: 20rem; display: flex; flex-direction: column; overflow: hidden; }
-.inspector[hidden] { display: flex; visibility: hidden; pointer-events: none; }
-.inspector .status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inspector .status.bad { color: var(--bad); }
-.inspector-frame { flex: 1; min-height: 0; position: relative; }
-.inspector-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.share { z-index: 3; }
-.ask .focus, .ask .data-line { margin: 0; padding: 0.2rem 0.9rem 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ask .focus[hidden], .ask .data-line[hidden] { display: none; }
-.ask .focus button { font-size: 0.8rem; padding: 0 0.4rem; margin-left: 0.3rem; }
-body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); }
-.float { position: fixed; z-index: 2; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow); }
-.corner { top: 0.75rem; display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem; }
-.corner.start { left: 0.75rem; max-width: calc(50vw - 2rem); }
-.corner.end { right: 0.75rem; }
-.corner .name { padding: 0 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.corner a { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; padding: 0.35rem 0.5rem; border-radius: 0.5rem; }
-.corner a:hover, .corner a:focus-visible { background: var(--soft); }
-.corner a.open { color: var(--accent); font-size: 0.9rem; }
-.corner a.back { padding: 0.2rem; }
-.corner .mark { width: 1.75rem; height: 1.75rem; display: block; }
-.rail { left: 0.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 0.35rem; padding: 0.35rem; }
-.rail .tools, .rail .shows { display: flex; flex-direction: column; gap: 0.25rem; }
-.rail .tools { align-items: center; padding-bottom: 0.35rem; border-bottom: 1px solid var(--line); }
-.float .tool.icon { border-radius: 0.5rem; }
-.float .tool[aria-pressed="true"], .float .tool[aria-pressed="true"]:hover { background: var(--accent); color: var(--paper); }
-.corner #frame-size { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.3rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
-.zoom { right: 0.75rem; bottom: 1rem; display: flex; align-items: center; gap: 0.1rem; padding: 0.25rem; }
-.float.zoom #zoom-reset { min-width: 3.6rem; padding: 0.35rem 0.3rem; border: 0; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
-.float.zoom #zoom-reset:hover { background: var(--soft); }
-@media (max-width: 1120px) { .zoom { bottom: 5rem; } }
-.rail-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); text-align: center; padding: 0.15rem 0 0.1rem; }
-.float.rail .toggle { font-size: 0.8rem; padding: 0.4rem 0.55rem; border: 0; border-radius: 0.5rem; text-align: left; }
-.float.rail .toggle:hover { background: var(--soft); }
-.float.rail .toggle[aria-pressed="true"] { background: var(--accent); color: var(--paper); }
-.sheet { top: 4rem; right: 0.75rem; width: min(22rem, calc(100vw - 1.5rem)); max-height: calc(100vh - 10rem); overflow-y: auto; padding: 0.8rem; display: grid; gap: 0.5rem; box-sizing: border-box; }
-.sheet[hidden] { display: none; }
-.dock { position: fixed; z-index: 3; left: 50%; bottom: 1rem; transform: translateX(-50%); width: min(40rem, calc(100vw - 1.5rem)); display: flex; flex-direction: column; gap: 0.5rem; pointer-events: none; }
-.dock > * { pointer-events: auto; }
-.dock .float { position: static; }
-.panel { height: min(30rem, calc(100vh - 11rem)); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.panel[hidden] { display: none; }
-.bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem 0.45rem 0.9rem; border-bottom: 1px solid var(--line); }
-.spacer { flex: 1; }
-.log { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0.8rem; display: flex; flex-direction: column; gap: 0.6rem; }
-.log li { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; padding: 0.55rem 0.75rem; border-radius: 0.75rem; max-width: 88%; }
-.log li.person { align-self: flex-end; background: var(--accent); color: var(--paper); }
-.log li.agent { align-self: flex-start; background: var(--soft); }
-.log li.empty { align-self: center; color: var(--muted); background: none; text-align: center; max-width: 30rem; margin: auto 0; }
-.log .outcome { display: block; margin-top: 0.35rem; font-size: 0.85rem; color: var(--muted); }
-.log .outcome.bad { color: var(--bad); }
-.log details { margin-top: 0.35rem; font-size: 0.85rem; color: var(--muted); }
-.log details ol { margin: 0.3rem 0 0; padding-left: 1.1rem; }
-.drawer { border-top: 1px solid var(--line); background: var(--soft); max-height: 40%; display: flex; flex-direction: column; min-height: 0; }
-.drawer[hidden] { display: none; }
-.drawer .bar { padding-top: 0.3rem; padding-bottom: 0.3rem; font-size: 0.9rem; }
-.drawer .note { margin: 0; padding: 0.4rem 0.9rem 0; font-size: 0.85rem; color: var(--muted); font-style: italic; white-space: pre-wrap; max-height: 4.5em; overflow: hidden; }
-.drawer .note:empty { display: none; }
-.calls { list-style: none; margin: 0; padding: 0.4rem 0.9rem 0.6rem; overflow-y: auto; font-size: 0.85rem; font-family: ui-monospace, monospace; }
-.calls li { padding: 0.15rem 0; display: flex; gap: 0.4rem; }
-.calls li::before { content: "…"; width: 1rem; flex: none; color: var(--muted); }
-.calls li.ok::before { content: "✓"; color: var(--good); }
-.calls li.failed::before { content: "✗"; color: var(--bad); }
-.calls .what { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ask { border-radius: 1.6rem; padding: 0.35rem; display: grid; gap: 0.25rem; }
-.ask .row { display: flex; align-items: flex-end; gap: 0.35rem; }
-.ask textarea { flex: 1; min-width: 0; font: inherit; line-height: 1.4; resize: none; box-sizing: border-box; max-height: 9.8em; padding: 0.45rem 0.3rem; border: 0; outline: none; background: transparent; color: var(--ink); }
-.ask .status { margin: 0; padding: 0.2rem 0.9rem 0; font-size: 0.85rem; color: var(--muted); }
-.ask .status:empty { display: none; }
-.ask .status.bad { color: var(--bad); }
-.ask:focus-within { border-color: var(--accent); }
-#model { font: inherit; font-size: 0.8rem; max-width: 11rem; height: 2.2rem; padding: 0 0.4rem; border-radius: 1.1rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
-.float button { font: inherit; padding: 0.35rem 0.8rem; border-radius: 0.5rem; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
-.float button.primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
-.float button:disabled { opacity: 0.5; cursor: default; }
-.float button.stop { border-color: var(--bad); color: var(--bad); }
-.float button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 2.2rem; height: 2.2rem; flex: none; border: 0; border-radius: 50%; }
-.float button.icon:not(.primary):hover { background: var(--soft); }
-.float.blank { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(30rem, calc(100vw - 2rem)); padding: 1.25rem 1.25rem 1rem; text-align: center; }
-.float.blank strong { font-size: 1.1rem; }
-.float.blank p { margin: 0.5rem 0 1rem; color: var(--muted); line-height: 1.45; }
-.float.blank .ideas { display: flex; flex-direction: column; gap: 0.5rem; }
-.float.blank .idea { text-align: left; padding: 0.6rem 0.8rem; line-height: 1.35; }
-.float.blank .idea:hover { background: var(--soft); border-color: var(--accent); }
-.float.sheet.prefs { z-index: 3; display: grid; gap: 0.35rem; width: 15rem; }
-.float.sheet.prefs[hidden] { display: none; }
-.float.sheet.prefs label { font-size: 0.85rem; color: var(--muted); }
-.float.sheet.prefs label + select { margin-bottom: 0.4rem; }
-.float.blank[hidden], body:has(#panel:not([hidden])) .float.blank { display: none; }
-#chat-open[aria-expanded="true"] { color: var(--accent); }
-#pin[aria-pressed="true"] { background: var(--line); }
-#share-open[aria-expanded="true"] { filter: brightness(0.9); }
-.share-new { display: grid; gap: 0.35rem; }
-.share .row { display: flex; gap: 0.5rem; }
-.share select { flex: 1; min-width: 0; font: inherit; padding: 0.35rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
-.small { font-size: 0.85rem; margin: 0; }
-.muted { color: var(--muted); }
-.share .status:empty { display: none; }
-.share .status.bad { color: var(--bad); }
-.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
-.links li { display: grid; gap: 0.3rem; padding: 0.5rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--paper); }
-.links li.revoked { opacity: 0.6; }
-.links .head { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; }
-.links input { font: inherit; font-size: 0.8rem; width: 100%; box-sizing: border-box; padding: 0.3rem; border-radius: 0.4rem; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
-.links .row button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
-.hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-/* Without the editor the app fills the window: no panels, no canvas */
-body.shell:not(.editing) .float, body.shell:not(.editing) .dock, body.shell:not(.editing) .artboard-label { display: none; }
+body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); z-index: 3; }
+/* Without the editor the app fills the window: no canvas */
+body.shell:not(.editing) .artboard-label { display: none; }
 body.shell:not(.editing) .board { background: var(--paper); }
 body.shell:not(.editing) .world { transform: none !important; transition: none; }
 body.shell:not(.editing) .artboard { width: 100vw !important; height: 100vh !important; border-radius: 0; box-shadow: none; }
@@ -304,150 +118,172 @@ body.shell:not(.editing) .artboard { width: 100vw !important; height: 100vh !imp
 .hint.gone { opacity: 0; }
 .hint kbd { font: inherit; font-weight: 600; }
 body.shell.editing .hint { display: none; }
-@media (max-width: 760px) {
-  .rail, .rail .tools, .rail .shows { flex-direction: row; }
-  .rail { top: 4rem; transform: none; max-width: calc(100vw - 1.5rem); overflow-x: auto; scrollbar-width: none; }
-  .rail .tools { padding: 0 0.35rem 0 0; border-bottom: 0; border-right: 1px solid var(--line); }
-  .rail-label { align-self: center; padding: 0 0.3rem; }
-  .corner.start { max-width: calc(100vw - 7.5rem); }
-  .sheet { top: 7.2rem; }
-  .inspector { top: auto; left: 0.75rem; width: auto; height: 45vh; bottom: 5.5rem; }
-  .panel { height: calc(100vh - 13rem); }
-  #model { max-width: 6.5rem; }
-}
 `;
 
 /**
- * `/assets/shell.js`: the chat. It reads the app's event stream (`/edit/<appId>/events`), posts requests and stops.
- * The activity drawer opens with the first tool call and closes 4 seconds after the turn ends, unless the pointer or
- * the focus is in it or it is kept open
+ * `/assets/shell.js`, after the host script: mounts the editor and drives it (the chat, Share, the choices, the tools,
+ * the frame size and the zoom), and runs the canvas. What it shows goes into the editor's data (`$.data.editor` and its
+ * lists); what the person does there comes back as the editor's emits. `/assets/inspect.js` adds the selection, the
+ * properties, the component library and the state, through the same editor (`magneticShell.editor`)
  */
 export const SHELL_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId);
-const log = document.getElementById('log');
-const drawer = document.getElementById('drawer');
-const calls = document.getElementById('calls');
-const note = document.getElementById('note');
-const pin = document.getElementById('pin');
-const stop = document.getElementById('stop');
-const form = document.getElementById('ask');
-const text = document.getElementById('text');
-const send = document.getElementById('send');
-const status = document.getElementById('status');
-const panel = document.getElementById('panel');
-const chatOpen = document.getElementById('chat-open');
-const chatClose = document.getElementById('chat-close');
-const CLOSE_AFTER_MS = 4000;
+const host = window.stateuiHost;
+const holder = document.getElementById('editor');
+const MODELS = JSON.parse(document.getElementById('magnetic-models').textContent || '[]');
 const OUTCOMES = { stopped: T['chat.stopped'], limit: T['chat.limit'], refused: T['chat.refused'], failed: T['chat.failed'], budget: T['chat.budget'] };
-let running = false;
-let current = null;
-let closeTimer = null;
-let inside = false;
+const CONTEXT = ['theme', 'layout', 'data', 'logic', 'screens'];
+const READY_MS = 10000;
 
-function el(tag, className, content) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (content !== undefined) node.textContent = content;
-    return node;
-}
+// The editor: a StateUI app the page drives through its data and its emits
+let panel = null;
+let editorDocument = null;
+let editorId = null;
+let ready = false;
+const pending = [];
+const emitListeners = [];
+const readyListeners = [];
+const editorState = {};
 
-function scrollDown() { log.scrollTop = log.scrollHeight; }
-
-function clearEmpty() { const empty = log.querySelector('.empty'); if (empty) empty.remove(); }
-
-function addPerson(value) { clearEmpty(); log.append(el('li', 'person', value)); scrollDown(); }
-
-function agentBubble() {
-    if (current === null) { clearEmpty(); current = el('li', 'agent'); current.append(el('span', 'say')); log.append(current); }
-    return current;
-}
-
-function finishAgent(entry) {
-    const bubble = agentBubble();
-    if (entry.text !== undefined && bubble.querySelector('.say').textContent === '') bubble.querySelector('.say').textContent = entry.text;
-    if (entry.tools && entry.tools.length > 0) {
-        const details = el('details');
-        details.append(el('summary', '', entry.tools.length === 1 ? T['chat.oneStep'] : fill(T['chat.steps'], { count: entry.tools.length })));
-        const list = el('ol');
-        for (const tool of entry.tools) list.append(el('li', '', (tool.ok ? '' : '✗ ') + tool.name + (tool.summary ? ' — ' + tool.summary : '') + ' → ' + tool.result));
-        details.append(list);
-        bubble.append(details);
+/** Writes fields of $.data.editor; the same value written again changes nothing */
+function ed(fields) {
+    const writes = [];
+    for (const [name, value] of Object.entries(fields)) {
+        if (JSON.stringify(editorState[name]) === JSON.stringify(value)) continue;
+        editorState[name] = value;
+        writes.push({ path: '$.data.editor.' + name, value });
     }
-    if (entry.outcome !== 'finished' || entry.message) {
-        bubble.append(el('span', entry.outcome === 'finished' ? 'outcome' : 'outcome bad', entry.message || OUTCOMES[entry.outcome] || ''));
+    write(writes);
+}
+function write(writes) {
+    if (writes.length === 0) return;
+    if (panel && ready) panel.write(writes);
+    else pending.push(...writes);
+}
+/** Writes a list of the editor's data as records by id */
+function list(name, records) { write([{ path: '$.data.' + name, value: Object.fromEntries(records.map((record) => [record.id, record])) }]); }
+
+/** The path of the first node kept under a key, anywhere in the editor's screens */
+function pathOfKey(key) {
+    const visit = (node, at) => {
+        if (!node || typeof node !== 'object') return undefined;
+        for (const slot of ['children', 'start', 'end', 'body', 'header', 'footer']) {
+            const inner = node[slot];
+            if (!inner || typeof inner !== 'object') continue;
+            if (slot === 'children') {
+                for (const [name, child] of Object.entries(inner)) {
+                    if (name === key) return at + '.children.' + name;
+                    const found = visit(child, at + '.children.' + name);
+                    if (found) return found;
+                }
+            } else {
+                const found = visit(inner, at + '.' + slot);
+                if (found) return found;
+            }
+        }
+        return undefined;
+    };
+    for (const [name, screen] of Object.entries((editorDocument && editorDocument.screens) || {})) {
+        const found = visit(screen.root, '$.screens.' + name);
+        if (found) return found;
     }
-    if (bubble.querySelector('.say').textContent === '' && bubble.childElementCount === 1) bubble.querySelector('.say').textContent = T['chat.done'];
-    current = null;
-    scrollDown();
+    return undefined;
 }
 
-function setRunning(value) {
-    running = value;
-    send.disabled = value;
-    stop.disabled = !value;
-    if (value) { status.className = 'status'; status.textContent = T['chat.working']; }
-    else if (status.textContent === T['chat.working']) status.textContent = '';
+function valueOf(payload) {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        if ('value' in payload) return payload.value;
+        if ('checked' in payload) return payload.checked;
+        if ('key' in payload) return payload.key;
+        if ('selected' in payload) return payload.selected;
+        if ('text' in payload) return payload.text;
+    }
+    return payload;
 }
 
-// The chat panel opens above the chat bar and closes with its button or Escape; the bar stays
-function showChat(open) {
-    if (panel.hidden === !open) return;
-    panel.hidden = !open;
-    chatOpen.setAttribute('aria-expanded', String(open));
-    chatOpen.title = open ? T['shell.hideChat'] : T['shell.showChat'];
-    chatOpen.setAttribute('aria-label', chatOpen.title);
-    if (open) scrollDown();
+async function mountEditor(useDefault) {
+    if (panel) { panel.dispose(); panel = null; }
+    ready = false;
+    const response = await fetch('/assets/editor.json' + (useDefault ? '?editor=default' : ''));
+    if (!response.ok) throw new Error('The editor could not load');
+    const editor = await response.json();
+    editorDocument = editor.document;
+    editorId = editor.id;
+    holder.replaceChildren();
+    for (const name of Object.keys(editorState)) delete editorState[name];
+    panel = host.mount(holder, { document: editor.document, icons: editor.icons, keys: ['mod+shift+e'] }, T['editor.title']);
+    const timer = setTimeout(() => { if (!ready && !useDefault) void mountEditor(true); }, READY_MS);
+    holder.onstateuiready = null;
+    return new Promise((resolve) => {
+        const onReady = () => {
+            holder.removeEventListener('stateui:ready', onReady);
+            clearTimeout(timer);
+            ready = true;
+            const queued = pending.splice(0);
+            if (queued.length > 0) panel.write(queued);
+            if (editor.fallback) ed({ notice: T['editor.fallback'], noNotice: false });
+            for (const listener of readyListeners) listener();
+            resolve();
+        };
+        holder.addEventListener('stateui:ready', onReady);
+    });
 }
 
-// Focusing the chat bar opens the chat, except when closing it puts the focus back there: then it stays closed
-let closing = false;
-function closeChat() {
-    showChat(false);
-    closing = true;
-    try { text.focus(); } finally { closing = false; }
-}
-
-chatOpen.addEventListener('click', () => { showChat(panel.hidden); if (!panel.hidden) text.focus(); });
-chatClose.addEventListener('click', closeChat);
-document.querySelector('.dock').addEventListener('keydown', (event) => { if (event.key === 'Escape' && !panel.hidden) { event.preventDefault(); closeChat(); } });
-text.addEventListener('focus', () => { if (!closing) showChat(true); });
-
-// The chat bar grows with the request, up to its CSS max-height
-function fitText() { text.style.height = 'auto'; text.style.height = text.scrollHeight + 'px'; }
-text.addEventListener('input', fitText);
-
-function openDrawer() { cancelClose(); showChat(true); drawer.hidden = false; }
-
-function cancelClose() { if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; } }
-
-function scheduleClose() {
-    cancelClose();
-    if (running || inside || pin.getAttribute('aria-pressed') === 'true' || drawer.hidden) return;
-    closeTimer = setTimeout(() => { closeTimer = null; drawer.hidden = true; }, CLOSE_AFTER_MS);
-}
-
-drawer.addEventListener('pointerenter', () => { inside = true; cancelClose(); });
-drawer.addEventListener('pointerleave', () => { inside = drawer.contains(document.activeElement); scheduleClose(); });
-drawer.addEventListener('focusin', () => { inside = true; cancelClose(); });
-drawer.addEventListener('focusout', (event) => { inside = drawer.contains(event.relatedTarget) || drawer.matches(':hover'); scheduleClose(); });
-pin.addEventListener('click', () => {
-    pin.setAttribute('aria-pressed', pin.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
-    scheduleClose();
+holder.addEventListener('stateui:emit', (event) => {
+    const { name, payload } = event.detail || {};
+    if (typeof name !== 'string') return;
+    for (const listener of emitListeners) listener(name, payload);
 });
 
-for (const toggle of document.querySelectorAll('.toggle')) {
-    toggle.addEventListener('click', () => toggle.setAttribute('aria-pressed', toggle.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'));
+// The chat: the conversation is the editor's messages; the agent's tool calls its calls
+const messages = [];
+let streaming = null;
+let calls = [];
+let running = false;
+let messageCount = 0;
+function time() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+function showMessages() {
+    list('messages', messages);
+    ed({ hasMessages: messages.length > 0, noMessages: messages.length === 0 });
 }
-
+function addMessage(author, text) {
+    messageCount += 1;
+    const message = { id: 'm' + messageCount, author, text, time: time() };
+    messages.push(message);
+    showMessages();
+    return message;
+}
+function agentMessage() {
+    if (streaming === null) streaming = addMessage(T['editor.agent'], '');
+    return streaming;
+}
+function finishAgent(entry) {
+    const message = agentMessage();
+    if (entry.text !== undefined && message.text === '') message.text = entry.text;
+    const steps = entry.tools && entry.tools.length > 0 ? (entry.tools.length === 1 ? T['chat.oneStep'] : fill(T['chat.steps'], { count: entry.tools.length })) : '';
+    const outcome = entry.outcome !== 'finished' || entry.message ? entry.message || OUTCOMES[entry.outcome] || '' : '';
+    const extra = [steps && '_' + steps + '_', outcome && '**' + outcome + '**'].filter(Boolean).join(' · ');
+    if (extra) message.text = (message.text ? message.text + '\n\n' : '') + extra;
+    if (message.text === '') message.text = T['chat.done'];
+    streaming = null;
+    showMessages();
+}
+function setRunning(value) {
+    running = value;
+    ed({ working: value, notWorking: !value });
+    if (value) status(T['chat.working']);
+    else if (editorState.status === T['chat.working']) status('');
+}
+function status(text) { ed({ status: text || '', noStatus: !text }); }
+function showCalls() { list('calls', calls); }
 function showHistory(history) {
-    log.replaceChildren();
-    current = null;
+    messages.length = 0;
+    streaming = null;
     for (const entry of history) {
-        if (entry.role === 'person') addPerson(entry.text);
+        if (entry.role === 'person') addMessage(T['editor.you'], entry.text);
         else finishAgent(entry);
     }
-    if (history.length === 0) log.append(el('li', 'empty', T['chat.empty']));
-    scrollDown();
+    showMessages();
 }
 
 function handle(event) {
@@ -455,53 +291,49 @@ function handle(event) {
         case 'state':
             showHistory(event.history);
             setRunning(event.running);
-            if (event.running) openDrawer();
+            if (event.running) showDrawer(true);
             break;
         case 'person':
-            addPerson(event.text);
-            current = null;
-            calls.replaceChildren();
-            note.textContent = '';
+            addMessage(T['editor.you'], event.text);
+            streaming = null;
+            calls = [];
+            showCalls();
+            ed({ note: '' });
             setRunning(true);
-            openDrawer();
+            showDrawer(true);
+            break;
+        case 'note':
+            ed({ note: ((editorState.note || '') + event.delta).slice(-400) });
             break;
         case 'say': {
-            const say = agentBubble().querySelector('.say');
-            say.textContent += event.delta;
-            scrollDown();
+            const message = agentMessage();
+            message.text += event.delta;
+            showMessages();
             break;
         }
-        case 'note':
-            openDrawer();
-            note.textContent = (note.textContent + event.delta).slice(-400);
+        case 'tool':
+            ed({ note: '' });
+            calls.push({ id: event.id, line: event.name + (event.summary ? ' — ' + event.summary : '') });
+            showCalls();
             break;
-        case 'tool': {
-            openDrawer();
-            note.textContent = '';
-            const line = el('li');
-            line.dataset.id = event.id;
-            line.append(el('span', 'name', event.name), el('span', 'what', event.summary));
-            calls.append(line);
-            line.scrollIntoView({ block: 'nearest' });
-            break;
-        }
         case 'toolDone': {
-            const line = calls.querySelector('li[data-id="' + CSS.escape(event.id) + '"]');
-            if (line) { line.className = event.ok ? 'ok' : 'failed'; line.title = event.result; line.querySelector('.what').textContent = event.result; }
+            const call = calls.find((item) => item.id === event.id);
+            if (call) { call.line = (event.ok ? '✓ ' : '✗ ') + call.line + ' → ' + event.result; showCalls(); }
             break;
         }
         case 'done':
             finishAgent({ outcome: event.outcome, message: event.message, tools: [] });
-            note.textContent = '';
             setRunning(false);
-            scheduleClose();
+            ed({ note: '' });
+            scheduleDrawerClose();
+            editorChanged();
             break;
     }
 }
 
 const events = new EventSource(base + '/events');
 events.onmessage = (message) => handle(JSON.parse(message.data));
-events.onerror = () => { if (events.readyState === EventSource.CLOSED) { status.className = 'status bad'; status.textContent = T['chat.disconnected']; } };
+events.onerror = () => { if (events.readyState === EventSource.CLOSED) status(T['chat.disconnected']); };
 
 async function post(path, body) {
     const response = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -509,131 +341,133 @@ async function post(path, body) {
     try { return (await response.json()).message || T['chat.requestRefused']; } catch { return T['chat.requestRefused']; }
 }
 
-// A blank app's hint: an idea fills the chat box; the first request sent puts the hint away
-const blank = document.getElementById('blank');
-if (blank) for (const idea of blank.querySelectorAll('.idea')) idea.addEventListener('click', () => { text.value = idea.textContent; fitText(); text.focus(); });
+// What the next request shows the agent, the paths it is about, and the model
+const shown = { theme: false, layout: false, data: false, logic: false, screens: false };
+let model = '';
+try { model = localStorage.getItem('magnetic.model') || ''; } catch { /* storage may be blocked */ }
+if (!MODELS.some((item) => item.id === model)) model = MODELS.length > 0 ? MODELS[0].id : '';
 
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const value = text.value.trim();
+async function sendRequest(text) {
+    const value = String(text || '').trim();
     if (value === '' || running) return;
-    const context = [...document.querySelectorAll('.toggle[aria-pressed="true"]')].map((toggle) => toggle.dataset.context);
-    send.disabled = true;
+    const context = CONTEXT.filter((name) => shown[name]);
     const focus = magneticShell.focus.slice();
-    const refused = await post('/turns', { text: value, context, ...(model && { model: model.value }), ...(focus.length > 0 && { focus }) });
-    if (refused === undefined) { if (blank) blank.hidden = true; text.value = ''; fitText(); magneticShell.focus.length = 0; showFocus(); status.textContent = status.textContent === T['chat.working'] ? status.textContent : ''; return; }
-    send.disabled = running;
-    status.className = 'status bad';
-    status.textContent = refused;
-});
-
-text.addEventListener('keydown', (event) => {
-    // Enter sends and Shift+Enter starts a new line
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
-});
-
-stop.addEventListener('click', () => { void post('/stop', {}); });
-stop.disabled = true;
-
-// The model menu remembers the person's pick in this browser
-const model = document.getElementById('model');
-if (model) {
-    try {
-        const kept = localStorage.getItem('magnetic.model');
-        if (kept && [...model.options].some((option) => option.value === kept)) model.value = kept;
-    } catch { /* storage may be blocked */ }
-    model.addEventListener('change', () => { try { localStorage.setItem('magnetic.model', model.value); } catch { /* storage may be blocked */ } });
+    const refused = await post('/turns', { text: value, context, ...(model && MODELS.length > 1 && { model }), ...(focus.length > 0 && { focus }) });
+    if (refused !== undefined) { status(refused); return; }
+    ed({ blank: false, notBlank: true, hintHidden: true });
+    magneticShell.focus.length = 0;
+    showFocus();
 }
 
-const share = document.getElementById('share');
-const shareOpen = document.getElementById('share-open');
-const shareForm = document.getElementById('share-new');
-const shareRight = document.getElementById('share-right');
-const shareStatus = document.getElementById('share-status');
-const links = document.getElementById('links');
+function showFocus() {
+    const paths = magneticShell.focus;
+    ed({ focus: paths.length === 0 ? '' : fill(T['chat.about'], { paths: paths.join(', ') }), noFocus: paths.length === 0 });
+}
+
+// Share: the links of this app, each with Copy and Revoke
+let grants = [];
+let shareRight = 'use';
 const RIGHTS = { use: T['share.use'], view: T['share.view'], remix: T['share.remix'] };
-
-function shareSays(message, bad) { shareStatus.className = bad ? 'small status bad' : 'small status'; shareStatus.textContent = message || ''; }
-
-function showLinks(grants) {
-    links.replaceChildren();
-    for (const grant of grants) {
-        const item = el('li', grant.revoked ? 'revoked' : '');
-        const head = el('div', 'head');
+function shareSays(text) { ed({ shareStatus: text || '' }); }
+function showLinks() {
+    list('links', grants.map((grant) => {
         const opened = grant.members === 1 ? T['share.openedOne'] : fill(T['share.opened'], { count: grant.members });
-        head.append(el('strong', '', RIGHTS[grant.right] || grant.right), el('span', 'muted', grant.revoked ? fill(T['share.revokedLine'], { opened }) : opened));
-        item.append(head);
-        if (!grant.revoked) {
-            const url = el('input');
-            url.readOnly = true;
-            url.value = grant.url;
-            url.setAttribute('aria-label', T['share.link']);
-            url.addEventListener('focus', () => url.select());
-            const row = el('div', 'row');
-            const copy = el('button', '', T['share.copy']);
-            copy.type = 'button';
-            copy.addEventListener('click', async () => {
-                try { await navigator.clipboard.writeText(grant.url); shareSays(T['share.copied']); }
-                catch { url.focus(); shareSays(T['share.copySelected']); }
-            });
-            const revoke = el('button', 'stop', T['share.revoke']);
-            revoke.type = 'button';
-            revoke.addEventListener('click', async () => {
-                if (!confirm(T['share.revokeConfirm'])) return;
-                const refused = await post('/share/' + encodeURIComponent(grant.id) + '/revoke', {});
-                if (refused !== undefined) { shareSays(refused, true); return; }
-                shareSays(T['share.revokedDone']);
-                await loadLinks();
-            });
-            row.append(copy, revoke);
-            item.append(url, row);
-        }
-        links.append(item);
-    }
-    if (grants.length === 0) links.append(el('li', 'muted small', T['share.none']));
+        return { id: grant.id, title: RIGHTS[grant.right] || grant.right, note: grant.revoked ? fill(T['share.revokedLine'], { opened }) : opened + ' · ' + grant.url, url: grant.url, revoked: Boolean(grant.revoked) };
+    }));
 }
-
 async function loadLinks() {
     try {
         const response = await fetch(base + '/share');
         if (!response.ok) throw new Error('refused');
-        showLinks((await response.json()).grants);
-    } catch { shareSays(T['share.loadFailed'], true); }
+        grants = (await response.json()).grants || [];
+        showLinks();
+    } catch { shareSays(T['share.loadFailed']); }
+}
+/** The Share and choices sheets open under their buttons, one at a time */
+function showSheet(name, open) {
+    ed({ shareHidden: name === 'share' ? !open : true, prefsHidden: name === 'prefs' ? !open : true });
 }
 
-function showShare(open) {
-    share.hidden = !open;
-    shareOpen.setAttribute('aria-expanded', String(open));
-    if (open) { shareSays(''); void loadLinks(); }
+// The chat opens above the chat bar and closes with its button; the agent's activity shows in it while the agent works
+// and a moment after, unless kept open
+const CLOSE_AFTER_MS = 4000;
+let chatOpen = false;
+let drawerTimer = null;
+function showChat(open) {
+    chatOpen = open;
+    ed({ chatHidden: !open, hintHidden: open || !editorState.blank });
+}
+function showDrawer(open) {
+    clearTimeout(drawerTimer);
+    ed({ drawerHidden: !open });
+    if (open) showChat(true);
+}
+function scheduleDrawerClose() {
+    clearTimeout(drawerTimer);
+    if (running || editorState.keepOpen) return;
+    drawerTimer = setTimeout(() => ed({ drawerHidden: true }), CLOSE_AFTER_MS);
 }
 
-shareOpen.addEventListener('click', () => { showPrefs(false); showShare(share.hidden); });
-
-// The person's choices: light, dark or the system's, and the language. A change is kept (POST /prefs) and the page
-// loads again in it
-const prefs = document.getElementById('prefs');
-const prefsOpen = document.getElementById('prefs-open');
-const prefsStatus = document.getElementById('prefs-status');
-function showPrefs(open) { prefs.hidden = !open; prefsOpen.setAttribute('aria-expanded', String(open)); if (open) prefsStatus.textContent = ''; }
-prefsOpen.addEventListener('click', () => { showShare(false); showPrefs(prefs.hidden); });
-prefs.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); showPrefs(false); prefsOpen.focus(); } });
 async function choose(change) {
     try {
         const response = await fetch('/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
         if (!response.ok) throw new Error('refused');
         location.reload();
-    } catch { prefsStatus.className = 'small status bad'; prefsStatus.textContent = T['prefs.failed']; }
+    } catch { ed({ prefsStatus: T['prefs.failed'] }); }
 }
-document.getElementById('prefs-mode').addEventListener('change', (event) => void choose({ mode: event.target.value }));
-document.getElementById('prefs-language').addEventListener('change', (event) => void choose({ language: event.target.value }));
-share.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); showShare(false); shareOpen.focus(); } });
 
-shareForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const refused = await post('/share', { right: shareRight.value });
-    if (refused !== undefined) { shareSays(refused, true); return; }
-    shareSays(T['share.made']);
-    await loadLinks();
+emitListeners.push((name, payload) => {
+    const value = valueOf(payload);
+    switch (name) {
+        case 'home': location.assign('/'); return;
+        case 'open': window.open('/apps/' + encodeURIComponent(appId), '_blank', 'noopener'); return;
+        case 'size': setSize(String(value), true); return;
+        case 'zoomIn': zoomCentre(view.zoom * 1.25); return;
+        case 'zoomOut': zoomCentre(view.zoom / 1.25); return;
+        case 'zoomReset': zoomCentre(1); return;
+        case 'zoomFit': fit(true); return;
+        case 'tool': if (typeof value === 'string' && value) setTool(value); return;
+        case 'share': if (editorState.shareHidden === false) { showSheet('share', false); return; } showSheet('share', true); shareSays(''); void loadLinks(); return;
+        case 'shareClose': showSheet('share', false); return;
+        case 'shareRight': if (typeof value === 'string') shareRight = value; return;
+        case 'shareMake': void (async () => {
+            const refused = await post('/share', { right: shareRight });
+            if (refused !== undefined) { shareSays(refused); return; }
+            shareSays(T['share.made']);
+            await loadLinks();
+        })(); return;
+        case 'linkCopy': {
+            const grant = grants.find((item) => item.id === value);
+            if (grant) navigator.clipboard.writeText(grant.url).then(() => shareSays(T['share.copied']), () => shareSays(grant.url));
+            return;
+        }
+        case 'linkRevoke': void (async () => {
+            if (!confirm(T['share.revokeConfirm'])) return;
+            const refused = await post('/share/' + encodeURIComponent(String(value)) + '/revoke', {});
+            if (refused !== undefined) { shareSays(refused); return; }
+            shareSays(T['share.revokedDone']);
+            await loadLinks();
+        })(); return;
+        case 'prefs': ed({ prefsStatus: '' }); showSheet('prefs', editorState.prefsHidden !== false); return;
+        case 'prefsClose': showSheet('prefs', false); return;
+        case 'mode': if (typeof value === 'string' && value !== document.documentElement.dataset.mode) void choose({ mode: value }); return;
+        case 'language': if (typeof value === 'string' && value !== document.documentElement.lang) void choose({ language: value }); return;
+        case 'chat.send': void sendRequest(value); return;
+        case 'chatToggle': showChat(!chatOpen); return;
+        case 'chatClose': showChat(false); return;
+        case 'keepOpen': ed({ keepOpen: Boolean(value) }); scheduleDrawerClose(); return;
+        case 'model': if (typeof value === 'string') { model = value; try { localStorage.setItem('magnetic.model', model); } catch { /* storage may be blocked */ } } return;
+        case 'stop': void post('/stop', {}); return;
+        case 'idea1': case 'idea2': case 'idea3': void sendRequest(T['shell.' + name]); return;
+        case 'focusClear': magneticShell.focus.length = 0; showFocus(); return;
+        case 'tab': if (typeof value === 'string') editorState.tab = value; return;
+    }
+    const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
+    if (show) {
+        const key = show[1].toLowerCase();
+        shown[key] = Boolean(value);
+        ed({ show: { ...shown } });
+    }
 });
 
 // The canvas: the app is a frame on a board that pans and zooms. Scrolling on the board pans it, Ctrl or a pinch
@@ -643,13 +477,13 @@ const board = document.getElementById('board');
 const world = document.getElementById('world');
 const artboard = document.getElementById('artboard');
 const shield = document.getElementById('shield');
-const frameSize = document.getElementById('frame-size');
 const sizeLabel = document.getElementById('artboard-size');
-const zoomReset = document.getElementById('zoom-reset');
+const SIZES = { desktop: [1280, 800], tablet: [834, 1112], phone: [390, 844] };
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const VIEW_KEY = 'magnetic.view.' + appId;
 const view = { x: 0, y: 0, zoom: 1 };
+let size = 'desktop';
 let tool = 'use';
 let spaceHeld = false;
 let saveTimer = null;
@@ -660,7 +494,7 @@ function saveView() {
     if (saveTimer !== null) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         saveTimer = null;
-        try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size: frameSize.value })); } catch { /* storage may be blocked */ }
+        try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size })); } catch { /* storage may be blocked */ }
     }, 300);
 }
 
@@ -672,22 +506,23 @@ function render(glide) {
     while (step < 12) step *= 4;
     board.style.backgroundSize = step + 'px ' + step + 'px';
     board.style.backgroundPosition = view.x + 'px ' + view.y + 'px';
-    zoomReset.textContent = Math.round(view.zoom * 100) + '%';
+    ed({ zoom: Math.round(view.zoom * 100) + '%' });
     saveView();
 }
 
-// Where the frame can show without the floating panels covering it
+// Where the frame can show without the floating panels covering it: right of the rail, below the corners, above the
+// chat bar and the zoom, and left of the inspector when it is open and tall
 function freeArea() {
-    const rail = document.querySelector('.rail').getBoundingClientRect();
-    const corner = document.querySelector('.corner.start').getBoundingClientRect();
-    const ask = form.getBoundingClientRect();
-    const upright = rail.height > rail.width;
-    const left = upright ? rail.right + 24 : 24;
-    const top = Math.max(corner.bottom, upright ? 0 : rail.bottom) + 32;
-    const inspector = document.getElementById('inspector');
-    const beside = !inspector.hidden && inspector.getBoundingClientRect().height > innerHeight / 2;
-    const right = (beside ? inspector.getBoundingClientRect().left : innerWidth) - 24;
-    const bottom = Math.min(ask.top, document.querySelector('.zoom').getBoundingClientRect().top) - 24;
+    const box = (key) => panels.get(key);
+    const rail = box('rail');
+    const corner = box('nameCorner');
+    const bar = box('chatBar');
+    const zoomBox = box('zoom');
+    const inspector = box('inspector');
+    const left = rail ? rail.x + rail.width + 24 : 24;
+    const top = (corner ? corner.y + corner.height : 0) + 32;
+    const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
+    const bottom = Math.min(bar ? bar.y : innerHeight, zoomBox ? zoomBox.y : innerHeight) - 24;
     return { left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
 }
 
@@ -720,36 +555,35 @@ function zoomCentre(zoom) {
 function panBy(dx, dy) { view.x += dx; view.y += dy; render(false); }
 
 function setSize(id, refit) {
-    const option = [...frameSize.options].find((item) => item.value === id) || frameSize.options[0];
-    frameSize.value = option.value;
-    artboard.style.width = option.dataset.width + 'px';
-    artboard.style.height = option.dataset.height + 'px';
-    sizeLabel.textContent = option.dataset.width + ' × ' + option.dataset.height;
+    size = SIZES[id] ? id : 'desktop';
+    const [width, height] = SIZES[size];
+    artboard.style.width = width + 'px';
+    artboard.style.height = height + 'px';
+    sizeLabel.textContent = width + ' × ' + height;
+    ed({ size });
     if (refit) fit(true);
 }
 
 function moving() { return tool === 'move' || spaceHeld; }
 
 function showTool() {
-    for (const button of document.querySelectorAll('.tool')) button.setAttribute('aria-pressed', String(button.dataset.tool === tool));
     board.classList.toggle('moving', moving());
     board.classList.toggle('selecting', !moving() && (tool === 'select' || tool === 'place'));
     shield.hidden = !moving() && tool === 'use' && !board.classList.contains('dragging');
+    ed({ tool: tool === 'place' ? 'select' : tool });
 }
 
 const toolListeners = [];
 function setTool(name) { tool = name; showTool(); for (const listener of toolListeners) listener(name); }
 
-// Pressing the select tool while it is on turns it off: back to using the app
-for (const button of document.querySelectorAll('.tool')) button.addEventListener('click', () => setTool(button.dataset.tool === 'select' && tool === 'select' ? 'use' : button.dataset.tool));
-
 board.addEventListener('wheel', (event) => {
     if (!editing()) return;
     event.preventDefault();
     const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1;
+    const box = board.getBoundingClientRect();
     if (event.ctrlKey || event.metaKey) {
         const delta = Math.max(-30, Math.min(30, event.deltaY * scale));
-        zoomAt(view.zoom * Math.exp(-delta * 0.01), event.clientX, event.clientY, false);
+        zoomAt(view.zoom * Math.exp(-delta * 0.01), event.clientX - box.left, event.clientY - box.top, false);
     } else if (event.shiftKey && event.deltaX === 0) {
         panBy(-event.deltaY * scale, 0);
     } else {
@@ -768,6 +602,8 @@ function pinchState() {
 
 board.addEventListener('pointerdown', (event) => {
     if (!editing()) return;
+    // The keyboard comes back to the page from the editor's frame, for the tools' keys
+    if (document.activeElement !== board && !typing(document.activeElement)) board.focus({ preventScroll: true });
     const onBackground = event.target === board || event.target === world;
     if (!(onBackground || (event.target === shield && moving()) || event.button === 1)) return;
     if (event.button !== 0 && event.button !== 1) return;
@@ -786,9 +622,10 @@ board.addEventListener('pointermove', (event) => {
     pointers.set(event.pointerId, now);
     if (pointers.size === 2 && pinch !== null) {
         const next = pinchState();
+        const box = board.getBoundingClientRect();
         view.x += next.x - pinch.x;
         view.y += next.y - pinch.y;
-        zoomAt(view.zoom * (next.distance / pinch.distance), next.x, next.y, false);
+        zoomAt(view.zoom * (next.distance / pinch.distance), next.x - box.left, next.y - box.top, false);
         pinch = next;
     } else if (pointers.size === 1) {
         panBy(now.x - last.x, now.y - last.y);
@@ -818,13 +655,47 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('keyup', (event) => { if (event.key === ' ' && spaceHeld) { event.preventDefault(); spaceHeld = false; showTool(); } });
 addEventListener('blur', () => { if (spaceHeld) { spaceHeld = false; showTool(); } });
 
-document.getElementById('zoom-in').addEventListener('click', () => zoomCentre(view.zoom * 1.25));
-document.getElementById('zoom-out').addEventListener('click', () => zoomCentre(view.zoom / 1.25));
-document.getElementById('zoom-fit').addEventListener('click', () => fit(true));
-zoomReset.addEventListener('click', () => zoomCentre(1));
-frameSize.addEventListener('change', () => setSize(frameSize.value, true));
+// The editor's frame shows only its floating panels: each child of the stage, where the frame says it is now. A click
+// anywhere else falls through to the canvas
+const panels = new Map();
+const RADIUS = 10;
+function roundedRect(rect) {
+    const r = Math.min(RADIUS, rect.width / 2, rect.height / 2);
+    const x = rect.x;
+    const y = rect.y;
+    const right = x + rect.width;
+    const bottom = y + rect.height;
+    return 'M' + (x + r) + ' ' + y + 'H' + (right - r) + 'A' + r + ' ' + r + ' 0 0 1 ' + right + ' ' + (y + r) + 'V' + (bottom - r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (right - r) + ' ' + bottom +
+        'H' + (x + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + x + ' ' + (bottom - r) + 'V' + (y + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + 'Z';
+}
+function clipEditor(nodes) {
+    panels.clear();
+    const shapes = [];
+    for (const node of nodes || []) {
+        const key = node.path.slice(node.path.lastIndexOf('.') + 1);
+        if (node.rect.width < 1 || node.rect.height < 1) continue;
+        panels.set(key, node.rect);
+        shapes.push(roundedRect(node.rect));
+    }
+    holder.style.clipPath = shapes.length === 0 ? '' : "path('" + shapes.join(' ') + "')";
+    if (!fitted && panels.size > 0) { fitted = true; fit(false); }
+}
+function watchStage() {
+    const stage = pathOfKey('stage');
+    if (!stage || !panel) return;
+    const children = [];
+    for (const screen of Object.values(editorDocument.screens || {})) {
+        const visit = (node, at) => {
+            if (!node || typeof node !== 'object') return;
+            if (at === stage) { for (const name of Object.keys(node.children || {})) children.push(stage + '.children.' + name); return; }
+            for (const [name, child] of Object.entries(node.children || {})) visit(child, at + '.children.' + name);
+        };
+        visit(screen.root, '$.screens.' + Object.keys(editorDocument.screens).find((name) => editorDocument.screens[name] === screen));
+    }
+    panel.watch(children, clipEditor);
+}
 
-// The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app
+// The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app or the editor
 function editing() { return document.body.classList.contains('editing'); }
 
 let fitted = false;
@@ -834,11 +705,10 @@ function setEditing(on) {
     history.replaceState(null, '', (on ? '/edit/' : '/apps/') + encodeURIComponent(appId) + location.search);
     if (on) {
         hideHint();
+        if (panel && ready) watchStage();
         if (!fitted) { fitted = true; fit(false); } else render(false);
-        text.focus();
     } else {
-        showShare(false);
-        showPrefs(false);
+        showSheet('share', false);
         if (spaceHeld) { spaceHeld = false; showTool(); }
         const frame = artboard.querySelector('iframe');
         if (frame) frame.focus();
@@ -847,19 +717,15 @@ function setEditing(on) {
 
 addEventListener('stateui:key', (event) => { if (event.detail && event.detail.key === 'mod+shift+e') setEditing(!editing()); });
 
-// What /assets/inspect.js uses of the editor: the tools, and the paths the next turn is about ("Ask the agent")
-const focusLine = document.getElementById('focus');
-function showFocus() {
-    const paths = magneticShell.focus;
-    focusLine.hidden = paths.length === 0;
-    focusLine.textContent = paths.length === 0 ? '' : fill(T['chat.about'], { paths: paths.join(', ') });
-    if (paths.length > 0) {
-        const clear = el('button', '', T['chat.clear']);
-        clear.type = 'button';
-        clear.addEventListener('click', () => { magneticShell.focus.length = 0; showFocus(); });
-        focusLine.append(clear);
-    }
+// Editing the editor itself: each change shows in the editor around it, a moment after it is saved
+let reloadTimer = null;
+function editorChanged() {
+    if (appId !== editorId) return;
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => void mountEditor(false).then(showAll), 800);
 }
+
+// What /assets/inspect.js uses of the editor: the tools, the editor and the paths the next turn is about
 const magneticShell = {
     tool: () => tool,
     setTool,
@@ -870,9 +736,22 @@ const magneticShell = {
         if (!magneticShell.focus.includes(path)) magneticShell.focus.push(path);
         magneticShell.focus.splice(0, Math.max(0, magneticShell.focus.length - 5));
         showFocus();
-        text.focus();
+        showChat(true);
     },
-    refit: () => render(false)
+    refit: () => render(false),
+    editorChanged,
+    showInspector: (open) => ed({ inspectorHidden: !open }),
+    editor: {
+        set: ed,
+        list,
+        write,
+        state: editorState,
+        pathOf: pathOfKey,
+        onEmit: (listener) => emitListeners.push(listener),
+        onReady: (listener) => readyListeners.push(listener),
+        frame: () => (panel ? panel.frame() : null),
+        inspect: (query) => (panel ? panel.inspect(query) : Promise.resolve(undefined))
+    }
 };
 window.magneticShell = magneticShell;
 
@@ -884,6 +763,32 @@ let hinted = false;
 try { hinted = localStorage.getItem('magnetic.hinted') === '1'; localStorage.setItem('magnetic.hinted', '1'); } catch { /* storage may be blocked */ }
 if (!editing() && !hinted) { hint.hidden = false; setTimeout(hideHint, 5000); }
 
+/** Everything the editor shows, written again after it (re)loads */
+function showAll() {
+    const blank = document.body.dataset.blank === 'true' && messages.length === 0;
+    ed({
+        appName: document.body.dataset.appName || '',
+        size,
+        mode: document.documentElement.dataset.mode || 'system',
+        language: document.documentElement.lang || 'en',
+        blank,
+        notBlank: !blank,
+        hintHidden: !blank || chatOpen,
+        models: Object.fromEntries(MODELS.map((item) => [item.id, { _label: item.label }])),
+        model,
+        noModels: MODELS.length < 2,
+        show: { ...shown }
+    });
+    render(false);
+    showTool();
+    showMessages();
+    showCalls();
+    showFocus();
+    setRunning(running);
+    showChat(chatOpen);
+    if (editing()) watchStage();
+}
+
 (function startCanvas() {
     let kept = null;
     try { kept = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch { /* storage may be blocked */ }
@@ -893,11 +798,13 @@ if (!editing() && !hinted) { hint.hidden = false; setTimeout(hideHint, 5000); }
         view.y = kept.y;
         view.zoom = clampZoom(kept.zoom);
         fitted = true;
-        render(false);
-    } else if (editing()) {
-        fitted = true;
-        fit(false);
     }
+    render(false);
     showTool();
 })();
+
+if (host) {
+    const useDefault = new URLSearchParams(location.search).get('editor') === 'default';
+    mountEditor(useDefault).then(showAll, () => { if (!useDefault) void mountEditor(true).then(showAll); });
+}
 `;

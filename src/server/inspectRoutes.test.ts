@@ -96,26 +96,28 @@ describe("The editor's inspector routes", () => {
         await rm(dataDir, { recursive: true, force: true });
     });
 
-    it('should serve the inspector app to a signed-in person: its assembled document with tabs, and its icons', async () => {
+    it("should serve a signed-in person's editor: their own app, its floating panels, the inspector's tabs, and its icons", async () => {
         // Act
-        const anonymous = await fetch(`${magnetic.origin}/assets/inspector.json`);
-        const served = await fetch(`${magnetic.origin}/assets/inspector.json`, { headers: { Cookie: alice } });
-        const again = await fetch(`${magnetic.origin}/assets/inspector.json`, { headers: { Cookie: alice } });
+        const anonymous = await fetch(`${magnetic.origin}/assets/editor.json`);
+        const served = await fetch(`${magnetic.origin}/assets/editor.json`, { headers: { Cookie: alice } });
+        const again = await fetch(`${magnetic.origin}/assets/editor.json`, { headers: { Cookie: alice } });
         const script = await fetch(`${magnetic.origin}/assets/inspect.js`);
-        const body = (await served.json()) as { document: { screens: { home: { root: { children: { tabs: { component: string; children: Record<string, unknown> } } } } } }; icons: unknown };
+        type Node = { component: string; children: Record<string, Node> };
+        const body = (await served.json()) as { id: string; document: { screens: { home: { root: Node } } }; icons: unknown; fallback?: boolean };
+        const stage = body.document.screens.home.root.children['stage'] as Node;
 
         // Assert
         expect(anonymous.status).toBe(401);
         expect(served.status).toBe(200);
-        expect(body.document.screens.home.root.children.tabs.component).toBe('tabs');
-        expect(Object.keys(body.document.screens.home.root.children.tabs.children)).toEqual(['properties', 'add', 'state']);
+        expect(body.fallback).toBeUndefined();
+        expect(Object.keys(stage.children)).toEqual(expect.arrayContaining(['nameCorner', 'shareCorner', 'rail', 'zoom', 'chat', 'chatBar', 'inspector', 'share', 'prefs']));
+        expect(Object.keys((stage.children['inspector'] as Node).children['tabs']!.children)).toEqual(['properties', 'add', 'state']);
         expect(typeof body.icons).toBe('object');
         expect(await again.json()).toEqual(body);
         expect(script.headers.get('content-type')).toMatch(/^text\/javascript/);
-        expect(Object.keys((body as unknown as { paths: Record<string, string> }).paths)).toEqual(expect.arrayContaining(['tabs', 'crumbs', 'fields', 'remove', 'detail']));
     });
 
-    it('should serve the logo, and give every page it as an icon, the sign-in page and the editor showing the mark', async () => {
+    it('should serve the logo, and give every page it as an icon', async () => {
         // Act
         const logo = await fetch(`${magnetic.origin}/assets/logo.svg`);
         const signIn = await (await fetch(`${magnetic.origin}/signin`)).text();
@@ -125,10 +127,7 @@ describe("The editor's inspector routes", () => {
         expect(logo.status).toBe(200);
         expect(logo.headers.get('content-type')).toBe('image/svg+xml');
         expect(await logo.text()).toContain('<title>Magnetic</title>');
-        for (const page of [signIn, editor]) {
-            expect(page).toContain('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,');
-            expect(page).toContain('class="mark" aria-hidden="true"');
-        }
+        for (const page of [signIn, editor]) expect(page).toContain('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,');
     });
 
     it('should answer a node with its settings, its children and its component, and no node for a path that is not one', async () => {
