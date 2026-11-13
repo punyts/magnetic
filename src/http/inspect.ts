@@ -685,9 +685,17 @@ function onEmit(name, payload) {
             return;
         }
         case 'ask': if (chosenPath) shell.ask(chosenPath); return;
+        case 'addToChat': addSelectedToChat(); return;
         case 'tab': if (String(valueOf(payload)) === 'state') void loadState(); return;
         case 'inspectorClose': closeInspector(); if (shell.tool() !== 'use') shell.setTool('use'); return;
     }
+}
+
+/** Gives the selected node to the agent with the next request: it shows on the chat bar by its label, such as "button · save" */
+function addSelectedToChat() {
+    if (!selected) return;
+    shell.ask(selected.path, selected.label, false);
+    says(T['inspect.addedToChat']);
 }
 
 function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }

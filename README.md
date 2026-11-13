@@ -140,6 +140,9 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - At the bottom centre is a chat bar: the request, the model menu and Send. Focusing it, or its chat button,
     opens the chat above it; the close button or Escape closes it. Enter sends and Shift+Enter starts a new line.
     On a phone the rail sits in a row under the top bar.
+  - **Its icons are its own.** The chat, Send, the three tools, the zoom buttons and the appearance button draw the
+    glyphs of the old hand-written editor (41fa580), which the editor app carries as its own icons (`EDITOR_ICONS` in
+    `src/editor/EditorApp.ts`, given to `ui_app_create` as `icons`) rather than the nearest icons of the set.
   - The page carries the same body attributes as stateui-mcp's `/apps/<appId>`, so the host script builds the live
     app frame. Every change the agent writes shows in it at once. It sends the host page's policy
     (`hostPageCsp`).

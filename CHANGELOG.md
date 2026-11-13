@@ -2,6 +2,36 @@
 
 ## 0.1.0 (unreleased)
 
+- **The editor draws the old editor's icons.** The chat, Send, Use, Move, Select, zoom out, zoom in, fit and appearance buttons show the glyphs of the hand-written editor (41fa580) again, from the editor app's own icon set (`EDITOR_ICONS`, given to `ui_app_create` as `icons`) instead of the nearest Tabler icons. The old appearance circle is written as a path. A person's untouched editor is made again, since the definition changed. Tests: `editor.browser.test.ts` (each button draws its old paths), `inspectRoutes.test.ts` (the served document carries the icons, and the icons map leaves them out).
+- **The editor is held to the old design by a test.** `editor.browser.test.ts` measures the name and Share corners, the rail, the zoom and the chat bar at a wide window, and compares them with what the old editor (41fa580) measured. Heights may differ by 4% or 8 px, widths by 15%; the chat bar must be 640 px, and the corners sized by what they hold. It found the rail's toggles had lost the 4 px gap between them; they have it again.
+- **`npm run ui:build` and `npm run magnetic:dev`** in the workspace: the UI layers built in order in about 20 s, then Magnetic started.
+
+- **Add a component to the chat.**
+  - **In the editor.** With a component selected, the Properties tab has "Add to chat". The component shows on the chat bar by its type and key, as "About: button · save", alongside anything else the next request is about (up to five). Clear removes them.
+  - **For the agent.** The next request gives it the component as the app mounts it, two levels deep: which component it is, its settings and what it holds. Before, a node came only as a one-line note.
+  - **Text.** "Add to chat" in English, German, French and Spanish.
+  - Tests: `editor.browser.test.ts` and `agentRoutes.test.ts`.
+- **The inspector scrolls, and is a bottom sheet in a narrow window.**
+  - **Scrolling.** Its tabs take its height and the open tab scrolls. Before, a component with many properties spilled out below it.
+  - **Narrow windows.** Below 760 px it is a sheet across the bottom, 45% of the height, as the old editor's was, so the app stays in view. It also stays above the chat bar when the bar shows what the request is about.
+
+- **The editor matches the old one, checked side by side against commit 41fa580.**
+  - **Theme.** Words and buttons are in the regular weight; the app's name is bold; floating panels have 12 px corners (`panel.radius`).
+  - **Icons.** They are ink, not accent, and the appearance button uses the old half-filled circle (`contrast`).
+  - **Pill panels.** A pill panel's clip and shadow are round at its ends.
+  - **Canvas fit.** It fits around whichever rail is showing, and again when the other rail takes its place, until you pan or zoom yourself. Before, a narrow window put the frame under the top rail.
+
+- **The editor is compact again, as it was before it became a StateUI app.**
+  - **Panels size to their contents.** The corners, the rail and the zoom have no fixed width any more (they were 440, 104 and 196 px).
+  - **The rail** has the tools, a line, a small uppercase "Show" and the toggles.
+  - **The chat bar** is a pill: a borderless request box, the model in a soft pill and a round Send button, all on one line.
+  - **Narrow windows**, as the old CSS had them:
+    - every panel narrows to fit the window;
+    - below 1120 px the zoom moves above the chat bar;
+    - below 760 px the rail runs along the top and the sheets open below it;
+    - below 480 px the model menu is hidden.
+  - Built on the new StateUI `corners`, field `variant`, `text` `caps`, content-sized `adhoc` panels and `wrap: false`.
+
 - **A layout shows itself while you point at it.** With the select tool, the pointer over a layout rather than over one of its children (in a gap, an empty track, the empty part of the area) shows that layout: its area dotted, each child as a box, the gaps hatched and, in a grid, every cell outlined, filled or not, under a tag with the layout and its settings (`panel · cards · grid cols 3 gap md`). Over a child, the child is outlined as before. Tests: `editor.browser.test.ts`.
 - **The editor looks and works as it did, now in StateUI.** Magnetic's apps (the editor, the sign-in and link pages) use a `magnetic` theme, made with the theme tools, holding the colours, shadow and corners Magnetic's CSS had, light and dark. The logo is the way back to your apps again (a clickable `image`); the rail is in the middle of the left edge (adhoc `center`) with the tools one above the other and the Show toggles as buttons that fill while on; the chat bar and the chat are centred at their old width. V, H, S, 0, 1, - and = and Escape work with the focus in the editor too, but not while you type there. The panels cast their shadows again (the page draws them under the clipped frame), and the app no longer shows at the top left for a moment before the canvas fits it. Tests: `editor.browser.test.ts`.
 - **Magnetic is made with StateUI, and you can edit the editor.** The editor (its corners, the rail, the zoom, the chat bar and the chat, the inspector, the Share and appearance sheets, a blank app's ideas) is a StateUI app, `magnetic-editor`, and looks as it did: panels floating over the canvas. The canvas stays the page's (the app's live frame on a board that pans and zooms); the editor's frame covers the window above it and the page clips it to the panels, from where the frame says they are (`watch`), so every other click reaches the canvas. The page drives the editor only through its data (`$.data.editor` and its lists) and its emits, and finds two parts by their key (`stage`, `propertyFields`), so the editor can be changed freely. Each person has their own copy, made from Magnetic's in their language: Your apps has Edit the editor (it opens in the editor, and each change shows in the editor around it at once) and Reset the editor; Magnetic's copy replaces an untouched one when it ships a new editor, and a person whose editor does not load gets Magnetic's with a note. The sign-in and share-link pages are StateUI apps too (`magnetic-signin`, `magnetic-link`), and every app Magnetic makes for itself carries German, French and Spanish as locales, written with `ui_locale_write`. Tests: `EditorApp.test.ts`, `editor.browser.test.ts` (driving the editor's frame), and the route tests.

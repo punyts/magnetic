@@ -379,9 +379,12 @@ function showToggles() {
     });
 }
 
+/** What the next request is about, each by the name it was given (a node as its component and key), else its path */
+const focusLabels = new Map();
 function showFocus() {
     const paths = magneticShell.focus;
-    ed({ focus: paths.length === 0 ? '' : fill(T['chat.about'], { paths: paths.join(', ') }), noFocus: paths.length === 0 });
+    const names = paths.map((path) => focusLabels.get(path) || path);
+    ed({ focus: paths.length === 0 ? '' : fill(T['chat.about'], { paths: names.join(', ') }), noFocus: paths.length === 0 });
 }
 
 // Share: the links of this app, each with Copy and Revoke
@@ -535,13 +538,15 @@ function render(glide) {
 // chat bar and the zoom, and left of the inspector when it is open and tall
 function freeArea() {
     const box = (key) => panels.get(key);
-    const rail = box('rail');
+    // The rail down the left, or below 760px the one along the top
+    const rail = box('railTop') || box('rail');
+    const upright = Boolean(rail) && rail.height > rail.width;
     const corner = box('nameCorner');
     const bar = box('chatBar');
     const zoomBox = box('zoom');
     const inspector = box('inspector');
-    const left = rail ? rail.x + rail.width + 24 : 24;
-    const top = (corner ? corner.y + corner.height : 0) + 32;
+    const left = upright ? rail.x + rail.width + 24 : 24;
+    const top = Math.max(corner ? corner.y + corner.height : 0, rail && !upright ? rail.y + rail.height : 0) + 32;
     const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
     const bottom = Math.min(bar ? bar.y : innerHeight, zoomBox ? zoomBox.y : innerHeight) - 24;
     return { left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
@@ -550,8 +555,15 @@ function freeArea() {
 function frameWidth() { return artboard.offsetWidth; }
 function frameHeight() { return artboard.offsetHeight; }
 
+// The rail the last automatic fit went around, while the view is still that fit (no pan or zoom since): when the
+// other rail shows instead (the window crossed 760px, or the editor showed its narrow rail after the first fit), the
+// frame is fitted again
+let fittedRail = null;
+function railShown() { return panels.has('railTop') ? 'railTop' : 'rail'; }
+
 // Fit the frame into the free area, never past 100%
 function fit(glide) {
+    fittedRail = railShown();
     const area = freeArea();
     view.zoom = clampZoom(Math.min(1, area.width / frameWidth(), area.height / frameHeight()));
     view.x = area.left + (area.width - frameWidth() * view.zoom) / 2;
@@ -561,6 +573,7 @@ function fit(glide) {
 
 // Zoom keeping the board point under (cx, cy) where it is
 function zoomAt(zoom, cx, cy, glide) {
+    fittedRail = null;
     const next = clampZoom(zoom);
     view.x = cx - ((cx - view.x) / view.zoom) * next;
     view.y = cy - ((cy - view.y) / view.zoom) * next;
@@ -573,7 +586,7 @@ function zoomCentre(zoom) {
     zoomAt(zoom, area.left + area.width / 2, area.top + area.height / 2, true);
 }
 
-function panBy(dx, dy) { view.x += dx; view.y += dy; render(false); }
+function panBy(dx, dy) { fittedRail = null; view.x += dx; view.y += dy; render(false); }
 
 function setSize(id, refit) {
     size = SIZES[id] ? id : 'desktop';
@@ -700,9 +713,26 @@ addEventListener('blur', () => { if (spaceHeld) { spaceHeld = false; showTool();
 // The editor's frame shows only its floating panels: each child of the stage, where the frame says it is now. A click
 // anywhere else falls through to the canvas
 const panels = new Map();
-const RADIUS = 10;
-function roundedRect(rect) {
-    const r = Math.min(RADIUS, rect.width / 2, rect.height / 2);
+const RADIUS = 12;
+/** The corner radius of a panel: a pill is round at its ends, every other panel has the theme's 12px */
+function radiusOf(key, rect) {
+    const node = stageChild(key);
+    return node && node.corners === 'pill' ? Math.min(rect.width, rect.height) / 2 : Math.min(RADIUS, rect.width / 2, rect.height / 2);
+}
+function stageChild(key) {
+    for (const screen of Object.values(editorDocument.screens || {})) {
+        let found;
+        const visit = (node) => {
+            if (found || !node || typeof node !== 'object') return;
+            if (node.children && node.children[key] && node.layout && node.layout.type === 'adhoc') { found = node.children[key]; return; }
+            for (const child of Object.values(node.children || {})) visit(child);
+        };
+        visit(screen.root);
+        if (found) return found;
+    }
+    return undefined;
+}
+function roundedRect(rect, r) {
     const x = rect.x;
     const y = rect.y;
     const right = x + rect.width;
@@ -719,8 +749,10 @@ function clipEditor(nodes) {
         const key = node.path.slice(node.path.lastIndexOf('.') + 1);
         if (node.rect.width < 1 || node.rect.height < 1) continue;
         panels.set(key, node.rect);
-        shapes.push(roundedRect(node.rect));
+        const radius = radiusOf(key, node.rect);
+        shapes.push(roundedRect(node.rect, radius));
         const cast = document.createElement('div');
+        cast.style.borderRadius = radius + 'px';
         cast.style.left = node.rect.x + 'px';
         cast.style.top = node.rect.y + 'px';
         cast.style.width = node.rect.width + 'px';
@@ -730,6 +762,7 @@ function clipEditor(nodes) {
     shadows.replaceChildren(...casts);
     holder.style.clipPath = shapes.length === 0 ? '' : "path('" + shapes.join(' ') + "')";
     if (!fitted && panels.size > 0) { fitted = true; fit(false); }
+    else if (fittedRail !== null && panels.size > 0 && railShown() !== fittedRail) fit(true);
     if (panels.size > 0) document.body.classList.remove('unfitted');
 }
 function watchStage() {
@@ -788,11 +821,13 @@ const magneticShell = {
     onTool: (listener) => toolListeners.push(listener),
     editing,
     focus: [],
-    ask(path) {
+    /** Points the next request at a path; the State tab opens the chat to ask, a node added to the chat leaves it as it is */
+    ask(path, label, open = true) {
+        if (label) focusLabels.set(path, label);
         if (!magneticShell.focus.includes(path)) magneticShell.focus.push(path);
         magneticShell.focus.splice(0, Math.max(0, magneticShell.focus.length - 5));
         showFocus();
-        showChat(true);
+        if (open) showChat(true);
     },
     refit: () => render(false),
     editorChanged,
@@ -820,6 +855,14 @@ let hinted = false;
 try { hinted = localStorage.getItem('magnetic.hinted') === '1'; localStorage.setItem('magnetic.hinted', '1'); } catch { /* storage may be blocked */ }
 if (!editing() && !hinted) { hint.hidden = false; setTimeout(hideHint, 5000); }
 
+// Below 760px the rail runs along the top instead of down the left, as the old editor's did
+const NARROW = window.matchMedia('(max-width: 759.98px)');
+// Below 480px the chat bar has no room for the model beside the request, so the model menu goes (the last one chosen stays)
+const PHONE = window.matchMedia('(max-width: 479.98px)');
+function showWidth() { ed({ narrowHidden: !NARROW.matches, wideHidden: NARROW.matches, noModels: MODELS.length < 2 || PHONE.matches }); }
+NARROW.addEventListener('change', () => { showWidth(); fitted = false; });
+PHONE.addEventListener('change', showWidth);
+
 /** Everything the editor shows, written again after it (re)loads */
 function showAll() {
     const blank = document.body.dataset.blank === 'true' && messages.length === 0;
@@ -833,7 +876,7 @@ function showAll() {
         hintHidden: !blank || chatOpen,
         models: Object.fromEntries(MODELS.map((item) => [item.id, { _label: item.label }])),
         model,
-        noModels: MODELS.length < 2,
+        noModels: MODELS.length < 2 || PHONE.matches,
         show: { ...shown }
     });
     showToggles();
@@ -844,6 +887,7 @@ function showAll() {
     showFocus();
     setRunning(running);
     showChat(chatOpen);
+    showWidth();
     if (editing()) watchStage();
 }
 

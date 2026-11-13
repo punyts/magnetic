@@ -37,7 +37,7 @@ export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } 
 export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'showTheme', 'showLayout', 'showData', 'showLogic', 'showScreens',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
-    'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear',
+    'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'path', 'ask'
 ] as const;
 
@@ -46,7 +46,7 @@ const E = '$.data.editor';
 /** The fields of `$.data.editor` that are true until the page says otherwise: what starts hidden */
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
-    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden'
+    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden'
 ];
 
 /** The models of the editor's data */
@@ -63,7 +63,7 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
         { op: 'set', field: 'show', type: 'object', default: { theme: false, layout: false, data: false, logic: false, screens: false } },
         // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the toggles)
         { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
@@ -106,16 +106,54 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     ]
 };
 
+/**
+ * The editor's own icons: the glyphs of the old hand-written editor, as 24×24 outline path data the app carries of its
+ * own (ui_icons_write's format), so its buttons draw them rather than the nearest icons of the set. `minus` and `plus`
+ * win over the set's icons of those names. The old `prefs` circle is a path here, since an app icon is path data only
+ */
+export const EDITOR_ICONS = {
+    chat: { outline: ['M4 5h16v11H9l-5 4z'] },
+    send: { outline: ['M12 19V5M5 12l7-7 7 7'] },
+    pointer: { outline: ['M5 3l14 8-6 2-3 6z'] },
+    select: { outline: ['M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4', 'M10 10l7 3-3 1-1 3z'] },
+    hand: {
+        outline: ['M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V11M14 6.5a1.5 1.5 0 0 1 3 0V11M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14a1.5 1.5 0 0 1 2.4-1.8L8 14']
+    },
+    minus: { outline: ['M5 12h14'] },
+    plus: { outline: ['M12 5v14M5 12h14'] },
+    fit: { outline: ['M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'] },
+    prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
+} as const;
+
 const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
 const button = (title: string, target: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', size: 'sm', variant: 'ghost', _title: title, on: { press: emit(target) }, ...extra });
-const icon = (title: string, target: string, name: string, extra: Record<string, unknown> = {}): Record<string, unknown> => button(title, target, { icon: name, iconPosition: 'only', ...extra });
+const icon = (title: string, target: string, name: string, extra: Record<string, unknown> = {}): Record<string, unknown> => button(title, target, { icon: name, iconPosition: 'only', corners: 'pill', tone: 'neutral', ...extra });
 const caption = (text: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'text', textRole: 'caption', _text: text, ...extra });
 const bound = (path: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'text', '<-_text': path, ...extra });
 
-/** A panel floating over the canvas, at its place on the stage */
+/** A panel floating over the canvas, at its place on the stage, as tight as the old editor's */
 function float(placement: Record<string, string>, children: Record<string, unknown>, extra: Record<string, unknown> = {}): Record<string, unknown> {
-    return { component: 'panel', elevation: 'raised', bordered: true, padding: 'sm', placement, layout: { type: 'column', gap: 'sm' }, children, ...extra };
+    return { component: 'panel', elevation: 'raised', bordered: true, padding: 'sm', density: 'compact', placement, layout: { type: 'column', gap: 'sm' }, children, ...extra };
 }
+
+/** Lengths that follow the window, as the old editor's CSS did: never wider than the window less its margins */
+const fit = (width: string): string => `min(${width}, calc(100% - 24px))`;
+/** Below 760px the rail runs along the top, so what opens under the top corners starts lower */
+const BELOW_RAIL = 'clamp(64px, (760px - 100vw) * 1000, 116px)';
+/**
+ * The inspector: at the right, below the corners, 320px wide; below 760px a sheet across the bottom, 45% of the height,
+ * as the old editor's was, so the app stays in sight above it
+ */
+const INSPECTOR = {
+    right: '12px',
+    // Above the chat bar, also when it shows what the next request is about on a line of its own
+    bottom: '100px',
+    // (760px - 100vw) * 1000 is far below the lower bound from 760px up and far above the upper one below it
+    y: 'clamp(64px, (760px - 100vw) * 1000, calc(55vh - 100px))',
+    width: `clamp(${fit('320px')}, (760px - 100vw) * 1000, calc(100% - 24px))`
+};
+/** Below 1120px the chat bar reaches the zoom's corner, so the zoom sits above it */
+const ABOVE_CHAT = 'clamp(12px, (1120px - 100vw) * 1000, 80px)';
 
 /** A row inside a floating panel; a spacer that grows pushes what follows it to the end */
 function row(children: Record<string, unknown>, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -126,43 +164,44 @@ const spacer = (): Record<string, unknown> => ({ component: 'panel', padding: 'n
 /** Magnetic's logo, as the frame (which has no network) can show it */
 const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64')}`;
 
-/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size and Open */
+/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size and Open; as wide as they are, up to half the window */
 function nameCorner(t: Texts): Record<string, unknown> {
-    return float({ x: '12px', y: '12px', width: '440px' }, {
+    return float({ x: '12px', y: '12px', maxWidth: 'max(calc(50% - 32px), calc(100% - 120px))' }, {
         bar: row({
             home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, on: { press: emit('home') } },
-            name: bound(`${E}.appName`, { textRole: 'label', truncate: 1, placement: { grow: 1 } }),
+            name: bound(`${E}.appName`, { textRole: 'heading', truncate: 1, placement: { grow: 1 } }),
             size: {
                 component: 'selectField',
                 size: 'sm',
+                variant: 'soft',
+                width: 'auto',
                 titlePosition: 'hidden',
                 _label: t['shell.frameSize'],
                 options: { desktop: { _label: t['shell.size.desktop'] }, tablet: { _label: t['shell.size.tablet'] }, phone: { _label: t['shell.size.phone'] } },
                 '<-value': `${E}.size`,
                 on: { change: emit('size') }
             },
-            open: button(t['shell.open'], 'open')
+            open: button(t['shell.open'], 'open', { tone: 'accent' })
         })
     });
 }
 
 /** The corner at the top right: the person's choices and Share */
 function shareCorner(t: Texts): Record<string, unknown> {
-    return float({ right: '12px', y: '12px', width: '180px' }, {
+    return float({ right: '12px', y: '12px' }, {
         bar: row({
-            spacer: spacer(),
-            prefs: icon(t['prefs.open'], 'prefs', 'sun-moon'),
+            prefs: icon(t['prefs.open'], 'prefs', 'prefs'),
             share: { component: 'button', size: 'sm', _title: t['shell.share'], on: { press: emit('share') } }
         })
     });
 }
 
 /**
- * The rail at the left: the pointer tools, one above the other, then what the agent is shown with the next request.
- * Each is a button that is solid while on (`toolLook`, `showLook`); a press emits `tool` with the tool's name, or the
- * toggle's `show…`
+ * The rail at the left: the pointer tools, one above the other, a line, then what the agent is shown with the next
+ * request. Each is a button that is solid while on (`toolLook`, `showLook`); a press emits `tool` with the tool's
+ * name, or the toggle's `show…`. Below 760px the page shows the same rail along the top instead (`narrow`)
  */
-function rail(t: Texts): Record<string, unknown> {
+function rail(t: Texts, narrow = false): Record<string, unknown> {
     const tool = (name: 'use' | 'move' | 'select', key: 'shell.useKey' | 'shell.moveKey' | 'shell.selectKey', glyph: string): Record<string, unknown> => ({
         component: 'button',
         size: 'sm',
@@ -176,54 +215,59 @@ function rail(t: Texts): Record<string, unknown> {
     const show = (name: 'theme' | 'layout' | 'data' | 'logic' | 'screens', target: string): Record<string, unknown> => ({
         component: 'button',
         size: 'sm',
+        fill: !narrow,
         _title: t[`shell.toggle.${name}`],
         '<-variant': `${E}.showLook.${name}`,
         '<-tone': `${E}.showTone.${name}`,
         on: { press: emit(target) }
     });
-    return float({ x: '12px', center: 'y', width: '104px' }, {
+    const line = narrow ? 'row' : 'column';
+    return float(narrow ? { x: '12px', y: '64px', maxWidth: 'calc(100% - 24px)' } : { x: '12px', center: 'y' }, {
         tools: {
             component: 'panel',
             padding: 'none',
-            layout: { type: 'column', gap: 'sm', align: 'center' },
-            children: { use: tool('use', 'shell.useKey', 'pointer'), move: tool('move', 'shell.moveKey', 'hand-stop'), select: tool('select', 'shell.selectKey', 'marquee-2') }
+            layout: { type: line, gap: 'sm', align: 'center' },
+            children: { use: tool('use', 'shell.useKey', 'pointer'), move: tool('move', 'shell.moveKey', 'hand'), select: tool('select', 'shell.selectKey', 'select') }
         },
-        showLabel: caption(t['shell.show']),
+        line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal' },
+        showLabel: caption(t['shell.show'], { caps: true, muted: true, align: 'center' }),
         shows: {
             component: 'panel',
             padding: 'none',
-            layout: { type: 'column', gap: 'none', align: 'start' },
+            layout: { type: line, gap: 'sm', align: 'stretch' },
             children: { showTheme: show('theme', 'showTheme'), showLayout: show('layout', 'showLayout'), showData: show('data', 'showData'), showLogic: show('logic', 'showLogic'), showScreens: show('screens', 'showScreens') }
         }
-    });
+    }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden` });
 }
 
-/** The zoom at the bottom right */
+/** The zoom at the bottom right, above the chat bar when the window is too narrow for both */
 function zoom(t: Texts): Record<string, unknown> {
-    return float({ right: '12px', bottom: '12px', width: '196px' }, {
+    return float({ right: '12px', bottom: ABOVE_CHAT }, {
         bar: row({
             out: icon(t['shell.zoomOutKey'], 'zoomOut', 'minus'),
-            reset: { component: 'button', size: 'sm', variant: 'ghost', '<-_title': `${E}.zoom`, on: { press: emit('zoomReset') } },
+            reset: { component: 'button', size: 'sm', variant: 'ghost', tone: 'neutral', '<-_title': `${E}.zoom`, on: { press: emit('zoomReset') } },
             in: icon(t['shell.zoomInKey'], 'zoomIn', 'plus'),
-            fit: icon(t['shell.fitKey'], 'zoomFit', 'maximize')
-        })
+            fit: icon(t['shell.fitKey'], 'zoomFit', 'fit')
+        }, { layout: { type: 'row', gap: 'none', align: 'center' } })
     });
 }
 
 /** The chat bar at the bottom: what the next request is about, the request, the model and Send */
 function chatBar(t: Texts): Record<string, unknown> {
-    return float({ center: 'x', bottom: '12px', width: '640px' }, {
+    return float({ center: 'x', bottom: '12px', width: fit('640px') }, {
         status: bound(`${E}.status`, { textRole: 'caption', '<-hidden': `${E}.noStatus` }),
         focus: row({ about: bound(`${E}.focus`, { textRole: 'caption', placement: { grow: 1 } }), clear: button(t['chat.clear'], 'focusClear') }, { '<-hidden': `${E}.noFocus` }),
         dataLine: bound(`${E}.dataLine`, { textRole: 'caption', '<-hidden': `${E}.noDataLine` }),
         bar: {
             component: 'panel',
             padding: 'none',
-            layout: { type: 'row', gap: 'sm', align: 'end' },
+            // One line however narrow, as the old chat bar was: the request narrows, the buttons keep their size
+            layout: { type: 'row', gap: 'sm', align: 'end', wrap: false },
             children: {
-                chat: icon(t['shell.showChat'], 'chatToggle', 'message'),
+                chat: icon(t['shell.showChat'], 'chatToggle', 'chat'),
                 input: {
                     component: 'textareaField',
+                    variant: 'ghost',
                     placement: { grow: 1 },
                     _label: t['shell.request'],
                     _placeholder: t['shell.placeholder'],
@@ -233,17 +277,17 @@ function chatBar(t: Texts): Record<string, unknown> {
                     sendOnEnter: true,
                     on: { send: [emit('chat.send'), { command: 'clear' }] }
                 },
-                model: { component: 'selectField', size: 'sm', titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
-                send: { component: 'button', _title: t['shell.send'], icon: 'arrow-up', iconPosition: 'only', on: { press: { command: 'send', target: '^bar.children.input' } } }
+                model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
+                send: { component: 'button', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', on: { press: { command: 'send', target: '^bar.children.input' } } }
             }
         }
-    });
+    }, { corners: 'pill' });
 }
 
 /** The chat above the bar: the conversation, and the agent's activity while it works */
 function chatPanel(t: Texts): Record<string, unknown> {
     return float(
-        { center: 'x', bottom: '96px', width: '640px', height: '52%' },
+        { center: 'x', bottom: '76px', width: fit('640px'), height: 'min(480px, calc(100% - 176px))' },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.chat'] }, close: icon(t['shell.closeChat'], 'chatClose', 'x') }),
             empty: caption(t['chat.empty'], { '<-hidden': `${E}.hasMessages` }),
@@ -272,7 +316,7 @@ function chatPanel(t: Texts): Record<string, unknown> {
 function blankHint(t: Texts): Record<string, unknown> {
     const idea = (n: 1 | 2 | 3): Record<string, unknown> => ({ component: 'card', elevation: 'flat', padding: 'sm', interactive: true, _subtitle: t[`shell.idea${n}`], on: { press: emit(`idea${n}`) } });
     return float(
-        { center: 'both', width: '480px' },
+        { center: 'both', width: fit('480px') },
         {
             title: { component: 'text', textRole: 'heading', _text: t['shell.blankTitle'] },
             text: caption(t['shell.blankText']),
@@ -294,8 +338,13 @@ function propertiesTab(t: Texts): Record<string, unknown> {
         children: {
             crumbs: { component: 'breadcrumb', '<-items': `${E}.crumbs`, '<-current': `${E}.crumb`, '<-hidden': `${E}.noSelection`, on: { select: emit('crumb') } },
             heading: bound(`${E}.heading`, { textRole: 'label' }),
-            [EDITOR_KEYS.propertyFields]: { component: 'panel', padding: 'none', children: {} },
-            remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', '<-hidden': `${E}.cannotRemove`, _title: t['inspector.delete'], on: { press: emit('remove') } }
+            // What to do with the selected node, above its fields so it is always in sight: give it to the agent with
+            // the next request, or delete it
+            actions: row({
+                addToChat: { component: 'button', variant: 'soft', size: 'sm', icon: 'message-plus', _title: t['inspector.addToChat'], on: { press: emit('addToChat') } },
+                remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', '<-hidden': `${E}.cannotRemove`, _title: t['inspector.delete'], on: { press: emit('remove') } }
+            }, { '<-hidden': `${E}.noSelection` }),
+            [EDITOR_KEYS.propertyFields]: { component: 'panel', padding: 'none', children: {} }
         }
     };
 }
@@ -362,14 +411,15 @@ function stateTab(t: Texts): Record<string, unknown> {
 /** The inspector at the right: its title and close button, what it is doing, and its three tabs */
 function inspector(t: Texts): Record<string, unknown> {
     return float(
-        { right: '12px', y: '64px', bottom: '80px', width: '320px' },
+        INSPECTOR,
         {
             head: row({
                 title: { component: 'text', textRole: 'label', _text: t['shell.inspector'] },
                 status: bound(`${E}.inspectorStatus`, { textRole: 'caption', truncate: 1, placement: { grow: 1 } }),
                 close: icon(t['shell.closeInspector'], 'inspectorClose', 'x')
             }),
-            tabs: { component: 'tabs', '<-active': `${E}.tab`, on: { change: emit('tab') }, children: { properties: propertiesTab(t), add: addTab(t), state: stateTab(t) } }
+            // The tabs take the inspector's height below its head, and the open tab scrolls
+            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, on: { change: emit('tab') }, children: { properties: propertiesTab(t), add: addTab(t), state: stateTab(t) } }
         },
         { '<-hidden': `${E}.inspectorHidden` }
     );
@@ -378,7 +428,7 @@ function inspector(t: Texts): Record<string, unknown> {
 /** Share, under its button: who may do what with a new link, and the links made, each with Copy and Revoke */
 function shareSheet(t: Texts): Record<string, unknown> {
     return float(
-        { right: '12px', y: '64px', width: '352px' },
+        { right: '12px', y: BELOW_RAIL, width: fit('352px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.shareThis'] }, close: icon(t['editor.close'], 'shareClose', 'x') }),
             make: {
@@ -427,7 +477,7 @@ function shareSheet(t: Texts): Record<string, unknown> {
 /** The person's choices, under their button: light, dark or the system's, and the language Magnetic speaks */
 function prefsSheet(t: Texts): Record<string, unknown> {
     return float(
-        { right: '12px', y: '64px', width: '240px' },
+        { right: '12px', y: BELOW_RAIL, width: fit('240px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['prefs.title'] }, close: icon(t['editor.close'], 'prefsClose', 'x') }),
             mode: { component: 'selectField', size: 'sm', _label: t['prefs.mode'], options: Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }])), '<-value': `${E}.mode`, on: { change: emit('mode') } },
@@ -458,6 +508,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     nameCorner: nameCorner(t),
                     shareCorner: shareCorner(t),
                     rail: rail(t),
+                    railTop: rail(t, true),
                     zoom: zoom(t),
                     hint: blankHint(t),
                     chat: chatPanel(t),
@@ -465,7 +516,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
-                    notice: float({ center: 'x', y: '12px', width: '480px' }, { text: bound(`${E}.notice`, { tone: 'danger' }) }, { '<-hidden': `${E}.noNotice` })
+                    notice: float({ center: 'x', y: '12px', width: fit('480px') }, { text: bound(`${E}.notice`, { tone: 'danger' }) }, { '<-hidden': `${E}.noNotice` })
                 }
             }
         }
@@ -484,7 +535,7 @@ function definition(): Record<string, unknown> {
         paths: { model: 'inspector-path', scope: 'persona' },
         feed: { model: 'inspector-change', scope: 'persona' }
     };
-    return { title: t['editor.title'], data, home: editorScreen(t) };
+    return { title: t['editor.title'], data, icons: EDITOR_ICONS, home: editorScreen(t) };
 }
 
 

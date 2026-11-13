@@ -360,7 +360,10 @@ describe('Agent turns', () => {
         // Assert
         expect(started.status).toBe(202);
         const opening = model.requests[0]?.messages[0]?.content as string;
-        expect(opening).toContain('<context name="focus" path="$.screens.home">\n{"note":"The person points at this node of the app."}\n</context>');
+        // A node comes as the app mounts it: the agent sees which component it is and what it holds
+        const node = opening.slice(opening.indexOf('<context name="focus" path="$.screens.home">'));
+        expect(node).toContain('"note":"The person selected this node of the app and added it to the chat: the request is about it."');
+        expect(node.slice(0, node.indexOf('</context>'))).toContain('"component":"');
         expect(opening).toContain('<context name="focus" path="$.data.nothing.here">');
         expect(opening).not.toContain('not a path');
     });

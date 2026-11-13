@@ -388,19 +388,19 @@ export class AgentTurns {
     }
 
     /**
-     * The paths the person points at ("Ask the agent" in the State tab of the editor): a state path with its value, read
-     * with `ui_state_get`, or a node path
+     * The paths the person points at: a state path ("Ask the agent" in the State tab) with its value, read with
+     * `ui_state_get`, or a node they selected and added to the chat, read with `ui_get` as the app mounts it, two
+     * levels deep, so the agent sees which component it is, its settings and what it holds
      */
     private async focusFacts(tools: ReadonlyMap<string, UiToolDefinition>, app: string, focus: readonly string[]): Promise<string[]> {
         const facts: string[] = [];
         for (const path of focus) {
             let body: unknown = { note: 'The person points at this node of the app.' };
-            if (path.startsWith('$.data')) {
-                try {
-                    body = (await runTool(tools.get('ui_state_get'), 'ui_state_get', { app, path })).body;
-                } catch (error) {
-                    body = { error: error instanceof Error ? error.message : String(error) };
-                }
+            try {
+                if (path.startsWith('$.data')) body = (await runTool(tools.get('ui_state_get'), 'ui_state_get', { app, path })).body;
+                else body = { note: 'The person selected this node of the app and added it to the chat: the request is about it.', node: (await runTool(tools.get('ui_get'), 'ui_get', { kind: 'apps', name: app, path, depth: 2, resolved: true })).body };
+            } catch (error) {
+                body = { ...(path.startsWith('$.data') ? {} : { note: 'The person points at this node of the app.' }), error: error instanceof Error ? error.message : String(error) };
             }
             facts.push(`<context name="focus" path="${path}">\n${clip(JSON.stringify(body), 4000)}\n</context>`);
         }

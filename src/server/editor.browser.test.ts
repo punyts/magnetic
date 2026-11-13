@@ -7,6 +7,7 @@ import type { PreviewBrowser, UiToolDefinition } from '@punyts/stateui-mcp';
 import { chromium } from 'playwright';
 import type { Browser, FrameLocator, Page } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { EDITOR_ICONS } from '../editor/EditorApp.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { RunningMagnetic } from './startMagnetic.js';
 
@@ -160,6 +161,22 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         expect((await app()).revision).toBe(before);
     }, 60_000);
 
+    it('should add the selected node to the chat, named on the chat bar and sent with the next request, without writing anything', async () => {
+        // Arrange
+        const before = (await app()).revision;
+        const beta = await pointOf(page, `${HOME}.children.list.children.b`, 0.1);
+        await page.mouse.click(beta.x, beta.y);
+        await expect.poll(() => selectedLabel(page)).toBe('text · b');
+
+        // Act
+        await editor.getByRole('button', { name: 'Add to chat' }).click();
+
+        // Assert
+        await editor.getByText('About: text · b').waitFor({ timeout: 5000 });
+        expect(await page.evaluate('window.magneticShell.focus.slice()')).toEqual([`${HOME}.children.list.children.b`]);
+        expect((await app()).revision).toBe(before);
+    }, 60_000);
+
     it('should show a layout, its cells and its gaps while the pointer is over the layout, not over a child', async () => {
         // Arrange: the middle of the grid is the gap between its two columns
         const gap = await pointOf(page, `${HOME}.children.grid`, 0.5, 0.5);
@@ -294,6 +311,51 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await toolButton('Move the canvas (H, or hold Space)').click();
         await page.waitForTimeout(300);
         expect([await outline.count(), await inspectorOpen()]).toEqual([1, true]);
+    }, 60_000);
+
+    it('should keep the sizes of the old editor (41fa580): compact corners, a narrow rail, a 640px pill chat bar', async () => {
+        // Arrange: what the old editor measured at a wide window, before it was a StateUI app. A change that makes the
+        // editor drift from that design fails here (the panels' own looks are in stateui-components' screenshot tests)
+        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
+        const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
+        const answer = (await page.evaluate(`window.magneticShell.editor.inspect({ paths: ${JSON.stringify(Object.keys(OLD).map((key) => `${stage}.children.${key}`))} })`)) as { nodes: { path: string; rect: { width: number; height: number } }[] };
+        const size = (key: string) => answer.nodes.find((node) => node.path.endsWith(`.${key}`))?.rect;
+
+        // Act
+        const measured = Object.fromEntries(Object.keys(OLD).map((key) => [key, size(key)]));
+
+        // Assert: within a few pixels of the old sizes, and the corners as wide as they hold, never stretched
+        for (const [key, old] of Object.entries(OLD)) {
+            const now = measured[key];
+            expect(now, key).toBeDefined();
+            if ('width' in old) expect(Math.abs((now?.width ?? 0) - old.width), `${key} width ${now?.width}`).toBeLessThanOrEqual(old.width * 0.15);
+            expect(Math.abs((now?.height ?? 0) - old.height), `${key} height ${now?.height}`).toBeLessThanOrEqual(Math.max(8, old.height * 0.04));
+        }
+        expect(measured['nameCorner']?.width).toBeLessThan(400);
+        expect(measured['shareCorner']?.width).toBeLessThan(140);
+        expect(measured['chatBar']?.width).toBe(640);
+    }, 60_000);
+
+    it("should draw the old editor's icons (41fa580) from the editor's own icon set, not the nearest icons of the set", async () => {
+        // Arrange: each button by its accessible name, with the icon of the old editor it shows
+        const BUTTONS: [string, keyof typeof EDITOR_ICONS][] = [
+            ['Show the chat', 'chat'],
+            ['Send', 'send'],
+            ['Use the app (V)', 'pointer'],
+            ['Move the canvas (H, or hold Space)', 'hand'],
+            ['Select a part of the app (S)', 'select'],
+            ['Zoom out (-)', 'minus'],
+            ['Zoom in (+)', 'plus'],
+            ['Fit the app (1)', 'fit'],
+            ['Appearance and language', 'prefs']
+        ];
+        const dataOf = (name: keyof typeof EDITOR_ICONS): string[] => EDITOR_ICONS[name].outline.map((path) => (typeof path === 'string' ? path : path.d));
+
+        // Act
+        const drawn = await Promise.all(BUTTONS.map(([button]) => toolButton(button).first().locator('svg path').evaluateAll((paths) => paths.map((path) => path.getAttribute('d')))));
+
+        // Assert
+        BUTTONS.forEach(([button, name], index) => expect(drawn[index], button).toEqual(dataOf(name)));
     }, 60_000);
 
     it('should open the chat with its button and close it with its close button', async () => {

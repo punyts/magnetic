@@ -34,8 +34,16 @@ const DARK: Record<string, string> = {
     'elevation.raised.shadow': '0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35)'
 };
 
-/** The corners the pages had: floating panels 0.75rem, controls 0.5rem */
-const SHAPE: Record<string, string> = { 'radius.lg': '12px', 'radius.md': '8px' };
+/** The corners and words the pages had: floating panels 0.75rem, controls 0.5rem, regular words and a bold name */
+const SHAPE: Record<string, string> = {
+    'radius.lg': '12px',
+    'radius.md': '8px',
+    'panel.radius': '{radius.lg}',
+    // The old editor's words were in the regular weight, its buttons too; only the app's name was bold, at body size
+    'text.label.weight': '{font.weight.regular}',
+    'text.heading.size': '{font.size.3}',
+    'text.heading.weight': '{font.weight.bold}'
+};
 
 /** Changes when the theme's tokens do, for the stamps of the apps that use it */
 export const THEME_STAMP = JSON.stringify({ LIGHT, DARK, SHAPE });

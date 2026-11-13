@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser, UiToolDefinition } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { EDITOR_ICONS } from '../editor/EditorApp.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { RunningMagnetic } from './startMagnetic.js';
 
@@ -103,7 +104,7 @@ describe("The editor's inspector routes", () => {
         const again = await fetch(`${magnetic.origin}/assets/editor.json`, { headers: { Cookie: alice } });
         const script = await fetch(`${magnetic.origin}/assets/inspect.js`);
         type Node = { component: string; children: Record<string, Node> };
-        const body = (await served.json()) as { id: string; document: { screens: { home: { root: Node } } }; icons: unknown; fallback?: boolean };
+        const body = (await served.json()) as { id: string; document: { screens: { home: { root: Node } }; icons?: unknown }; icons: Record<string, unknown>; fallback?: boolean };
         const stage = body.document.screens.home.root.children['stage'] as Node;
 
         // Assert
@@ -113,6 +114,8 @@ describe("The editor's inspector routes", () => {
         expect(Object.keys(stage.children)).toEqual(expect.arrayContaining(['nameCorner', 'shareCorner', 'rail', 'zoom', 'chat', 'chatBar', 'inspector', 'share', 'prefs']));
         expect(Object.keys((stage.children['inspector'] as Node).children['tabs']!.children)).toEqual(['properties', 'add', 'state']);
         expect(typeof body.icons).toBe('object');
+        expect(body.document.icons).toEqual(EDITOR_ICONS);
+        for (const name of Object.keys(EDITOR_ICONS)) expect(body.icons, name).not.toHaveProperty(name);
         expect(await again.json()).toEqual(body);
         expect(script.headers.get('content-type')).toMatch(/^text\/javascript/);
     });
