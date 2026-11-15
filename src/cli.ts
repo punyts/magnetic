@@ -1,9 +1,14 @@
 #!/usr/bin/env node
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { generateKeyPair } from '@punyts/statenet';
+import { SecretBox } from './auth/secrets.js';
+import { StatenetAuthority } from './statenet/StatenetNode.js';
 import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
 import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
-import { createDatabase, EmbeddingIndex, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
+import { assertMigrated, createDatabase, EmbeddingIndex, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from './agent/Chats.js';
 import { EMBEDDING_SOURCES } from './search/Search.js';
@@ -71,6 +76,25 @@ async function main(): Promise<void> {
         }
         return;
     }
+    if (options.command === 'relay-certificate') {
+        try {
+            if (options.secretKey === undefined) throw new Error('relay-certificate needs MAGNETIC_SECRET_KEY, which keeps the statenet\'s certificate authority');
+            if (options.nodeId === undefined) throw new Error('relay-certificate needs the relay\'s --node-id');
+            await assertMigrated(database, ALL_MIGRATIONS);
+            const keys = generateKeyPair();
+            const issued = await new StatenetAuthority(database, new SecretBox(options.secretKey)).issue(options.nodeId, 'relay', keys.publicKey, options.statenet?.region ?? '');
+            await mkdir(options.out, { recursive: true });
+            const keyFile = join(options.out, `${options.nodeId}.key.json`);
+            const certificateFile = join(options.out, `${options.nodeId}.certificate`);
+            await writeFile(keyFile, JSON.stringify(keys), { mode: 0o600 });
+            await writeFile(certificateFile, `${issued.certificate}\n`);
+            await writeFile(join(options.out, `${options.nodeId}.authority`), `${issued.authorityPublicKey}\n`);
+            process.stdout.write(`STATENET_NODE_ID=${options.nodeId}\nSTATENET_NODE_KEY_FILE=${keyFile}\nSTATENET_NODE_CERTIFICATE_FILE=${certificateFile}\nSTATENET_AUTHORITY_PUBLIC_KEY=${issued.authorityPublicKey}\n`);
+        } finally {
+            await database.close();
+        }
+        return;
+    }
     const embedder = await embedderOf(options.embedding, options.modelCache);
     if (options.command === 'reindex') {
         try {
@@ -117,6 +141,7 @@ async function main(): Promise<void> {
         providers,
         allowHttpProviders: mock !== undefined,
         ...(options.secretKey !== undefined && { secretKey: options.secretKey }),
+        ...(options.statenet !== undefined && { statenet: options.statenet }),
         agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);

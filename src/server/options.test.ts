@@ -60,6 +60,15 @@ describe('parseOptions', () => {
         expect(options).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium', dailyBudget: 0.5, monthlyBudget: 20 });
     });
 
+    it('should run as one of several servers with a mesh port, from flags over the environment, and only with the secret key', () => {
+        const secret = { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' };
+        expect(parseOptions([], secret).statenet).toBeUndefined();
+        expect(parseOptions(['--mesh-port', '4310', '--mesh-url', 'ws://magnetic-2:4310', '--node-id', 'magnetic-2'], { ...secret, MAGNETIC_MESH_HOST: '0.0.0.0', MAGNETIC_NODE_ID: 'other' }).statenet).toEqual({ meshPort: 4310, meshHost: '0.0.0.0', meshUrl: 'ws://magnetic-2:4310', nodeId: 'magnetic-2' });
+        expect(() => parseOptions(['--mesh-port', '4310'], {})).toThrow('MAGNETIC_SECRET_KEY');
+        expect(() => parseOptions(['--mesh-port', '4310', '--mesh-url', 'http://x'], secret)).toThrow('Invalid mesh URL');
+        expect(parseOptions(['relay-certificate', '--node-id', 'relay-1', '--out', 'certs'], secret)).toMatchObject({ command: 'relay-certificate', nodeId: 'relay-1', out: 'certs' });
+    });
+
     it.each([['--effort', 'extreme'], ['--daily-budget', '-1'], ['--monthly-budget', 'lots'], ['--model', 'two words']])('should refuse %s %s', (flag, value) => {
         expect(() => parseOptions([flag, value], {})).toThrow(UsageError);
     });

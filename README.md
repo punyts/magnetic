@@ -303,6 +303,32 @@ People can share part of their own state with someone else, read or write, and s
   they leave); the support view reads through it and writes the grant's id to the audit log. With the policy
   `grantsInOrg`, members' state in the org's apps can be shared only with people in the org.
 
+## Several servers
+
+Any number of Magnetic servers can share one database (`docs/design/statenet-relays.md`, "Topology, in steps", 2
+and 3). Each runs as a node of the statenet with `--mesh-port` (and `MAGNETIC_SECRET_KEY`, which keeps the statenet's
+certificate authority):
+
+```bash
+magnetic --mesh-port 4310 --mesh-url ws://magnetic-2:4310 --node-id magnetic-2
+```
+
+- **One server runs each instance.** A person's state of an app (`<person>/<app>/user`) is owned by one server at a
+  time, under an epoch, and its saves carry the epoch, so a server that lost it can no longer save it. The server
+  that is first asked for it takes it; the agent's tools move it to their server; and ownership moves to a server
+  that sends most of its writes. A server that stops lets its instances go at once, and those of a server that is
+  lost are taken over when their leases run out (10 seconds).
+- **A view anywhere.** A view's socket at a server that doesn't run the instance gets a session tunnelled to the
+  server that does, over the mesh, with its writes and events both ways. When the instance moves or restarts, the
+  view connects again.
+- **Part changes reach every server** on Postgres's `stateui_part` channel, so views, the usage index, shared datasets
+  and running instances catch up with a change another server made.
+- **Relays.** `magnetic relay-certificate --node-id relay-1 --out certs` writes a key and a node certificate for a
+  `statenet-relay`, which links to the servers' mesh and serves subscriptions without reaching the database.
+
+`docker compose -f docker/statenet.compose.yml up --build` (from the workspace root) runs two servers, Postgres and a
+relay.
+
 ## Semantic search
 
 Magnetic embeds every part when it changes and every chat entry when it is written, and searches them by meaning

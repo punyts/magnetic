@@ -58,6 +58,16 @@ export class Workspaces {
         return entry.services;
     }
 
+    /** The workspace's services if it is open now (without opening it or counting it used); undefined otherwise */
+    peek(workspaceId: string): Promise<Services> | undefined {
+        return this.entries.get(workspaceId)?.services;
+    }
+
+    /** The services of every workspace open now */
+    openAll(): Array<Promise<Services>> {
+        return [...this.entries.values()].map((entry) => entry.services);
+    }
+
     /** Counts an open view socket of the user's workspace; the function it returns counts it closed */
     retain(userId: string): () => void {
         const entry = this.entries.get(userId);

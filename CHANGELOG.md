@@ -2,6 +2,8 @@
 
 ## 0.1.0 (unreleased)
 
+- **Several servers on one database.** `--mesh-port` (`MAGNETIC_MESH_PORT`, with `--mesh-host`, `--mesh-url`, `--node-id` and `--region`; `MagneticOptions.statenet`) runs a server as a node of the statenet: it registers in the directory and heartbeats, signs its own node certificate with the statenet's authority (an `owner_key` of `statenet`, sealed with `MAGNETIC_SECRET_KEY`), owns the instances it is first asked for, tunnels views of the others to their servers, hears other servers' part changes, and lets its instances go when it stops. `statenet_namespace` (migration 0005) names the workspace of each placed address. `magnetic relay-certificate` writes a relay's key, certificate and the authority key. `docker/statenet.compose.yml` in the workspace runs two servers, Postgres and a relay. Tests: `statenet.test.ts`, `options.test.ts`.
+
 - **`npm run start:live`** starts Magnetic with Node reading `../.env` (the workspace root's, which git ignores) when it exists, so the API key for the real agent can live in a file instead of the shell. The workspace's `npm run magnetic:live` uses it with the development users.
 - **Take one thing out of the chat.** Each component added to the chat is now a chip on the chat bar ("About:" and then the chips), with its own × to take it out; Clear still takes them all. Built on the new StateUI `chipList`. Test: `editor.browser.test.ts` (two added, one taken out, the other kept).
 - **The chat bar is even again.**

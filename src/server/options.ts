@@ -1,6 +1,6 @@
 export interface CliOptions {
     /** The command: run the server (default), apply the migrations, or import a file data folder */
-    command: 'serve' | 'migrate' | 'import' | 'reindex';
+    command: 'serve' | 'migrate' | 'import' | 'reindex' | 'relay-certificate';
     /** What makes the vectors of semantic search: the local CPU model, word hashing (no model), or nothing */
     embedding: 'local' | 'hash' | 'off';
     /** Where the local model is kept; it is downloaded there on first use */
@@ -34,6 +34,11 @@ export interface CliOptions {
     dailyBudget: number;
     /** Dollars for the whole server per UTC month */
     monthlyBudget: number;
+    /** This server as one of several on the database, a node of the statenet: set by `--mesh-port` */
+    statenet: { meshPort: number; meshHost?: string; meshUrl?: string; nodeId?: string; region?: string } | undefined;
+    /** For relay-certificate: the relay's node id, and the folder its key and certificate are written to */
+    nodeId: string | undefined;
+    out: string;
     help: boolean;
 }
 
@@ -50,6 +55,8 @@ Commands:
                          database, then exit. A workspace already in the database is skipped
   reindex                Queue every part, chat and embedded record field to be embedded again with the current model, embed
                          them, then exit (after changing --embedding)
+  relay-certificate      Make a key pair and a node certificate for a statenet-relay (--node-id), write them to
+                         --out, and print the authority key the relay checks its parents with. Needs MAGNETIC_SECRET_KEY
 
 Options:
   --database-url <url>   Magnetic's Postgres database with pgvector, postgres://...
@@ -97,6 +104,17 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
   --mock-agent           A scripted agent that adds each request as a text on the app's first screen,
                          to try the editor without an API key (env MAGNETIC_MOCK_AGENT=true). Loopback hosts only
+
+Several servers on one database (each a node of the statenet; needs MAGNETIC_SECRET_KEY):
+  --mesh-port <number>   Run as one of several servers, linking to the others and to relays on this port
+                         (env MAGNETIC_MESH_PORT; 0 for any free port). Without it the server runs alone
+  --mesh-host <address>  Address the mesh binds (env MAGNETIC_MESH_HOST, default --host)
+  --mesh-url <url>       The URL the other servers and relays reach this one's mesh at, such as ws://magnetic-2:4310
+                         (env MAGNETIC_MESH_URL, default the address it listens on)
+  --node-id <id>         This server's node id (env MAGNETIC_NODE_ID, default its host name and a random suffix);
+                         for relay-certificate, the relay's
+  --region <name>        Where it runs (env MAGNETIC_REGION)
+  --out <dir>            For relay-certificate: the folder to write the relay's files to (default .)
 
   -h, --help             Show this help
 `;
@@ -206,9 +224,15 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
         .map(parseDevUser);
     let flagUsers: string[] | undefined;
     let help = false;
+    let meshPort = env['MAGNETIC_MESH_PORT'] !== undefined && env['MAGNETIC_MESH_PORT'] !== '' ? parsePort(env['MAGNETIC_MESH_PORT']) : undefined;
+    let meshHost = env['MAGNETIC_MESH_HOST'] || undefined;
+    let meshUrl = env['MAGNETIC_MESH_URL'] || undefined;
+    let nodeId = env['MAGNETIC_NODE_ID'] || undefined;
+    let region = env['MAGNETIC_REGION'] || undefined;
+    let out = '.';
 
     let first = 0;
-    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex') {
+    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex' || argv[0] === 'relay-certificate') {
         command = argv[0];
         first = 1;
     }
@@ -281,6 +305,24 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--monthly-budget':
                 monthlyBudget = parseDollars('monthly budget', value());
                 break;
+            case '--mesh-port':
+                meshPort = parsePort(value());
+                break;
+            case '--mesh-host':
+                meshHost = value();
+                break;
+            case '--mesh-url':
+                meshUrl = value();
+                break;
+            case '--node-id':
+                nodeId = value();
+                break;
+            case '--region':
+                region = value();
+                break;
+            case '--out':
+                out = value();
+                break;
             case '-h':
             case '--help':
                 help = true;
@@ -290,5 +332,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
         }
     }
     if (databaseUrl !== undefined && !/^postgres(ql)?:\/\//.test(databaseUrl)) throw new UsageError('Invalid database URL: it starts with postgres://');
-    return { command, databaseUrl, migrate, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, help };
+    if (meshUrl !== undefined && !/^wss?:\/\/[^/]+/.test(meshUrl)) throw new UsageError(`Invalid mesh URL: ${meshUrl} (ws:// or wss://, such as ws://magnetic-2:4310)`);
+    if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
+    if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
+    const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
+    return { command, databaseUrl, migrate, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, statenet, nodeId, out, help };
 }

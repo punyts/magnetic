@@ -49,6 +49,8 @@ import type { TxtResolver } from '../orgs/Domains.js';
 import { OrgSso, ssoIdentityProvider } from '../orgs/Sso.js';
 import { SignInRules } from '../orgs/SignInRules.js';
 import { SecretBox } from '../auth/secrets.js';
+import { startStatenetNode } from '../statenet/StatenetNode.js';
+import type { StatenetNode, StatenetOptions } from '../statenet/StatenetNode.js';
 import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
 import { orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
@@ -178,6 +180,11 @@ export interface MagneticOptions {
     readonly secretKey?: string;
     /** Replaces the DNS lookup that verifies an org's domain, for tests */
     readonly resolveTxt?: TxtResolver;
+    /**
+     * Runs this server as one of several on the database (docs/design/statenet-relays.md, "Topology, in steps", 3): a
+     * node of the statenet, owning some instances and reaching the others over the mesh. Needs `secretKey`
+     */
+    readonly statenet?: StatenetOptions;
 }
 
 export interface RunningMagnetic {
@@ -208,6 +215,8 @@ export interface RunningMagnetic {
     readonly grants: Grants;
     /** Each person's "Your apps" */
     readonly homes: HomeApps;
+    /** This server's node of the statenet, when it runs as one of several (`statenet`) */
+    readonly statenet?: StatenetNode;
     /** Closes the server, the workspaces and their browsers. Safe to call twice */
     stop(): Promise<void>;
 }
@@ -355,10 +364,27 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             data: { '$.data.link': { title, message, noRemix: remix === undefined } },
             actions: { home: { go: '/' }, ...(remix !== undefined && { remix: { post: `/s/${encodeURIComponent(remix)}/remix` } }) }
         });
+    if (options.statenet !== undefined && box === undefined) throw new Error('A server of several (statenet) needs the secret key, which keeps the statenet\'s certificate authority');
+    let workspacesRef: Workspaces | undefined;
+    /** This server's node of the statenet, when it is one of several on the database */
+    const statenet =
+        options.statenet === undefined || box === undefined
+            ? undefined
+            : await startStatenetNode(
+                  db,
+                  box,
+                  {
+                      get: (workspaceId) => (workspacesRef as Workspaces).get(workspaceId),
+                      peek: (workspaceId) => workspacesRef?.peek(workspaceId),
+                      open: () => workspacesRef?.openAll() ?? []
+                  },
+                  options.statenet,
+                  (message, fields) => options.report.info(message, fields)
+              );
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
-                const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined, embedRecords: index !== undefined });
+                const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined, embedRecords: index !== undefined, ...(statenet !== undefined && { announceAs: statenet.announceAs }) });
                 // A person's own workspace starts with the showcase; an org's starts empty
                 if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
@@ -372,7 +398,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     logicLimits: options.logicLimits ?? DEFAULT_LOGIC_LIMITS,
                     ...(catalogMeanings !== undefined && { catalogMeanings }),
                     ...(similarity !== undefined && { procedures: { [SIMILAR_PROCEDURE]: similarProcedure(similarity, workspaceId, () => storage.parts) } }),
-                    ...(options.browser !== undefined && { browser: options.browser })
+                    ...(options.browser !== undefined && { browser: options.browser }),
+                    ...(statenet !== undefined && { placement: statenet.placement })
                 });
                 await services.recoverParts();
                 return services;
@@ -384,6 +411,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         },
         options.workspaces
     );
+    workspacesRef = workspaces;
     const tools = new WeakMap<Services, readonly UiToolDefinition[]>();
     const toolsOf = (services: Services): readonly UiToolDefinition[] => {
         let found = tools.get(services);
@@ -1255,6 +1283,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         budgets,
         grants,
         homes,
+        ...(statenet !== undefined && { statenet }),
         stop: async () => {
             if (stopped) return;
             stopped = true;
@@ -1263,6 +1292,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             await turns.stopAll();
             await index?.stop();
             await http.close();
+            // what this server owns is saved and let go first, so another server takes it at once
+            await statenet?.stop();
             await workspaces.close();
         }
     };
