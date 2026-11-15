@@ -89,7 +89,7 @@ can run twice).
 | `--runtime-origin <url>` | `MAGNETIC_RUNTIME_ORIGIN` | `http://<host>:<runtime port>` | The origin people reach the app frame at behind a proxy, such as `https://run.magnetic.example`. Needs `--public-origin` on another host; with both, the server answers only to those two host names (and loopback, for health checks) |
 | `--mock-provider` | `MAGNETIC_MOCK_PROVIDER=true` | off | Also runs a mock OpenID Connect provider that signs anyone in as a test person. Loopback hosts only |
 | | `MAGNETIC_LINKEDIN_CLIENT_ID`, `MAGNETIC_LINKEDIN_CLIENT_SECRET` | none | LinkedIn's client. Environment only, so the secret stays out of the process list |
-| | `MAGNETIC_LINKEDIN_PKCE` | `true` | `false` sends no PKCE challenge to LinkedIn |
+| | `MAGNETIC_LINKEDIN_PKCE` | `false` | `true` sends a PKCE challenge to LinkedIn, which takes it only from apps it enabled as native; a web app's sign-in then fails with `invalid_client` |
 
 ## How it works
 

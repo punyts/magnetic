@@ -17,12 +17,12 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--database-url', 'mysql://x/y'], {})).toThrow(UsageError);
     });
 
-    it('should read LinkedIn from the environment, with PKCE on by default', () => {
+    it('should read LinkedIn from the environment, with PKCE off by default', () => {
         // Act
         const options = parseOptions([], { MAGNETIC_LINKEDIN_CLIENT_ID: 'id', MAGNETIC_LINKEDIN_CLIENT_SECRET: 'secret' });
 
         // Assert
-        expect(options.linkedIn).toEqual({ clientId: 'id', clientSecret: 'secret', pkce: true });
+        expect(options.linkedIn).toEqual({ clientId: 'id', clientSecret: 'secret', pkce: false });
     });
 
     it('should turn PKCE off for LinkedIn when asked', () => {

@@ -93,7 +93,8 @@ Options:
 Sign in with LinkedIn (environment only):
   MAGNETIC_LINKEDIN_CLIENT_ID      The client id of the LinkedIn app
   MAGNETIC_LINKEDIN_CLIENT_SECRET  Its primary client secret
-  MAGNETIC_LINKEDIN_PKCE           false to send no PKCE challenge (default true)
+  MAGNETIC_LINKEDIN_PKCE           true to send a PKCE challenge, which LinkedIn takes only from
+                                   apps it enabled as native (default false)
 
 Orgs' own sign-in (environment only):
   MAGNETIC_SECRET_KEY              A random secret of 16 or more characters that seals the client secret of each
@@ -165,7 +166,8 @@ const parseLinkedIn = (env: Readonly<Record<string, string | undefined>>): CliOp
     if (clientId === '' || clientSecret === '') throw new UsageError('Set both MAGNETIC_LINKEDIN_CLIENT_ID and MAGNETIC_LINKEDIN_CLIENT_SECRET');
     const pkce = env['MAGNETIC_LINKEDIN_PKCE'];
     if (pkce !== undefined && pkce !== 'true' && pkce !== 'false') throw new UsageError(`Invalid MAGNETIC_LINKEDIN_PKCE: ${pkce} (true or false)`);
-    return { clientId, clientSecret, pkce: pkce !== 'false' };
+    // Off unless asked: LinkedIn refuses PKCE from a web app (linkedInProvider)
+    return { clientId, clientSecret, pkce: pkce === 'true' };
 };
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;

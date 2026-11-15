@@ -16,9 +16,15 @@ export interface OidcProvider {
     readonly scopes?: readonly string[];
     /** Sends a PKCE code challenge (S256) with the request and its verifier with the code; default true */
     readonly pkce?: boolean;
+    /** Sends a nonce and checks the ID token carries it back; default true. Off for a provider whose ID token has none */
+    readonly nonce?: boolean;
 }
 
-/** LinkedIn's "Sign In with LinkedIn using OpenID Connect" */
+/**
+ * LinkedIn's "Sign In with LinkedIn using OpenID Connect". Found against LinkedIn itself (docs/design/magnetic-hosting.md,
+ * H3): it takes PKCE only from apps it enabled as native, and a web app's code exchange with a verifier fails with
+ * `invalid_client`; and its ID token has no `nonce`, so none is sent. State and the client secret hold the flow
+ */
 export function linkedInProvider(clientId: string, clientSecret: string, options: { readonly pkce?: boolean } = {}): OidcProvider {
     return {
         name: 'linkedin',
@@ -27,7 +33,8 @@ export function linkedInProvider(clientId: string, clientSecret: string, options
         clientId,
         clientSecret,
         scopes: ['openid', 'profile', 'email'],
-        pkce: options.pkce ?? true
+        pkce: options.pkce ?? false,
+        nonce: false
     };
 }
 
@@ -48,7 +55,7 @@ interface Pending {
     /** A provider not configured on the server, such as an org's own, with what the caller tagged the sign-in with */
     readonly custom?: { readonly provider: OidcProvider; readonly tag: string };
     readonly state: string;
-    readonly nonce: string;
+    readonly nonce: string | undefined;
     readonly verifier: string | undefined;
     readonly next: string;
     readonly expires: number;
@@ -154,13 +161,13 @@ export class OidcSignIn {
         const configuration = await this.configuration(provider);
         this.sweep();
         const state = client.randomState();
-        const nonce = client.randomNonce();
+        const nonce = provider.nonce === false ? undefined : client.randomNonce();
         const verifier = provider.pkce === false ? undefined : client.randomPKCECodeVerifier();
         const parameters: Record<string, string> = {
             redirect_uri: this.redirectUri(name),
             scope: (provider.scopes ?? DEFAULT_SCOPES).join(' '),
             state,
-            nonce,
+            ...(nonce !== undefined && { nonce }),
             ...(verifier !== undefined && { code_challenge: await client.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256' })
         };
         const key = randomBytes(32).toString('base64url');
@@ -192,7 +199,7 @@ export class OidcSignIn {
         try {
             tokens = await client.authorizationCodeGrant(configuration, callback, {
                 expectedState: pending.state,
-                expectedNonce: pending.nonce,
+                ...(pending.nonce !== undefined && { expectedNonce: pending.nonce }),
                 idTokenExpected: true,
                 ...(pending.verifier !== undefined && { pkceCodeVerifier: pending.verifier })
             });

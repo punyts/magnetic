@@ -266,3 +266,47 @@ describe('profileOf', () => {
         expect(profileOf({ name: 'Ada', email: 'ada@example.com' })).toEqual({ name: 'Ada', email: 'ada@example.com' });
     });
 });
+
+describe('Signing in with a provider that sends no nonce and takes no PKCE, as LinkedIn', () => {
+    let provider: MockOidcProvider;
+    let magnetic: RunningMagnetic;
+
+    beforeAll(async () => {
+        provider = await startMockOidcProvider();
+        magnetic = await startMagnetic({
+            database: await freshDb(),
+            host: '127.0.0.1',
+            port: 0,
+            report: { info: () => undefined },
+            starter: 'none',
+            browser: noBrowser,
+            allowHttpProviders: true,
+            providers: [{ name: 'mock', label: 'Sign in with Mock', issuer: provider.issuer, clientId: provider.clientId, clientSecret: provider.clientSecret, pkce: false, nonce: false }]
+        });
+    });
+
+    afterAll(async () => {
+        await magnetic.stop();
+        await provider.stop();
+    });
+
+    it('should ask for neither, and sign the person in on an ID token without a nonce', async () => {
+        // Arrange
+        provider.person = { sub: 'member-grace', name: 'Grace Hopper', email: 'grace@example.com', email_verified: true };
+
+        // Act
+        const started = await get(`${magnetic.origin}/auth/mock`);
+        const cookie = `magnetic_signin=${cookiesOf(started).get('magnetic_signin')}`;
+        const query = new URL(started.headers.get('location') as string).searchParams;
+        const callback = (await get(started.headers.get('location') as string)).headers.get('location') as string;
+        const response = await get(callback, cookie);
+
+        // Assert
+        expect(query.get('state')).toMatch(/^[\w-]{20,}$/);
+        expect(query.has('nonce')).toBe(false);
+        expect(query.has('code_challenge')).toBe(false);
+        expect(response.status).toBe(303);
+        const session = await magnetic.sessions.find(cookiesOf(response).get('magnetic_session'));
+        expect(await magnetic.accounts.user(session?.userId as string)).toMatchObject({ name: 'Grace Hopper', email: 'grace@example.com' });
+    });
+});
