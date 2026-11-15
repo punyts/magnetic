@@ -10,6 +10,8 @@ import { run } from '../stateui/run.js';
 import { ensureMagneticTheme, MAGNETIC_THEME, THEME_STAMP } from '../stateui/theme.js';
 import { SYSTEM_USER_ID } from '../inspector/constants.js';
 import type { Stamps } from '../storage/Stamps.js';
+import { alone, SYSTEM_APPS_LOCK, userAppsLock } from '../storage/exclusive.js';
+import type { Exclusive } from '../storage/exclusive.js';
 
 /** The name of each person's editor, an app of their own in their workspace */
 export const EDITOR_APP = 'magnetic-editor';
@@ -604,24 +606,41 @@ export class EditorApps {
     constructor(
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
         /** Where the version of each person's editor, and the revision Magnetic left it at, is kept */
-        private readonly stamps: Stamps
+        private readonly stamps: Stamps,
+        /** Keeps two servers from making the same person's editor at once */
+        private readonly exclusive: Exclusive = alone
     ) {}
 
     /** The id of a person's editor, making it when they have none, or when Magnetic's changed and theirs did not */
     async id(services: Services, userId: string): Promise<string> {
+        const kept = await this.kept(services, userId);
+        if (kept !== undefined) return kept;
+        return this.exclusive(userAppsLock(userId), async () => {
+            // Another server may have made it meanwhile, past what this server's index of the parts has heard
+            services.resyncParts();
+            const madeMeanwhile = await this.kept(services, userId);
+            if (madeMeanwhile !== undefined) return madeMeanwhile;
+            const existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
+            return this.make(services, userId, existing?.revision);
+        });
+    }
+
+    /** The id of the person's editor when it may stay as it is */
+    private async kept(services: Services, userId: string): Promise<string | undefined> {
         const kept = await this.stamps.get<{ stamp?: string; revision?: number }>(userId, 'editor');
         const existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
-        if (existing !== undefined) {
-            const untouched = kept?.revision === existing.revision;
-            if (kept?.stamp === EDITOR_STAMP || !untouched) return existing.id;
-        }
-        return this.make(services, userId, existing?.revision);
+        if (existing === undefined) return undefined;
+        const untouched = kept?.revision === existing.revision;
+        return kept?.stamp === EDITOR_STAMP || !untouched ? existing.id : undefined;
     }
 
     /** Puts a person's editor back to Magnetic's */
     async reset(services: Services, userId: string): Promise<string> {
-        const existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
-        return this.make(services, userId, existing?.revision);
+        return this.exclusive(userAppsLock(userId), async () => {
+            services.resyncParts();
+            const existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
+            return this.make(services, userId, existing?.revision);
+        });
     }
 
     private async make(services: Services, userId: string, replacing: number | undefined): Promise<string> {
@@ -653,7 +672,9 @@ export class DefaultEditor {
         private readonly workspace: () => Promise<{ readonly services: Services; readonly release: () => void }>,
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
         /** Where the version of the default editor made in the system workspace is kept */
-        private readonly stamps: Stamps
+        private readonly stamps: Stamps,
+        /** Keeps two servers from making it at once */
+        private readonly exclusive: Exclusive = alone
     ) {}
 
     document(): Promise<EditorDocument> {
@@ -668,13 +689,21 @@ export class DefaultEditor {
         const { services, release } = await this.workspace();
         try {
             const tools = this.toolsOf(services);
-            const stamp = (await this.stamps.get<{ stamp?: string }>(SYSTEM_USER_ID, 'editor'))?.stamp;
-            let existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
+            const current = async () => ({
+                stamp: (await this.stamps.get<{ stamp?: string }>(SYSTEM_USER_ID, 'editor'))?.stamp,
+                existing: (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP)
+            });
+            let { stamp, existing } = await current();
             if (existing === undefined || stamp !== EDITOR_STAMP) {
-                if (existing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: EDITOR_APP, expectedRevision: existing.revision });
-                await makeEditor(tools);
-                await this.stamps.set(SYSTEM_USER_ID, 'editor', { stamp: EDITOR_STAMP });
-                existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
+                existing = await this.exclusive(SYSTEM_APPS_LOCK, async () => {
+                    services.resyncParts();
+                    ({ stamp, existing } = await current());
+                    if (existing !== undefined && stamp === EDITOR_STAMP) return existing;
+                    if (existing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: EDITOR_APP, expectedRevision: existing.revision });
+                    await makeEditor(tools);
+                    await this.stamps.set(SYSTEM_USER_ID, 'editor', { stamp: EDITOR_STAMP });
+                    return (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
+                });
             }
             const app = existing === undefined ? undefined : await services.instanceViews.find(existing.id);
             if (app === undefined) throw new Error('The default editor could not be made');

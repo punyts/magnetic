@@ -8,6 +8,8 @@ import { run } from '../stateui/run.js';
 import { ensureMagneticTheme, MAGNETIC_THEME, THEME_STAMP } from '../stateui/theme.js';
 import { SYSTEM_USER_ID } from '../inspector/constants.js';
 import type { Stamps } from '../storage/Stamps.js';
+import { alone, SYSTEM_APPS_LOCK } from '../storage/exclusive.js';
+import type { Exclusive } from '../storage/exclusive.js';
 
 /** A page app as a page mounts it: its assembled document and icons */
 export interface PageAppDocument {
@@ -168,7 +170,9 @@ export class PageApps {
         /** Where the version of each page app made in the system workspace is kept */
         private readonly stamps: Stamps,
         /** What this server signs in with, which the sign-in page shows */
-        private readonly context: PageAppContext = { providers: [], devUsers: [] }
+        private readonly context: PageAppContext = { providers: [], devUsers: [] },
+        /** Keeps two servers from making the same page app at once */
+        private readonly exclusive: Exclusive = alone
     ) {}
 
     document(spec: PageAppSpec): Promise<PageAppDocument> {
@@ -188,20 +192,30 @@ export class PageApps {
             const made = spec.definition(textsOf('en'), this.context);
             const models = spec.models(this.context);
             const stamp = createHash('sha256').update(JSON.stringify({ models, theme: THEME_STAMP, made, texts: ['de', 'fr', 'es'].map((language) => textsOf(language as 'de')) })).digest('hex').slice(0, 16);
-            const kept = (await this.stamps.get<{ stamp?: string }>(SYSTEM_USER_ID, `page:${spec.name}`))?.stamp;
-            let listed = (await services.instanceViews.list()).find((app) => app.name === spec.name);
+            const current = async () => ({
+                kept: (await this.stamps.get<{ stamp?: string }>(SYSTEM_USER_ID, `page:${spec.name}`))?.stamp,
+                listed: (await services.instanceViews.list()).find((app) => app.name === spec.name)
+            });
+            let { kept, listed } = await current();
             if (listed === undefined || kept !== stamp) {
-                if (listed !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: spec.name, expectedRevision: listed.revision });
-                for (const [model, operations] of Object.entries(models)) {
-                    const existing = await run(tools, 'ui_get', { kind: 'models', name: model }).catch(() => undefined);
-                    const revision = existing === undefined ? undefined : existing['revision'];
-                    await run(tools, 'ui_model_write', { model, operations, ...(typeof revision === 'number' && { expectedRevision: revision }) });
-                }
-                await ensureMagneticTheme(tools);
-                const created = await run(tools, 'ui_app_create', { name: spec.name, themes: [MAGNETIC_THEME], ...made });
-                await writeLocales(tools, spec.name, { home: made['home'] }, typeof created['revision'] === 'number' ? created['revision'] : 1);
-                await this.stamps.set(SYSTEM_USER_ID, `page:${spec.name}`, { stamp });
-                listed = (await services.instanceViews.list()).find((app) => app.name === spec.name);
+                // Another server may be making it, or made it a moment ago: wait for it, and look again past this
+                // server's index of the parts, which may not have heard of its change yet
+                listed = await this.exclusive(SYSTEM_APPS_LOCK, async () => {
+                    services.resyncParts();
+                    ({ kept, listed } = await current());
+                    if (listed !== undefined && kept === stamp) return listed;
+                    if (listed !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: spec.name, expectedRevision: listed.revision });
+                    for (const [model, operations] of Object.entries(models)) {
+                        const existing = await run(tools, 'ui_get', { kind: 'models', name: model }).catch(() => undefined);
+                        const revision = existing === undefined ? undefined : existing['revision'];
+                        await run(tools, 'ui_model_write', { model, operations, ...(typeof revision === 'number' && { expectedRevision: revision }) });
+                    }
+                    await ensureMagneticTheme(tools);
+                    const created = await run(tools, 'ui_app_create', { name: spec.name, themes: [MAGNETIC_THEME], ...made });
+                    await writeLocales(tools, spec.name, { home: made['home'] }, typeof created['revision'] === 'number' ? created['revision'] : 1);
+                    await this.stamps.set(SYSTEM_USER_ID, `page:${spec.name}`, { stamp });
+                    return (await services.instanceViews.list()).find((app) => app.name === spec.name);
+                });
             }
             const app = listed === undefined ? undefined : await services.instanceViews.find(listed.id);
             if (app === undefined) throw new Error(`The page app ${spec.name} could not be made`);

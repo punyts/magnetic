@@ -17,6 +17,7 @@ import { AGENT_MODELS, modelChoice } from '../agent/models.js';
 import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { privacyPage } from '../http/privacy.js';
 import type { PrivacyContact } from '../http/privacy.js';
+import { databaseExclusive } from '../storage/exclusive.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
@@ -326,6 +327,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const accounts = new Accounts(db);
     const sessions = new Sessions(db);
     const stamps = new Stamps(db);
+    // Magnetic's own apps are made by one server at a time, as several may share the database
+    const exclusive = databaseExclusive(db);
     const orgs = new Orgs(db);
     const access = new AppAccess(db);
     const policies: OrgPolicies = new OrgPolicies(db, (): readonly string[] => turns.models);
@@ -435,12 +438,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return found;
     };
     /** Each person's "Your apps", made with the tools the agent uses */
-    const homes = new HomeApps(toolsOf, stamps);
+    const homes = new HomeApps(toolsOf, stamps, exclusive);
     const preferences = new PreferenceStore(db);
     /** How Magnetic looks and speaks to a signed-in person */
     const lookOf = (request: IncomingMessage, userId: string): Promise<Preferences> => preferences.read(userId, request.headers['accept-language']);
     /** Each person's editor, an app of their own made with the tools the agent uses */
-    const editors = new EditorApps(toolsOf, stamps);
+    const editors = new EditorApps(toolsOf, stamps, exclusive);
     /** Magnetic's own editor, in the system workspace: what a person gets when theirs does not load */
     const systemWorkspace = async (): Promise<{ services: Services; release: () => void }> => {
         const release = workspaces.retain(SYSTEM_USER_ID);
@@ -451,9 +454,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             throw error;
         }
     };
-    const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, stamps);
+    const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, stamps, exclusive);
     /** Magnetic's own pages before a person's workspace (sign in, share links), as StateUI apps */
-    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers, sso: sso.available });
+    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers, sso: sso.available }, exclusive);
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')

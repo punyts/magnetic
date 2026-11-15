@@ -6,6 +6,8 @@ import { textsOf } from '../http/text.js';
 import type { Texts } from '../http/text.js';
 import { run } from '../stateui/run.js';
 import type { Stamps } from '../storage/Stamps.js';
+import { alone, userAppsLock } from '../storage/exclusive.js';
+import type { Exclusive } from '../storage/exclusive.js';
 
 /** The name of each person's "Your apps" app, which Magnetic makes in their workspace and shows at `/` */
 export const HOME_APP = 'your-apps';
@@ -149,7 +151,9 @@ export class HomeApps {
     constructor(
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
         /** Where the version of the home app made in each workspace is kept */
-        private readonly stamps: Stamps
+        private readonly stamps: Stamps,
+        /** Keeps two servers from making the same person's home app at once */
+        private readonly exclusive: Exclusive = alone
     ) {}
 
     /** The id of the home app of a person's workspace in a language, making it first when it has none in that language */
@@ -164,9 +168,24 @@ export class HomeApps {
 
     private async ensure(services: Services, userId: string, language: Language): Promise<string> {
         const HOME_STAMP = homeStamp(language);
-        const stamp = (await this.stamps.get<{ stamp?: string }>(userId, 'home'))?.stamp;
-        const existing = (await services.instanceViews.list()).find((app) => app.name === HOME_APP);
-        if (existing !== undefined && stamp === HOME_STAMP) return existing.id;
+        const current = async () => ({
+            stamp: (await this.stamps.get<{ stamp?: string }>(userId, 'home'))?.stamp,
+            existing: (await services.instanceViews.list()).find((app) => app.name === HOME_APP)
+        });
+        const first = await current();
+        if (first.existing !== undefined && first.stamp === HOME_STAMP) return first.existing.id;
+        return this.exclusive(userAppsLock(userId), async () => {
+            // Another server may have made it meanwhile, past what this server's index of the parts has heard
+            services.resyncParts();
+            const { stamp, existing } = await current();
+            if (existing !== undefined && stamp === HOME_STAMP) return existing.id;
+            return this.make(services, userId, language, HOME_STAMP, existing?.revision);
+        });
+    }
+
+    /** Makes the home app again, in place of the one at `replacing` */
+    private async make(services: Services, userId: string, language: Language, HOME_STAMP: string, replacing: number | undefined): Promise<string> {
+        const existing = replacing === undefined ? undefined : { revision: replacing };
         const tools = this.toolsOf(services);
         if (existing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: HOME_APP, expectedRevision: existing.revision });
         const models = await run(tools, 'ui_list', { kind: 'models' }).catch(() => ({}));
