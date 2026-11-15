@@ -197,7 +197,10 @@ export class OidcSignIn {
                 ...(pending.verifier !== undefined && { pkceCodeVerifier: pending.verifier })
             });
         } catch (error) {
-            throw new SignInError(`The sign-in could not be checked (${error instanceof Error ? error.message : String(error)}).`, { cause: error });
+            // openid-client's ResponseBodyError carries the provider's own error and description, for the log
+            const said = error as { error?: unknown; error_description?: unknown };
+            const detail = typeof said.error === 'string' ? `${said.error.slice(0, 100)}${typeof said.error_description === 'string' ? `: ${said.error_description.slice(0, 300)}` : ''}` : undefined;
+            throw new SignInError(`The sign-in could not be checked (${error instanceof Error ? error.message : String(error)}).`, { cause: error, ...(detail !== undefined && { detail }) });
         }
         const claims = tokens.claims();
         if (claims === undefined) throw new SignInError('The provider sent no ID token.');
