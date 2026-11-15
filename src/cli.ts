@@ -8,7 +8,7 @@ import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
 import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
-import { assertMigrated, createDatabase, EmbeddingIndex, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
+import { assertMigrated, createDatabase, EmbeddingIndex, grantAppRole, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from './agent/Chats.js';
 import { EMBEDDING_SOURCES } from './search/Search.js';
@@ -60,6 +60,16 @@ async function main(): Promise<void> {
         try {
             const applied = await migrate(database, ALL_MIGRATIONS);
             process.stdout.write(applied.length === 0 ? 'magnetic: the database is up to date\n' : applied.map((migration) => `magnetic: applied ${migration.owner} ${String(migration.version).padStart(4, '0')} ${migration.name}\n`).join(''));
+            if (options.appRole !== undefined) {
+                await grantAppRole(database, options.appRole);
+                process.stdout.write(`magnetic: ${options.appRole} may read and write the tables\n`);
+            }
+            // The search index of the configured model is the owner's to make; the servers may not own the table
+            const embedder = await embedderOf(options.embedding, options.modelCache);
+            if (embedder !== undefined) {
+                await new EmbeddingIndex(database, embedder, EMBEDDING_SOURCES).ensureIndex();
+                process.stdout.write(`magnetic: the search index of ${embedder.model} is ready\n`);
+            }
         } finally {
             await database.close();
         }
@@ -138,6 +148,7 @@ async function main(): Promise<void> {
         starter: options.starter,
         ...(options.runtimeDir !== undefined && { runtimeDir: options.runtimeDir }),
         ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
+        ...(options.runtimeOrigin !== undefined && { runtimeOrigin: options.runtimeOrigin }),
         providers,
         allowHttpProviders: mock !== undefined,
         ...(options.secretKey !== undefined && { secretKey: options.secretKey }),

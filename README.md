@@ -74,6 +74,7 @@ can run twice).
 |---|---|---|---|
 | `--database-url <url>` | `MAGNETIC_DATABASE_URL` | none, required | Magnetic's Postgres database with pgvector |
 | `--migrate` | `MAGNETIC_MIGRATE=true` | off | Applies the migrations before serving |
+| `--app-role <role>` | `MAGNETIC_APP_ROLE` | none | For `migrate`: then grants this role the rows of every table. The servers connect as it; it must exist and have no superuser or `BYPASSRLS`, so row-level security holds it |
 | `--embedding <kind>` | `MAGNETIC_EMBEDDING` | `local` | What makes search vectors: `local`, `hash` or `off` |
 | `--model-cache <dir>` | `MAGNETIC_MODEL_CACHE` | the library's | Where the local model is kept |
 | `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | For `import`: the data folder of an earlier, file-based Magnetic |
@@ -84,6 +85,7 @@ can run twice).
 | `--starter <kind>` | `MAGNETIC_STARTER` | `showcase` | What a new workspace holds: the component showcase, or `none` |
 | `--runtime-dir <dir>` | `MAGNETIC_RUNTIME_DIR` | the bundle in `@punyts/stateui-app` | The built StateUI runtime bundle |
 | `--public-origin <url>` | `MAGNETIC_PUBLIC_ORIGIN` | the address it listens on | The origin people reach the server at. Redirect URIs are `<origin>/auth/<provider>/callback`, and cookies are `Secure` when it is HTTPS |
+| `--runtime-origin <url>` | `MAGNETIC_RUNTIME_ORIGIN` | `http://<host>:<runtime port>` | The origin people reach the app frame at behind a proxy, such as `https://run.magnetic.example`. Needs `--public-origin` on another host; with both, the server answers only to those two host names (and loopback, for health checks) |
 | `--mock-provider` | `MAGNETIC_MOCK_PROVIDER=true` | off | Also runs a mock OpenID Connect provider that signs anyone in as a test person. Loopback hosts only |
 | | `MAGNETIC_LINKEDIN_CLIENT_ID`, `MAGNETIC_LINKEDIN_CLIENT_SECRET` | none | LinkedIn's client. Environment only, so the secret stays out of the process list |
 | | `MAGNETIC_LINKEDIN_PKCE` | `true` | `false` sends no PKCE challenge to LinkedIn |
@@ -385,8 +387,8 @@ The options also take:
 
 ## Not yet
 
-- **Hosting** (M7): HTTPS, public host names for the two origins, and the Host check behind a proxy. Until then the
-  runtime origin is `http://<host>:<runtime port>`, which suits a local server only.
+- **Hosting** (M7): the AWS stack and the deploy (`docs/design/magnetic-hosting.md`). The server side is in:
+  `--runtime-origin`, the host check behind a proxy, `--app-role`, and `docker/magnetic.compose.yml` with Caddy.
 - **The agent cannot see the page.** The browser tools are withheld: each workspace would open its own Chromium,
   and its headless page cannot sign in to reach the app. One shared browser with a context per user, and a way for
   it to sign in, come before the agent gets them back.

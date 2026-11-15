@@ -45,6 +45,12 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--public-origin', origin], {})).toThrow(UsageError);
     });
 
+    it('should take a runtime origin from the flag over the environment', () => {
+        expect(parseOptions(['--runtime-origin', 'https://run.magnetic.example'], { MAGNETIC_RUNTIME_ORIGIN: 'https://other.example' }).runtimeOrigin).toBe('https://run.magnetic.example');
+        expect(parseOptions([], { MAGNETIC_RUNTIME_ORIGIN: 'https://run.magnetic.example' }).runtimeOrigin).toBe('https://run.magnetic.example');
+        expect(parseOptions([], {}).runtimeOrigin).toBeUndefined();
+    });
+
     it('should run the agent on Haiku 5.5 at high effort with $1 a day and $100 a month by default', () => {
         expect(parseOptions([], {})).toMatchObject({ model: 'claude-haiku-5-5', models: undefined, effort: 'high', dailyBudget: 1, monthlyBudget: 100 });
     });

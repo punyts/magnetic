@@ -9,6 +9,8 @@ export interface CliOptions {
     databaseUrl: string | undefined;
     /** Applies the migrations before serving, for development */
     migrate: boolean;
+    /** For migrate: the role the servers connect as, granted the tables after the migrations */
+    appRole: string | undefined;
     dataDir: string;
     host: string;
     port: number;
@@ -17,6 +19,8 @@ export interface CliOptions {
     starter: 'showcase' | 'none';
     runtimeDir: string | undefined;
     publicOrigin: string | undefined;
+    /** The runtime frame's origin behind a proxy, such as https://run.magnetic.example */
+    runtimeOrigin: string | undefined;
     /** Runs a mock OpenID Connect provider beside the server, to try the provider sign-in without LinkedIn */
     mockProvider: boolean;
     /** LinkedIn's client, from the environment only so the secret stays out of the process list */
@@ -80,6 +84,9 @@ Options:
   --public-origin <url>  The origin people reach the server at, such as https://magnetic.example
                          (env MAGNETIC_PUBLIC_ORIGIN, default the address it listens on). Redirect
                          URIs are <origin>/auth/<provider>/callback; cookies are Secure when it is HTTPS
+  --runtime-origin <url> The origin people reach the app frame at behind a proxy, such as
+                         https://run.magnetic.example (env MAGNETIC_RUNTIME_ORIGIN; needs --public-origin
+                         on another host). The server then answers only to these two host names
 
 Sign in with LinkedIn (environment only):
   MAGNETIC_LINKEDIN_CLIENT_ID      The client id of the LinkedIn app
@@ -115,6 +122,9 @@ Several servers on one database (each a node of the statenet; needs MAGNETIC_SEC
                          for relay-certificate, the relay's
   --region <name>        Where it runs (env MAGNETIC_REGION)
   --out <dir>            For relay-certificate: the folder to write the relay's files to (default .)
+  --app-role <role>      For migrate: then grant this role (made beforehand, with no superuser or
+                         BYPASSRLS) the rows of every table, as the servers connect as it
+                         (env MAGNETIC_APP_ROLE)
 
   -h, --help             Show this help
 `;
@@ -198,6 +208,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let command: CliOptions['command'] = 'serve';
     let databaseUrl = env['MAGNETIC_DATABASE_URL'];
     let migrate = env['MAGNETIC_MIGRATE'] === 'true';
+    let appRole = env['MAGNETIC_APP_ROLE'] || undefined;
     let embedding = env['MAGNETIC_EMBEDDING'] !== undefined ? parseEmbedding(env['MAGNETIC_EMBEDDING']) : 'local';
     let modelCache = env['MAGNETIC_MODEL_CACHE'];
     let dataDir = env['MAGNETIC_DATA_DIR'] ?? './data';
@@ -207,6 +218,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let starter = env['MAGNETIC_STARTER'] !== undefined ? parseStarter(env['MAGNETIC_STARTER']) : 'showcase';
     let runtimeDir = env['MAGNETIC_RUNTIME_DIR'];
     let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
+    let runtimeOrigin = env['MAGNETIC_RUNTIME_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_RUNTIME_ORIGIN']) : undefined;
     const linkedIn = parseLinkedIn(env);
     const secretKey = env['MAGNETIC_SECRET_KEY']?.trim() || undefined;
     if (secretKey !== undefined && secretKey.length < 16) throw new UsageError('MAGNETIC_SECRET_KEY must be at least 16 characters');
@@ -284,6 +296,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--public-origin':
                 publicOrigin = parseOrigin(value());
                 break;
+            case '--runtime-origin':
+                runtimeOrigin = parseOrigin(value());
+                break;
             case '--mock-provider':
                 mockProvider = true;
                 break;
@@ -317,6 +332,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--node-id':
                 nodeId = value();
                 break;
+            case '--app-role':
+                appRole = value();
+                break;
             case '--region':
                 region = value();
                 break;
@@ -336,5 +354,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, statenet, nodeId, out, help };
 }

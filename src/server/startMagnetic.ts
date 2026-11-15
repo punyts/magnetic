@@ -170,6 +170,12 @@ export interface MagneticOptions {
      * Each provider's redirect URI is `<publicOrigin>/auth/<name>/callback`
      */
     readonly publicOrigin?: string;
+    /**
+     * The origin of the runtime frame people reach, such as `https://run.magnetic.example`, given with `publicOrigin`
+     * when a proxy stands in front. Both set: the pages name these two origins and answer only to their host names.
+     * Absent: `http://<Host>:<runtime port>`
+     */
+    readonly runtimeOrigin?: string;
     /** Allows providers over plain HTTP, for a mock provider in tests. Loopback hosts only */
     readonly allowHttpProviders?: boolean;
     readonly agent?: MagneticAgentOptions;
@@ -337,6 +343,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     let origin = '';
     let runtimePort = 0;
     const publicOrigin = options.publicOrigin?.replace(/\/+$/, '');
+    const runtimeOrigin = options.runtimeOrigin?.replace(/\/+$/, '');
+    if (runtimeOrigin !== undefined && publicOrigin === undefined) throw new Error('A runtime origin needs a public origin beside it');
+    if (runtimeOrigin !== undefined && new URL(runtimeOrigin).host === new URL(publicOrigin as string).host) throw new Error('The runtime origin must be another host than the public origin, so an app cannot reach the session cookie');
     const secure = options.secureCookies ?? publicOrigin?.startsWith('https://') ?? false;
     const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
     const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
@@ -696,6 +705,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
 
     /** The runtime origin as the browser of a request reaches it */
     function runtimeOriginOf(request: IncomingMessage): string {
+        if (runtimeOrigin !== undefined) return runtimeOrigin;
         return `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
     }
 
@@ -1243,6 +1253,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         host: options.host,
         port: options.port,
         runtimePort: options.runtimePort ?? (options.port === 0 ? 0 : options.port + 1),
+        ...(runtimeOrigin !== undefined && publicOrigin !== undefined && { publicOrigins: { main: publicOrigin, runtime: runtimeOrigin } }),
         tenant,
         routes,
         socketMessagesPerSecond: options.socketMessagesPerSecond ?? DEFAULT_SOCKET_MESSAGES_PER_SECOND,
