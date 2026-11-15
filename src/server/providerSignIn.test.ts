@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { profileOf, safeNext } from '../auth/OidcSignIn.js';
@@ -52,7 +49,6 @@ function cookiesOf(response: Response): Map<string, string> {
 const get = (url: string, cookie?: string): Promise<Response> => fetch(url, { redirect: 'manual', ...(cookie !== undefined && { headers: { Cookie: cookie } }) });
 
 describe('Signing in with an OpenID Connect provider', () => {
-    let dataDir: string;
     let provider: MockOidcProvider;
     let magnetic: RunningMagnetic;
 
@@ -77,11 +73,9 @@ describe('Signing in with an OpenID Connect provider', () => {
     }
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-oidc-'));
         provider = await startMockOidcProvider();
         magnetic = await startMagnetic({
             database: await freshDb(),
-            dataDir,
             host: '127.0.0.1',
             port: 0,
             report: { info: () => undefined },
@@ -100,7 +94,6 @@ describe('Signing in with an OpenID Connect provider', () => {
     afterAll(async () => {
         await magnetic.stop();
         await provider.stop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     it('should offer a button for each provider', async () => {

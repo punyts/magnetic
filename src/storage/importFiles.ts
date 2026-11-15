@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { PART_KINDS } from '@punyts/stateui-mcp';
 import type { Database, Queryable } from '@punyts/stateui-pg';
 
 /** What an import wrote, for the command's report */
@@ -10,6 +11,12 @@ export interface ImportReport {
     grants: number;
     spend: number;
     chats: number;
+    /** Workspaces copied, and those skipped because the database already had them */
+    workspaces: number;
+    workspacesSkipped: number;
+    parts: number;
+    instances: number;
+    files: number;
     /** Things the import left out, and why */
     skipped: string[];
 }
@@ -57,12 +64,14 @@ async function folders(path: string): Promise<string[]> {
 /**
  * Copies the people of a file data folder of an earlier Magnetic into the database: `accounts.json` (users and
  * identities), `sessions.json` (live sessions), `grants.json` (links and who opened them), `budgets.json` (spend, as
- * one ledger row per user and day, and per month for spend no day still holds) and every chat
- * (`users/<id>/magnetic/chats/<appId>.json`). Rows already in the database are left as they are, so running it twice
- * writes nothing the second time. The folder is only read
+ * one ledger row per user and day, and per month for spend no day still holds), every chat
+ * (`users/<id>/magnetic/chats/<appId>.json`), and each user's workspace (`users/<id>`: parts, instances, persona
+ * records, files with their bytes and preview errors). Rows already in the database are left as they are, and a
+ * workspace that already has parts is skipped, so running it twice writes nothing the second time. The folder is only
+ * read
  */
 export async function importPeople(db: Database, dataDir: string, now: Date = new Date()): Promise<ImportReport> {
-    const report: ImportReport = { users: 0, identities: 0, sessions: 0, grants: 0, spend: 0, chats: 0, skipped: [] };
+    const report: ImportReport = { users: 0, identities: 0, sessions: 0, grants: 0, spend: 0, chats: 0, workspaces: 0, workspacesSkipped: 0, parts: 0, instances: 0, files: 0, skipped: [] };
     await db.transaction(async (tx) => {
         await importAccounts(tx, dataDir, report);
         await importSessions(tx, dataDir, now, report);
@@ -70,7 +79,107 @@ export async function importPeople(db: Database, dataDir: string, now: Date = ne
         await importBudgets(tx, dataDir, report);
         await importChats(tx, dataDir, report);
     });
+    for (const userId of await folders(join(dataDir, 'users'))) {
+        if (!UUID.test(userId)) continue;
+        await db.transaction((tx) => importWorkspace(tx, join(dataDir, 'users', userId), userId.toLowerCase(), report), { workspaceIds: [userId.toLowerCase()] });
+    }
     return report;
+}
+
+async function files(path: string): Promise<string[]> {
+    try {
+        return (await readdir(path, { withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => entry.name);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+    }
+}
+
+/**
+ * Copies one user's workspace folder (stateui-mcp's `PartFolders` layout) into the workspace tables: every part as it
+ * is, each persona's instances and binding records, the apps' files with their bytes, and their preview errors. A
+ * workspace that already has a part is skipped whole
+ */
+async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, report: ImportReport): Promise<void> {
+    const has = (await tx.query<{ found: boolean }>('SELECT EXISTS (SELECT 1 FROM part WHERE workspace_id = $1) AS found', [workspaceId])).rows[0]?.found === true;
+    if (has) {
+        report.workspacesSkipped++;
+        return;
+    }
+    let copied = false;
+    for (const kind of PART_KINDS) {
+        for (const name of (await files(join(dir, kind))).filter((file) => file.endsWith('.json')).sort()) {
+            const part = await readJson<{ id: string; name: string; revision: number; createdAt: string; updatedAt: string; body: object }>(join(dir, kind, name));
+            if (part === undefined || !UUID.test(part.id)) continue;
+            await tx.query('INSERT INTO part (workspace_id, kind, id, name, revision, body, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING', [
+                workspaceId,
+                kind,
+                part.id.toLowerCase(),
+                part.name,
+                part.revision,
+                JSON.stringify(part.body),
+                part.createdAt,
+                part.updatedAt
+            ]);
+            report.parts++;
+            copied = true;
+        }
+    }
+    for (const persona of await folders(join(dir, 'personas'))) {
+        for (const owner of await folders(join(dir, 'personas', persona, 'apps'))) {
+            for (const name of (await files(join(dir, 'personas', persona, 'apps', owner))).filter((file) => file.endsWith('.json'))) {
+                const appId = name.slice(0, -'.json'.length);
+                const diff = await readJson<object>(join(dir, 'personas', persona, 'apps', owner, name)).catch(() => undefined);
+                if (!UUID.test(appId) || diff === undefined) continue;
+                await tx.query('INSERT INTO instance (workspace_id, persona, app_id, diff) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [workspaceId, persona, appId.toLowerCase(), JSON.stringify(diff)]);
+                report.instances++;
+            }
+        }
+        for (const appId of await folders(join(dir, 'personas', persona, 'data'))) {
+            if (!UUID.test(appId)) continue;
+            for (const name of (await files(join(dir, 'personas', persona, 'data', appId))).filter((file) => file.endsWith('.json'))) {
+                // A capital is kept as ^ and its small letter, so two bindings never share a file on a case-blind disk
+                const binding = name.slice(0, -'.json'.length).replace(/\^([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+                const dataset = await readJson<{ model: string; records: object }>(join(dir, 'personas', persona, 'data', appId, name)).catch(() => undefined);
+                if (dataset === undefined || typeof dataset.model !== 'string') continue;
+                await tx.query('INSERT INTO persona_dataset (workspace_id, persona, app_id, binding, model, records) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING', [
+                    workspaceId,
+                    persona,
+                    appId.toLowerCase(),
+                    binding,
+                    dataset.model,
+                    JSON.stringify(dataset.records ?? {})
+                ]);
+            }
+        }
+    }
+    for (const appId of (await folders(dir)).filter((name) => UUID.test(name))) {
+        const index = (await readJson<Array<{ id: string; name: string; size: number; type: string; sha256: string; createdAt: string }>>(join(dir, appId, 'files.json')).catch(() => undefined)) ?? [];
+        for (const file of index) {
+            const bytes = await readFile(join(dir, appId, 'files', file.id.toLowerCase())).catch(() => undefined);
+            if (bytes === undefined) {
+                report.skipped.push(`file ${file.id} of app ${appId}: its bytes are missing`);
+                continue;
+            }
+            await tx.query('INSERT INTO app_file (workspace_id, app_id, id, name, size, type, sha256, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING', [
+                workspaceId,
+                appId.toLowerCase(),
+                file.id.toLowerCase(),
+                file.name,
+                file.size,
+                file.type,
+                file.sha256,
+                file.createdAt
+            ]);
+            await tx.query('INSERT INTO app_file_content (workspace_id, app_id, file_id, bytes) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [workspaceId, appId.toLowerCase(), file.id.toLowerCase(), bytes]);
+            report.files++;
+        }
+        const errors = await readJson<unknown[]>(join(dir, appId, 'errors.json')).catch(() => undefined);
+        if (Array.isArray(errors) && errors.length > 0) {
+            await tx.query('INSERT INTO preview_error (workspace_id, app_id, entries) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [workspaceId, appId.toLowerCase(), JSON.stringify(errors)]);
+        }
+    }
+    if (copied) report.workspaces++;
 }
 
 async function importAccounts(tx: Queryable, dataDir: string, report: ImportReport): Promise<void> {

@@ -47,7 +47,7 @@ Options:
   --database-url <url>   Magnetic's Postgres database with pgvector, postgres://...
                          (env MAGNETIC_DATABASE_URL; required)
   --migrate              Apply the database migrations before serving (development)
-  --data-dir <dir>       Where the workspaces live; for import, the folder to import
+  --data-dir <dir>       For import: the data folder of an earlier, file-based Magnetic
                          (env MAGNETIC_DATA_DIR, default ./data)
   --port <number>        Port of the pages and sockets (env MAGNETIC_PORT, default ${DEFAULT_PORT})
   --runtime-port <n>     Port of the runtime origin that serves the app frame

@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -36,20 +33,17 @@ function pathOfKey(node: unknown, key: string, at: string): string | undefined {
 }
 
 describe('EditorApps', () => {
-    let dataDir: string;
     let magnetic: RunningMagnetic;
     let test: TestDatabase;
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-editor-app-'));
         test = await magneticTestDatabase();
-        magnetic = await startMagnetic({ database: test.db, dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
+        magnetic = await startMagnetic({ database: test.db, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
     }, 60_000);
 
     afterAll(async () => {
         await magnetic.stop();
         await test.drop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     it("should make a person's editor in every language, keep it, keep their changes and reset it to Magnetic's", async () => {

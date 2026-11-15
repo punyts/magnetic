@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -116,7 +113,6 @@ async function opened(origin: string, appId: string, cookie: string, until: (eve
 }
 
 describe('Agent turns', () => {
-    let dataDir: string;
     let magnetic: RunningMagnetic;
     const model = new ScriptedModel();
     let alice: string;
@@ -124,8 +120,7 @@ describe('Agent turns', () => {
     let appId: string;
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-agent-'));
-        magnetic = await startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob'], starter: 'none', browser: noBrowser, agent: { model } });
+        magnetic = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob'], starter: 'none', browser: noBrowser, agent: { model } });
         alice = await signIn(magnetic.origin, 'alice');
         aliceId = (await magnetic.sessions.find(alice.split('=')[1]))?.userId as string;
         const created = await fetch(`${magnetic.origin}/new`, { method: 'POST', headers: { Cookie: alice, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Greeting+Card', redirect: 'manual' });
@@ -135,7 +130,6 @@ describe('Agent turns', () => {
 
     afterAll(async () => {
         await magnetic.stop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     beforeEach(() => {
@@ -236,7 +230,7 @@ describe('Agent turns', () => {
         // Arrange
         const before = await magnetic.homes.id(await magnetic.workspaces.get(aliceId), aliceId);
         await magnetic.database.query("UPDATE workspace_stamp SET value = jsonb_build_object('stamp', 'older') WHERE workspace_id = $1 AND name = 'home'", [aliceId]);
-        const later = await startMagnetic({ database: magnetic.database, dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser, agent: { model } });
+        const later = await startMagnetic({ database: magnetic.database, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser, agent: { model } });
 
         try {
             // Act
@@ -428,7 +422,6 @@ describe('Agent turns', () => {
     it('should end a turn that reaches its tool-call limit', async () => {
         const limited = await startMagnetic({
             database: await freshDb(),
-            dataDir: join(dataDir, 'limited'),
             host: '127.0.0.1',
             port: 0,
             report: silent,
@@ -484,7 +477,7 @@ describe('Agent turns', () => {
     });
 
     it('should end a turn as soon as it spends the last of the budget', async () => {
-        const capped = await startMagnetic({ database: await freshDb(), dataDir: join(dataDir, 'capped'), host: '127.0.0.1', port: 0, report: silent, devUsers: ['dan'], starter: 'none', browser: noBrowser, agent: { model, budgets: { dailyPerUser: 1, monthly: 0.01 } } });
+        const capped = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['dan'], starter: 'none', browser: noBrowser, agent: { model, budgets: { dailyPerUser: 1, monthly: 0.01 } } });
         try {
             const dan = await signIn(capped.origin, 'dan');
             const made = await fetch(`${capped.origin}/new`, { method: 'POST', headers: { Cookie: dan, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=capped', redirect: 'manual' });

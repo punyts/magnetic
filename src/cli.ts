@@ -45,7 +45,7 @@ async function main(): Promise<void> {
         try {
             await migrate(database, ALL_MIGRATIONS);
             const report = await importPeople(database, options.dataDir);
-            process.stdout.write(`magnetic: imported ${report.users} users, ${report.identities} identities, ${report.sessions} sessions, ${report.grants} links, ${report.spend} spend rows, ${report.chats} chat entries from ${options.dataDir}\n`);
+            process.stdout.write(`magnetic: imported ${report.users} users, ${report.identities} identities, ${report.sessions} sessions, ${report.grants} links, ${report.spend} spend rows, ${report.chats} chat entries and ${report.workspaces} workspaces (${report.parts} parts, ${report.instances} instances, ${report.files} files; ${report.workspacesSkipped} already there) from ${options.dataDir}\n`);
             for (const reason of report.skipped) process.stdout.write(`magnetic: skipped ${reason}\n`);
         } finally {
             await database.close();
@@ -69,7 +69,6 @@ async function main(): Promise<void> {
     if (mock !== undefined) providers.push({ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret });
     const server = await startMagnetic({
         database,
-        dataDir: options.dataDir,
         host: options.host,
         port: options.port,
         ...(options.runtimePort !== undefined && { runtimePort: options.runtimePort }),
@@ -85,7 +84,7 @@ async function main(): Promise<void> {
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);
     if (options.mockAgent) process.stderr.write('magnetic: agent is the scripted mock agent; no API calls\n');
     else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget $${options.dailyBudget} per user per day and $${options.monthlyBudget} per month${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
-    process.stderr.write(`magnetic: ${server.origin}  workspaces in ${options.dataDir}, everything else in the database\n`);
+    process.stderr.write(`magnetic: ${server.origin}\n`);
 
     let stopping = false;
     const stop = (): void => {

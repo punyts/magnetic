@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -41,8 +38,8 @@ const noBrowser: PreviewBrowser = {
     close: async () => undefined
 };
 
-async function start(dataDir: string, extra: Partial<MagneticOptions> = {}): Promise<RunningMagnetic> {
-    return startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob'], starter: 'none', browser: noBrowser, ...extra });
+async function start(extra: Partial<MagneticOptions> = {}): Promise<RunningMagnetic> {
+    return startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob'], starter: 'none', browser: noBrowser, ...extra });
 }
 
 /** Signs a development user in and returns the `Cookie` header that carries the session */
@@ -84,15 +81,13 @@ async function createApp(magnetic: RunningMagnetic, cookie: string, name: string
 }
 
 describe('Magnetic', () => {
-    let dataDir: string;
     let magnetic: RunningMagnetic;
     let alice: string;
     let bob: string;
     let aliceApp: string;
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-'));
-        magnetic = await start(dataDir);
+        magnetic = await start();
         alice = await signIn(magnetic.origin, 'alice');
         bob = await signIn(magnetic.origin, 'bob');
         aliceApp = await createApp(magnetic, alice, 'notes');
@@ -100,7 +95,6 @@ describe('Magnetic', () => {
 
     afterAll(async () => {
         await magnetic.stop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     describe('signing in', () => {
@@ -224,15 +218,15 @@ describe('Magnetic', () => {
             expect(socket).toBe(404);
         });
 
-        it("should keep each user's parts in their own folder", async () => {
+        it("should keep each user's parts in their own workspace", async () => {
             // Arrange
             const session = await magnetic.sessions.find(alice.split('=')[1]);
 
             // Act
-            const names = JSON.parse(await readFile(join(dataDir, 'users', session?.userId as string, 'names.json'), 'utf8')) as { apps: Record<string, string> };
+            const stored = (await magnetic.database.transaction(async (tx) => (await tx.query("SELECT id FROM part WHERE workspace_id = $1 AND kind = 'apps' AND name = 'notes'", [session?.userId])).rows, { workspaceIds: [session?.userId as string] }));
 
             // Assert
-            expect(names.apps['notes']).toBe(aliceApp);
+            expect(stored).toEqual([{ id: aliceApp }]);
         });
 
         it('should refuse a view socket without a session', async () => {
@@ -271,8 +265,7 @@ describe('Magnetic', () => {
 describe('Magnetic limits', () => {
     it('should close a view socket that sends more messages than its rate allows', async () => {
         // Arrange
-        const dataDir = await mkdtemp(join(tmpdir(), 'magnetic-'));
-        const magnetic = await start(dataDir, { socketMessagesPerSecond: 5 });
+        const magnetic = await start({ socketMessagesPerSecond: 5 });
         try {
             const cookie = await signIn(magnetic.origin, 'alice');
             const appId = await createApp(magnetic, cookie, 'flood');
@@ -287,18 +280,16 @@ describe('Magnetic limits', () => {
             expect(await ended).toEqual({ code: 1008, reason: 'Too many messages' });
         } finally {
             await magnetic.stop();
-            await rm(dataDir, { recursive: true, force: true });
         }
     });
 
     it('should refuse to offer development users on a host that is not loopback', async () => {
-        await expect(start(tmpdir(), { host: '0.0.0.0' })).rejects.toThrow('Development users are only offered on a loopback host');
+        await expect(start({ host: '0.0.0.0' })).rejects.toThrow('Development users are only offered on a loopback host');
     });
 
     it('should give a new workspace the component showcase as its starter', async () => {
         // Arrange
-        const dataDir = await mkdtemp(join(tmpdir(), 'magnetic-'));
-        const magnetic = await start(dataDir, { starter: 'showcase' });
+        const magnetic = await start({ starter: 'showcase' });
         try {
             const cookie = await signIn(magnetic.origin, 'bob');
 
@@ -309,7 +300,6 @@ describe('Magnetic limits', () => {
             expect(home.apps.map((app) => app.name)).toEqual(['component-showcase']);
         } finally {
             await magnetic.stop();
-            await rm(dataDir, { recursive: true, force: true });
         }
     });
 });

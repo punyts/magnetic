@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -100,7 +97,6 @@ const hello = (view: View, namespace: string): void => view.ws.send(JSON.stringi
 const namespaceOf = (html: string): string => /data-namespace="([^"]+)"/.exec(html)?.[1] as string;
 
 describe('Magnetic sharing', () => {
-    let dataDir: string;
     let magnetic: RunningMagnetic;
     let alice: string;
     let bob: string;
@@ -133,8 +129,7 @@ describe('Magnetic sharing', () => {
     }
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-share-'));
-        magnetic = await startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob', 'carol'], starter: 'none', browser: noBrowser });
+        magnetic = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob', 'carol'], starter: 'none', browser: noBrowser });
         alice = await signIn(magnetic.origin, 'alice');
         bob = await signIn(magnetic.origin, 'bob');
         carol = await signIn(magnetic.origin, 'carol');
@@ -144,7 +139,6 @@ describe('Magnetic sharing', () => {
 
     afterAll(async () => {
         await magnetic.stop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     it('should give a person who opens a use link their own instance of the app, and list it on their home page', async () => {

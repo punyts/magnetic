@@ -22,10 +22,15 @@ npm run magnetic:build   # the libraries Magnetic uses, Magnetic itself and the 
 npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob, a mock provider and the mock agent
 ```
 
-Magnetic keeps its people, links, spend, chats and preferences in Postgres (`docs/design/magnetic-postgres.md` in the
-workspace). `npm run magnetic` applies the migrations as it starts (`--migrate`); a server started any other way
-refuses a database that is behind, so run `magnetic migrate` first. The workspaces (parts, instances and files) are
-still folders under `--data-dir` until stage P2 moves them into the database too.
+Magnetic keeps everything in Postgres (`docs/design/magnetic-postgres.md` in the workspace): people, links, spend,
+chats and preferences in its own tables, and each workspace's parts, instances, persona records, uploaded files with
+their bytes and preview errors in `@punyts/stateui-pg`'s. Nothing is written to disk. `npm run magnetic` applies the
+migrations as it starts (`--migrate`); a server started any other way refuses a database that is behind, so run
+`magnetic migrate` first.
+
+Row-level security keeps each workspace's rows to itself: every workspace transaction names its workspace, and the
+tables show nothing else. A superuser bypasses row-level security, so a hosted Magnetic connects as a role that is not
+one (the development database's `magnetic` user is a superuser, which suits development only).
 
 `npm run magnetic` runs the scripted mock agent, so the editor works without an API key and costs nothing. To use
 Claude, set `ANTHROPIC_API_KEY` and start the server without `--mock-agent`:
@@ -56,18 +61,20 @@ Or on its own:
 
 ```bash
 node dist/cli.js migrate --database-url postgres://magnetic:magnetic@127.0.0.1:5433/magnetic
-node dist/cli.js --database-url postgres://magnetic:magnetic@127.0.0.1:5433/magnetic --data-dir ./data --dev-user alice --dev-user bob
+node dist/cli.js --database-url postgres://magnetic:magnetic@127.0.0.1:5433/magnetic --dev-user alice --dev-user bob
 ```
 
 The commands are `serve` (the default), `migrate` (apply the migrations, then exit) and `import` (copy the people of an
 earlier, file-based Magnetic's `--data-dir` into the database: `accounts.json`, live sessions, `grants.json`,
-`budgets.json` as ledger rows and every chat; rows already there are left alone, so it can run twice).
+`budgets.json` as ledger rows, every chat, and each user's workspace folder with its parts, instances, persona
+records, files and preview errors; rows already there are left alone and a workspace that has parts is skipped, so it
+can run twice).
 
 | Option | Environment | Default | What |
 |---|---|---|---|
 | `--database-url <url>` | `MAGNETIC_DATABASE_URL` | none, required | Magnetic's Postgres database with pgvector |
 | `--migrate` | `MAGNETIC_MIGRATE=true` | off | Applies the migrations before serving |
-| `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | Where the workspaces live; for `import`, the folder to import |
+| `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | For `import`: the data folder of an earlier, file-based Magnetic |
 | `--port <n>` | `MAGNETIC_PORT` | `4300` | Port of the pages and sockets |
 | `--runtime-port <n>` | `MAGNETIC_RUNTIME_PORT` | the next port | Port of the runtime origin, which serves only the app frame |
 | `--host <address>` | `MAGNETIC_HOST` | `127.0.0.1` | Address to bind |
@@ -86,7 +93,7 @@ earlier, file-based Magnetic's `--data-dir` into the database: `accounts.json`, 
   reports, and adds Magnetic's own routes: `/signin`, `/signin/dev`, `/signout`, `/` and `/assets/magnetic.css`.
   There is no `/mcp`: the agent will run in the server.
 - **One workspace per user.** Each signed-in user gets their own stateui-mcp `Services`. These are over their own
-  folder, `data/users/<userId>`, with their user id as the owner (`Workspaces`). One user's parts, instances, files
+  workspace in the database (`pgWorkspaceStorage(db, userId)`), with their user id as the owner (`Workspaces`). One user's parts, instances, files
   and live authorities never meet another's: an app id of another user is not found, by page, route or socket.
   - A workspace opens on the user's first request.
   - Any workspace that has had no open view socket and no request for 10 minutes is closed.
@@ -209,7 +216,7 @@ earlier, file-based Magnetic's `--data-dir` into the database: `accounts.json`, 
 ```ts
 import { startMagnetic } from '@punyts/magnetic';
 
-const magnetic = await startMagnetic({ database: createDatabase({ url }), dataDir: './data', host: '127.0.0.1', port: 4300, report: console, devUsers: ['alice'] });
+const magnetic = await startMagnetic({ database: createDatabase({ url }), host: '127.0.0.1', port: 4300, report: console, devUsers: ['alice'] });
 console.log(magnetic.origin);
 await magnetic.stop();
 ```

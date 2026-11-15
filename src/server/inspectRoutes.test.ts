@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser, UiToolDefinition } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -51,7 +48,6 @@ async function tool(tools: readonly UiToolDefinition[], name: string, args: Reco
 }
 
 describe("The editor's inspector routes", () => {
-    let dataDir: string;
     let magnetic: RunningMagnetic;
     let alice: string;
     let appId: string;
@@ -74,8 +70,7 @@ describe("The editor's inspector routes", () => {
     const aliceUser = (): string => aliceId;
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-inspect-'));
-        magnetic = await startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
+        magnetic = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
         alice = await signIn(magnetic.origin, 'alice');
         aliceId = (await magnetic.sessions.find(alice.split('=')[1]))?.userId as string;
         tools = createStateUiTools(await magnetic.workspaces.get(aliceId));
@@ -108,7 +103,6 @@ describe("The editor's inspector routes", () => {
 
     afterAll(async () => {
         await magnetic.stop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     it("should serve a signed-in person's editor: their own app, its floating panels, the inspector's tabs, and its icons", async () => {

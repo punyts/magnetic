@@ -1,7 +1,4 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser, UiToolDefinition } from '@punyts/stateui-mcp';
 import { chromium } from 'playwright';
@@ -78,7 +75,6 @@ async function selectedLabel(page: Page): Promise<string> {
 }
 
 describe.skipIf(!installed)("The editor's inspector in a browser (Chromium through Playwright)", () => {
-    let dataDir: string;
     let magnetic: RunningMagnetic;
     let browser: Browser;
     let page: Page;
@@ -115,8 +111,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     };
 
     beforeAll(async () => {
-        dataDir = await mkdtemp(join(tmpdir(), 'magnetic-editor-'));
-        magnetic = await startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
+        magnetic = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
         alice = await signIn(magnetic.origin, 'alice');
         aliceId = (await magnetic.sessions.find(alice.split('=')[1] as string))?.userId as string;
         tools = createStateUiTools(await magnetic.workspaces.get(aliceId));
@@ -126,7 +121,6 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     afterAll(async () => {
         await browser?.close();
         await magnetic.stop();
-        await rm(dataDir, { recursive: true, force: true });
     });
 
     beforeEach(async () => {

@@ -1,6 +1,5 @@
-import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcase, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
@@ -40,7 +39,7 @@ import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
-import { assertMigrated } from '@punyts/stateui-pg';
+import { assertMigrated, pgWorkspaceStorage } from '@punyts/stateui-pg';
 import { ALL_MIGRATIONS } from '../storage/db.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
 
@@ -105,8 +104,6 @@ export interface MagneticAgentOptions {
 export interface MagneticOptions {
     /** Magnetic's database, migrated (`migrate(db, ALL_MIGRATIONS)`); the server does not close it */
     readonly database: Database;
-    /** Where each user's workspace (`users/<userId>`) lives */
-    readonly dataDir: string;
     readonly host: string;
     /** 0 picks a free port */
     readonly port: number;
@@ -290,10 +287,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const workspaces = new Workspaces(
         {
             open: async (userId) => {
-                const dataDir = join(options.dataDir, 'users', userId);
-                if ((options.starter ?? 'showcase') === 'showcase' && userId !== SYSTEM_USER_ID) await installShowcase({ dataDir, report: options.report });
+                const storage = pgWorkspaceStorage(db, userId);
+                if ((options.starter ?? 'showcase') === 'showcase' && userId !== SYSTEM_USER_ID) {
+                    await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
+                }
                 const services = createServices({
-                    dataDir,
+                    storage,
                     ownerId: userId,
                     report: options.report,
                     origin: () => origin,
@@ -966,7 +965,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     origin = http.origin.replace('//0.0.0.0', '//127.0.0.1').replace('//[::]', '//[::1]');
     const sweep = setInterval(() => void workspaces.sweep(), 60_000);
     sweep.unref();
-    options.report.info('Magnetic started', { origin, dataDir: options.dataDir, devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
+    options.report.info('Magnetic started', { origin, devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
 
     let stopped = false;
     return {
