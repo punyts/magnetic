@@ -207,6 +207,8 @@ export class Orgs {
             await tx.query('DELETE FROM org_group_member WHERE user_id = $2 AND group_id IN (SELECT id FROM org_group WHERE org_id = $1)', [orgId, userId]);
             await tx.query("DELETE FROM app_access WHERE principal_kind = 'user' AND principal_id = $2 AND workspace_id = (SELECT id FROM workspace WHERE org_id = $1)", [orgId, userId]);
             await tx.query('DELETE FROM org_member WHERE org_id = $1 AND user_id = $2', [orgId, userId]);
+            // The org reads a member's state only while they are one
+            await tx.query("UPDATE state_grant SET revoked_at = now() WHERE kind = 'org-read' AND org_id = $1 AND issuer = $2::text AND revoked_at IS NULL", [orgId, userId]);
             await audit(tx, { orgId, actorId, action: actorId === userId ? 'member.left' : 'member.removed', targetKind: 'user', targetId: userId, detail: { role: current } });
         });
     }

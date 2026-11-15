@@ -155,6 +155,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
             await context.policies.set(user.id, org.id, {
                 personalWorkspaces: form.get('personalWorkspaces') === 'on',
                 externalLinks: form.get('externalLinks') === 'on',
+                grantsInOrg: form.get('grantsInOrg') === 'on',
                 autoJoin: form.get('autoJoin') === 'on',
                 // Only an owner's form offers it; an admin's leaves it as it is
                 ...(form.get('sso') === '1' && { requireSso: form.get('requireSso') === 'on' }),

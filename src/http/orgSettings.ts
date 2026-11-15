@@ -10,6 +10,7 @@ import type { OrgTexts } from './orgText.js';
 import type { OrgDomain } from '../orgs/Domains.js';
 import type { OrgPolicy } from '../orgs/Policies.js';
 import type { OrgSsoSettings } from '../orgs/Sso.js';
+import type { GrantRecord } from '../grants/StateGrants.js';
 import { htmlOpen } from './pages.js';
 import type { PageLook } from './pages.js';
 
@@ -234,6 +235,7 @@ ${form(
     owner ? { sso: '1' } : {},
     `${check('personalWorkspaces', policy.personalWorkspaces, t['orgs.policy.personalWorkspaces'])}
 ${check('externalLinks', policy.externalLinks, t['orgs.policy.externalLinks'])}
+${check('grantsInOrg', policy.grantsInOrg, t['orgs.policy.grantsInOrg'])}
 ${check('autoJoin', policy.autoJoin, t['orgs.policy.autoJoin'])}
 ${check('requireSso', policy.requireSso, t['orgs.policy.requireSso'], !owner)}
 <fieldset><legend>${e(t['orgs.policy.models'])}</legend>${models}</fieldset>
@@ -321,4 +323,37 @@ export function supportPage(view: { readonly look: PageLook; readonly org: Org; 
 <h2>${e(t['orgs.supportInstance'])}</h2><pre>${e(JSON.stringify(support.instance, null, 2))}</pre>
 <h2>${e(t['orgs.supportData'])}</h2>${data}`;
     return page(view.look, `${title} · Magnetic`, body);
+}
+
+/** What Shared by me shows */
+export interface SharedPageView {
+    readonly look: PageLook;
+    readonly grants: readonly GrantRecord[];
+    /** People's and orgs' names by subject, apps' names by id */
+    readonly names: ReadonlyMap<string, string>;
+    readonly apps: ReadonlyMap<string, string>;
+    readonly notice?: string;
+    readonly error?: string;
+}
+
+/** `GET /settings/shared`: every grant on the person's state and every grant they gave, with Revoke */
+export function sharedPage(view: SharedPageView): string {
+    const t = orgTextsOf(view.look.language);
+    const date = (at: string | undefined, none: string): string => (at === undefined ? none : new Date(at).toISOString().slice(0, 16).replace('T', ' '));
+    const rows = view.grants
+        .map((grant) => {
+            const appId = grant.address.split('/')[1] ?? '';
+            const to = grant.kind === 'org-read' ? t['shared.orgRead'] : (view.names.get(grant.subject) ?? grant.subject);
+            const app = appId === '*' ? t['shared.allApps'] : (view.apps.get(appId) ?? appId);
+            const rights = grant.rights.map((right) => t[`shared.${right}`]).join(', ');
+            const until = grant.revokedAt !== undefined ? t['shared.revoked'] : grant.expiresAt === undefined ? t['shared.standing'] : date(grant.expiresAt, '');
+            const revoke = grant.revokedAt !== undefined ? '' : `<form method="post" action="/settings/shared" class="inline"><input type="hidden" name="id" value="${e(grant.id)}"><button class="danger">${e(t['shared.revoke'])}</button></form>`;
+            return `<tr><td>${e(to)}</td><td>${e(app)}</td><td><code>${e(grant.prefix)}</code></td><td>${e(rights)}</td><td>${e(until)}</td><td>${e(date(grant.lastUsedAt, t['shared.never']))}</td><td>${revoke}</td></tr>`;
+        })
+        .join('');
+    const table =
+        view.grants.length === 0
+            ? `<p class="muted">${e(t['shared.none'])}</p>`
+            : `<div class="table"><table><thead><tr><th>${e(t['shared.to'])}</th><th>${e(t['shared.app'])}</th><th>${e(t['shared.what'])}</th><th>${e(t['shared.rights'])}</th><th>${e(t['shared.until'])}</th><th>${e(t['shared.used'])}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return page(view.look, t['shared.pageTitle'], `${top(t, t['shared.title'], [['/', t['shared.back']]])}<p class="muted">${e(t['shared.intro'])}</p>${messages(view)}${table}`);
 }

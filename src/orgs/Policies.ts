@@ -12,6 +12,8 @@ export interface OrgPolicy {
     readonly autoJoin: boolean;
     /** Whether people at the org's verified domains may sign in only through its own provider; default off */
     readonly requireSso: boolean;
+    /** Whether grants of the members' state in the org's apps may go only to people in the org; default off */
+    readonly grantsInOrg: boolean;
     /** The agent models the org's people may pick in its apps; absent for every model the server offers */
     readonly agentModels?: readonly string[];
     /** Days chats in the org's apps, and the state of people no longer in the org, are kept; absent to keep them */
@@ -20,12 +22,12 @@ export interface OrgPolicy {
     readonly monthlyBudget?: number;
 }
 
-export const DEFAULT_POLICY: OrgPolicy = { personalWorkspaces: true, externalLinks: false, autoJoin: false, requireSso: false };
+export const DEFAULT_POLICY: OrgPolicy = { personalWorkspaces: true, externalLinks: false, autoJoin: false, requireSso: false, grantsInOrg: false };
 
 /** A change of policies: a value to set, or `null` to go back to the default */
 export type PolicyChange = { -readonly [K in keyof OrgPolicy]?: OrgPolicy[K] | null };
 
-const SWITCHES = ['personalWorkspaces', 'externalLinks', 'autoJoin', 'requireSso'] as const;
+const SWITCHES = ['personalWorkspaces', 'externalLinks', 'autoJoin', 'requireSso', 'grantsInOrg'] as const;
 
 /** The policies stored for an org, over the defaults; anything unreadable is left at its default */
 function policyOf(stored: unknown): OrgPolicy {

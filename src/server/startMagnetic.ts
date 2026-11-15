@@ -56,6 +56,9 @@ import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgWorkspaceStorage, 
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
 import { EMBEDDING_SOURCES, Search } from '../search/Search.js';
+import { OwnerKeys } from '../grants/OwnerKeys.js';
+import { StateGrants } from '../grants/StateGrants.js';
+import { grantRoutes } from './grantRoutes.js';
 import { SIMILAR_PROCEDURE, similarProcedure, similarTool } from '../search/similar.js';
 import { ALL_MIGRATIONS } from '../storage/db.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
@@ -190,6 +193,10 @@ export interface RunningMagnetic {
     readonly policies: OrgPolicies;
     readonly domains: OrgDomains;
     readonly sso: OrgSso;
+    /** Each owner's signing key */
+    readonly keys: OwnerKeys;
+    /** The grants of state, when the server can sign (`secretKey`) */
+    readonly stateGrants?: StateGrants;
     /** The embedding index, when the server has an embedder */
     readonly index?: EmbeddingIndex;
     /** The records of an app's data binding by meaning (the `similar` call and `data_similar`), when the server has an embedder */
@@ -302,10 +309,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const stamps = new Stamps(db);
     const orgs = new Orgs(db);
     const access = new AppAccess(db);
-    const instances = new AppInstances(db, access);
     const policies: OrgPolicies = new OrgPolicies(db, (): readonly string[] => turns.models);
     const domains = new OrgDomains(db, orgs, options.resolveTxt);
-    const sso = new OrgSso(db, orgs, options.secretKey === undefined ? undefined : new SecretBox(options.secretKey));
+    const box = options.secretKey === undefined ? undefined : new SecretBox(options.secretKey);
+    const sso = new OrgSso(db, orgs, box);
+    /** Each owner's signing key and the grants of state (docs/design/statenet-relays.md, S4); grants need the server's key */
+    const keys = new OwnerKeys(db, box);
+    const stateGrants = keys.available ? new StateGrants(db, keys, policies) : undefined;
+    const instances = new AppInstances(db, access, stateGrants);
     const rules = new SignInRules(db, domains, policies);
     const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, EMBEDDING_SOURCES, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
@@ -542,6 +553,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     };
     const handleOrgRoute = orgRoutes(orgContext);
+    const handleGrants = grantRoutes({ db, grants: stateGrants, keys, orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
     const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location), models: () => turns.models });
 
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
@@ -965,6 +977,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (await handleOrgRoute(request, response, method, path)) return true;
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
+        if (await handleGrants(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
@@ -1233,6 +1246,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         domains,
         sso,
         ...(index !== undefined && { index }),
+        keys,
+        ...(stateGrants !== undefined && { stateGrants }),
         ...(similarity !== undefined && { similarity }),
         workspaces,
         signIn,

@@ -286,6 +286,23 @@ The same is there as JSON routes:
 - **Export and deletion.** An owner downloads everything the org holds as JSON, and deletes the org by typing its short
   name.
 
+## Grants of state
+
+People can share part of their own state with someone else, read or write, and see and revoke everything shared
+(`docs/design/statenet-relays.md`, S4). It needs `MAGNETIC_SECRET_KEY`, which keeps every owner's signing key.
+
+- Every owner (a user, or a workspace) has an Ed25519 key, made the first time it signs, its private part sealed with
+  the server's key. `POST /keys/rotate` (and `POST /orgs/<id>/keys/rotate` for an org's owners) makes a new one; the
+  old one still verifies the grants it signed until they expire.
+- `POST /grants` `{ subject, address, prefix, rights, lifeMs?, parentId? }` shares part of your state (an address is
+  `<owner>/<app>/user`), or passes on part of a grant you hold, never wider. `POST /grants/<id>/token` signs a fresh
+  token, which lives four hours; `POST /grants/<id>/revoke` revokes a grant and everything passed on from it.
+- **Shared by me** (`/settings/shared`, `GET /grants`) lists every grant on your state and every grant you gave, with
+  when it was last used and Revoke.
+- An org reads its members' state in its apps through a standing grant (made the first time it reads, revoked when
+  they leave); the support view reads through it and writes the grant's id to the audit log. With the policy
+  `grantsInOrg`, members' state in the org's apps can be shared only with people in the org.
+
 ## Semantic search
 
 Magnetic embeds every part when it changes and every chat entry when it is written, and searches them by meaning

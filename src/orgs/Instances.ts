@@ -1,6 +1,8 @@
 import { userStateAddress } from '@punyts/stateui-mcp';
 import { PgStateStore } from '@punyts/stateui-pg';
 import type { Database } from '@punyts/stateui-pg';
+import { orgSubject } from '../grants/StateGrants.js';
+import type { StateGrants } from '../grants/StateGrants.js';
 
 /** People's own state of the org's apps, read through the statenet storage */
 const STATE = new PgStateStore();
@@ -33,7 +35,9 @@ export interface SupportView extends InstanceSummary {
 export class AppInstances {
     constructor(
         private readonly db: Database,
-        private readonly access: AppAccess
+        private readonly access: AppAccess,
+        /** The org's standing read of each member's state, through which a support view reads, when the server can sign grants */
+        private readonly grants?: StateGrants
     ) {}
 
     /** The members who have an instance of the app, the most recently used first */
@@ -59,6 +63,14 @@ export class AppInstances {
 
     /** One member's instance of the app, read only, for an org admin or owner; written to the audit log */
     async view(actorId: string, orgId: string, workspaceId: string, appId: string, userId: string): Promise<SupportView> {
+        // The read goes through the org's standing grant of the member's state: refused once it is revoked (they left)
+        let grantId: string | undefined;
+        if (this.grants !== undefined && (await this.db.query('SELECT 1 FROM org_member WHERE org_id = $1 AND user_id::text = $2', [orgId, userId])).rowCount === 1) {
+            grantId = await this.grants.orgRead(orgId, userId);
+            const token = await this.grants.tokenFor(grantId);
+            const checked = await this.grants.check({ subject: orgSubject(orgId), grant: token }, { address: userStateAddress(workspaceId, userId, appId), path: '$', right: 'read' });
+            if (!checked.ok) throw new OrgError(403, `The org may not read that person's state: ${checked.reason}`);
+        }
         return this.db.transaction(
             async (tx) => {
                 const role = (await tx.query<{ role: OrgRole }>('SELECT role FROM org_member WHERE org_id = $1 AND user_id = $2', [orgId, actorId])).rows[0]?.role;
@@ -74,7 +86,7 @@ export class AppInstances {
                 if (head === undefined || state.value === undefined) throw new OrgError(404, 'That person has no instance of this app.');
                 const { data: records, localData, ...diff } = state.value;
                 const bindings = typeof records === 'object' && records !== null && !Array.isArray(records) ? records : {};
-                await audit(tx, { orgId, workspaceId, actorId, action: 'instance.support_view', targetKind: 'app', targetId: appId, detail: { userId } });
+                await audit(tx, { orgId, workspaceId, actorId, action: 'instance.support_view', targetKind: 'app', targetId: appId, detail: { userId, ...(grantId !== undefined && { grantId }) } });
                 return {
                     userId,
                     name: member.name,

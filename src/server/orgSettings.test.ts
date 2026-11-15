@@ -244,7 +244,7 @@ describe('The org settings pages', () => {
         expect(adminPage).not.toContain('Delete the org');
         expect(adminPage).toMatch(/name="requireSso" value="on" checked disabled/);
         expect(byAdmin.status).toBe(303);
-        expect(await magnetic.policies.get(orgId)).toEqual({ personalWorkspaces: true, externalLinks: true, autoJoin: false, requireSso: true, agentModels: ['claude-haiku-5-5'], retentionDays: 90 });
+        expect(await magnetic.policies.get(orgId)).toEqual({ personalWorkspaces: true, externalLinks: true, autoJoin: false, requireSso: true, grantsInOrg: false, agentModels: ['claude-haiku-5-5'], retentionDays: 90 });
         expect(domain.status).toBe(303);
         expect(domainByAdmin.status).toBe(403);
         expect(notThere.status).toBe(409);

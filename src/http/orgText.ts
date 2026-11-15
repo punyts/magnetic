@@ -123,7 +123,28 @@ const EN = {
     'orgs.supportText': "Their state as last saved, read only: a change still open in their view may not be in it yet. Opening it was written to the org's audit log.",
     'orgs.supportInstance': 'Their place in the app',
     'orgs.supportData': 'Their own records',
-    'orgs.supportNoData': 'No records of their own.'
+    'orgs.supportNoData': 'No records of their own.',
+    'orgs.policy.grantsInOrg': "Grants of members’ state in the org’s apps stay in the org",
+    'shared.pageTitle': "Shared by me · Magnetic",
+    'shared.title': "Shared by me",
+    'shared.intro': "Every grant on your state: who may read or write it, in which app, until when, and when it was last used. Revoking one also revokes everything passed on from it.",
+    'shared.none': "Nothing of yours is shared.",
+    'shared.to': "To",
+    'shared.app': "App",
+    'shared.what': "What",
+    'shared.rights': "Rights",
+    'shared.until': "Until",
+    'shared.used': "Last used",
+    'shared.revoke': "Revoke",
+    'shared.revoked': "Revoked",
+    'shared.read': "read",
+    'shared.write': "write",
+    'shared.standing': "while you are a member",
+    'shared.orgRead': "Your org, read only (its owners and admins, for support)",
+    'shared.allApps': "every app of the org",
+    'shared.never': "never",
+    'shared.back': "Your apps",
+    'shared.done': "Revoked, with everything passed on from it."
 } as const;
 
 export type OrgTextKey = keyof typeof EN;
@@ -247,7 +268,28 @@ const DE: OrgTexts = {
     'orgs.supportText': 'Der zuletzt gespeicherte Stand, nur zum Lesen: Eine Änderung, die in der Ansicht noch offen ist, fehlt vielleicht noch. Das Öffnen wurde im Protokoll der Organisation vermerkt.',
     'orgs.supportInstance': 'Wo die Person in der App ist',
     'orgs.supportData': 'Eigene Einträge',
-    'orgs.supportNoData': 'Keine eigenen Einträge.'
+    'orgs.supportNoData': 'Keine eigenen Einträge.',
+    'orgs.policy.grantsInOrg': "Freigaben des Zustands von Mitgliedern in den Apps der Organisation bleiben in der Organisation",
+    'shared.pageTitle': "Von mir geteilt · Magnetic",
+    'shared.title': "Von mir geteilt",
+    'shared.intro': "Jede Freigabe deines Zustands: wer ihn lesen oder schreiben darf, in welcher App, bis wann und wann sie zuletzt genutzt wurde. Widerrufst du eine, widerrufst du auch alles, was daraus weitergegeben wurde.",
+    'shared.none': "Nichts von dir ist geteilt.",
+    'shared.to': "An",
+    'shared.app': "App",
+    'shared.what': "Was",
+    'shared.rights': "Rechte",
+    'shared.until': "Bis",
+    'shared.used': "Zuletzt genutzt",
+    'shared.revoke': "Widerrufen",
+    'shared.revoked': "Widerrufen",
+    'shared.read': "lesen",
+    'shared.write': "schreiben",
+    'shared.standing': "solange du Mitglied bist",
+    'shared.orgRead': "Deine Organisation, nur lesend (ihre Inhaber und Admins, für den Support)",
+    'shared.allApps': "jede App der Organisation",
+    'shared.never': "nie",
+    'shared.back': "Deine Apps",
+    'shared.done': "Widerrufen, mit allem, was daraus weitergegeben wurde."
 };
 
 const FR: OrgTexts = {
@@ -368,7 +410,28 @@ const FR: OrgTexts = {
     'orgs.supportText': 'Son état tel qu’enregistré en dernier, en lecture seule : un changement encore ouvert dans sa vue peut ne pas y être. Cette consultation a été inscrite au journal d’audit de l’organisation.',
     'orgs.supportInstance': 'Où en est la personne dans l’application',
     'orgs.supportData': 'Ses propres enregistrements',
-    'orgs.supportNoData': 'Aucun enregistrement personnel.'
+    'orgs.supportNoData': 'Aucun enregistrement personnel.',
+    'orgs.policy.grantsInOrg': "Les autorisations sur l’état des membres dans les applications de l’organisation restent dans l’organisation",
+    'shared.pageTitle': "Partagé par moi · Magnetic",
+    'shared.title': "Partagé par moi",
+    'shared.intro': "Chaque autorisation sur votre état : qui peut le lire ou l’écrire, dans quelle application, jusqu’à quand, et quand elle a servi pour la dernière fois. En révoquer une révoque aussi tout ce qui en a été transmis.",
+    'shared.none': "Rien de ce qui est à vous n’est partagé.",
+    'shared.to': "À",
+    'shared.app': "Application",
+    'shared.what': "Quoi",
+    'shared.rights': "Droits",
+    'shared.until': "Jusqu’au",
+    'shared.used': "Dernière utilisation",
+    'shared.revoke': "Révoquer",
+    'shared.revoked': "Révoquée",
+    'shared.read': "lire",
+    'shared.write': "écrire",
+    'shared.standing': "tant que vous en êtes membre",
+    'shared.orgRead': "Votre organisation, en lecture seule (ses propriétaires et administrateurs, pour l’assistance)",
+    'shared.allApps': "toutes les applications de l’organisation",
+    'shared.never': "jamais",
+    'shared.back': "Vos applications",
+    'shared.done': "Révoquée, avec tout ce qui en a été transmis."
 };
 
 const ES: OrgTexts = {
@@ -489,7 +552,28 @@ const ES: OrgTexts = {
     'orgs.supportText': 'Su estado tal como se guardó por última vez, solo lectura: puede faltar un cambio que siga abierto en su vista. Esta consulta quedó en el registro de auditoría de la organización.',
     'orgs.supportInstance': 'Dónde está en la aplicación',
     'orgs.supportData': 'Sus propios registros',
-    'orgs.supportNoData': 'Ningún registro propio.'
+    'orgs.supportNoData': 'Ningún registro propio.',
+    'orgs.policy.grantsInOrg': "Los permisos sobre el estado de los miembros en las aplicaciones de la organización se quedan en la organización",
+    'shared.pageTitle': "Compartido por mí · Magnetic",
+    'shared.title': "Compartido por mí",
+    'shared.intro': "Cada permiso sobre tu estado: quién puede leerlo o escribirlo, en qué aplicación, hasta cuándo y cuándo se usó por última vez. Al revocar uno revocas también todo lo que se pasó a partir de él.",
+    'shared.none': "No compartes nada tuyo.",
+    'shared.to': "A",
+    'shared.app': "Aplicación",
+    'shared.what': "Qué",
+    'shared.rights': "Derechos",
+    'shared.until': "Hasta",
+    'shared.used': "Último uso",
+    'shared.revoke': "Revocar",
+    'shared.revoked': "Revocado",
+    'shared.read': "leer",
+    'shared.write': "escribir",
+    'shared.standing': "mientras seas miembro",
+    'shared.orgRead': "Tu organización, solo lectura (sus propietarios y administradores, para soporte)",
+    'shared.allApps': "todas las aplicaciones de la organización",
+    'shared.never': "nunca",
+    'shared.back': "Tus aplicaciones",
+    'shared.done': "Revocado, con todo lo que se pasó a partir de él."
 };
 
 const ALL: Record<Language, OrgTexts> = { en: EN, de: DE, fr: FR, es: ES };
