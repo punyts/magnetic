@@ -1,14 +1,17 @@
+import { PgStateStore } from '@punyts/stateui-pg';
 import type { Database } from '@punyts/stateui-pg';
 import { audit, OrgError } from './Orgs.js';
 import type { Orgs } from './Orgs.js';
 
+const STATE = new PgStateStore();
+
 /** The tables that hold a workspace's rows, each by `workspace_id`, deleted with an org */
-const WORKSPACE_TABLES = ['embedding_job', 'embedding', 'preview_error', 'app_file_content', 'app_file', 'persona_dataset', 'instance', 'part', 'chat_entry', 'app_access', 'app_setting', 'workspace_stamp', 'link_grant'] as const;
+const WORKSPACE_TABLES = ['embedding_job', 'embedding', 'preview_error', 'app_file_content', 'app_file', 'state_change', 'state_node', 'namespace_head', 'part', 'chat_entry', 'app_access', 'app_setting', 'workspace_stamp', 'link_grant'] as const;
 
 /**
  * Everything an org holds, for its owners to keep or move elsewhere: the org, its members and groups, its policies and
  * domains (without their tokens), its apps and every other part (screens, logic, models, datasets), each app's access
- * list, its members' instances and own records, and the audit log. File bytes are left out; their names and sizes are
+ * list, each person's state of each app (by statenet address, records included), and the audit log. File bytes are left out; their names and sizes are
  * in. Written to the audit log
  */
 export async function exportOrg(db: Database, orgs: Orgs, actorId: string, orgId: string): Promise<Record<string, unknown>> {
@@ -21,8 +24,13 @@ export async function exportOrg(db: Database, orgs: Orgs, actorId: string, orgId
             const rows = async (sql: string, params: unknown[] = [workspaceId]): Promise<unknown[]> => (await tx.query(sql, params)).rows;
             return {
                 parts: await rows('SELECT kind, id, name, revision, body, created_at, updated_at FROM part WHERE workspace_id = $1 ORDER BY kind, name'),
-                instances: await rows('SELECT persona, app_id, diff, updated_at FROM instance WHERE workspace_id = $1 ORDER BY app_id, persona'),
-                personaRecords: await rows('SELECT persona, app_id, binding, model, records, updated_at FROM persona_dataset WHERE workspace_id = $1 ORDER BY app_id, persona, binding'),
+                // Each person's state of each app, by statenet address, read back in key order
+                states: await Promise.all(
+                    (await tx.query<{ address: string; revision: string | number; updated_at: Date }>('SELECT address, revision, updated_at FROM namespace_head WHERE workspace_id = $1 ORDER BY address', [workspaceId])).rows.map(async (head) => {
+                        const read = await STATE.read(tx, head.address);
+                        return { address: head.address, revision: Number(head.revision), updatedAt: head.updated_at, state: read.value ?? {}, meta: Object.fromEntries(read.meta) };
+                    })
+                ),
                 files: await rows('SELECT app_id, id, name, size, type, created_at FROM app_file WHERE workspace_id = $1 ORDER BY app_id, created_at')
             };
         },
@@ -30,7 +38,7 @@ export async function exportOrg(db: Database, orgs: Orgs, actorId: string, orgId
     );
     const rows = async (sql: string, params: unknown[]): Promise<unknown[]> => (await db.query(sql, params)).rows;
     const exported = {
-        format: 'magnetic-org-export/1',
+        format: 'magnetic-org-export/2',
         exportedAt: new Date().toISOString(),
         org: { id: org.id, slug: org.slug, name: org.name, createdAt: org.createdAt },
         members: await orgs.members(actorId, orgId),

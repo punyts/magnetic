@@ -230,16 +230,11 @@ export async function moveAppToOrg(db: Database, input: { readonly userId: strin
             const copied = await copyAppParts(from, to, appId, { keepId: true });
             if (copied.kind !== 'copied') throw new OrgError(409, copied.kind === 'failed' ? copied.reason : 'The app could not be moved.');
             await tx.query("DELETE FROM part WHERE workspace_id = $1 AND kind = 'apps' AND id = $2", [personal, appId]);
-            await tx.query("UPDATE instance SET workspace_id = $2, persona = CASE WHEN persona = 'default' THEN $1::text ELSE persona END WHERE workspace_id = $1 AND app_id = $3", [
-                personal,
-                target,
-                appId
-            ]);
-            await tx.query("UPDATE persona_dataset SET workspace_id = $2, persona = CASE WHEN persona = 'default' THEN $1::text ELSE persona END WHERE workspace_id = $1 AND app_id = $3", [
-                personal,
-                target,
-                appId
-            ]);
+            // People's state of the app keeps its addresses: the mover's own was already at their id (the personal
+            // workspace's default persona), which is their persona in the org
+            for (const table of ['state_node', 'state_change', 'namespace_head']) {
+                await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND split_part(address, '/', 2) = $3 AND split_part(address, '/', 3) = 'user'`, [personal, target, appId.toLowerCase()]);
+            }
             for (const table of ['app_file', 'app_file_content', 'preview_error']) {
                 await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND app_id = $3`, [personal, target, appId]);
             }

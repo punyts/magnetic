@@ -1,4 +1,9 @@
+import { userStateAddress } from '@punyts/stateui-mcp';
+import { PgStateStore } from '@punyts/stateui-pg';
 import type { Database } from '@punyts/stateui-pg';
+
+/** People's own state of the org's apps, read through the statenet storage */
+const STATE = new PgStateStore();
 import { allows } from './AppAccess.js';
 import type { AppAccess } from './AppAccess.js';
 import { atLeast, audit, OrgError } from './Orgs.js';
@@ -38,12 +43,12 @@ export class AppInstances {
             async (tx) =>
                 (
                     await tx.query<{ persona: string; updated_at: Date; name: string | null }>(
-                        `SELECT p.persona, max(p.updated_at) AS updated_at, min(u.name) AS name
-                           FROM (SELECT persona, updated_at FROM instance WHERE workspace_id = $1 AND app_id = $2
-                                 UNION ALL SELECT persona, updated_at FROM persona_dataset WHERE workspace_id = $1 AND app_id = $2) p
-                           JOIN org_member m ON m.org_id = $3 AND m.user_id::text = p.persona
+                        `SELECT split_part(h.address, '/', 1) AS persona, h.updated_at, u.name
+                           FROM namespace_head h
+                           JOIN org_member m ON m.org_id = $3 AND m.user_id::text = split_part(h.address, '/', 1)
                            JOIN app_user u ON u.id = m.user_id
-                          GROUP BY p.persona ORDER BY max(p.updated_at) DESC, p.persona`,
+                          WHERE h.workspace_id = $1 AND h.address = split_part(h.address, '/', 1) || '/' || $2 || '/user'
+                          ORDER BY h.updated_at DESC, persona`,
                         [workspaceId, appId, orgId]
                     )
                 ).rows,
@@ -62,22 +67,20 @@ export class AppInstances {
                 const member = (await tx.query<{ name: string }>('SELECT u.name FROM org_member m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.user_id = $2', [orgId, userId])).rows[0];
                 const app = (await tx.query("SELECT 1 FROM part WHERE workspace_id = $1 AND kind = 'apps' AND id = $2", [workspaceId, appId])).rows.length > 0;
                 if (member === undefined || !app) throw new OrgError(404, 'That person has no instance of this app.');
-                const instance = (await tx.query<{ diff: unknown; updated_at: Date }>('SELECT diff, updated_at FROM instance WHERE workspace_id = $1 AND app_id = $2 AND persona = $3', [workspaceId, appId, userId])).rows[0];
-                const datasets = (
-                    await tx.query<{ binding: string; model: string; records: unknown; updated_at: Date }>(
-                        'SELECT binding, model, records, updated_at FROM persona_dataset WHERE workspace_id = $1 AND app_id = $2 AND persona = $3 ORDER BY binding',
-                        [workspaceId, appId, userId]
-                    )
-                ).rows;
-                if (instance === undefined && datasets.length === 0) throw new OrgError(404, 'That person has no instance of this app.');
-                const times = [instance?.updated_at, ...datasets.map((row) => row.updated_at)].filter((at): at is Date => at !== undefined).map((at) => at.getTime());
+                // Their own state of the app, at its statenet address
+                const address = userStateAddress(workspaceId, userId, appId);
+                const head = (await tx.query<{ updated_at: Date }>('SELECT updated_at FROM namespace_head WHERE address = $1 AND workspace_id = $2', [address, workspaceId])).rows[0];
+                const state = await STATE.read(tx, address);
+                if (head === undefined || state.value === undefined) throw new OrgError(404, 'That person has no instance of this app.');
+                const { data: records, localData, ...diff } = state.value;
+                const bindings = typeof records === 'object' && records !== null && !Array.isArray(records) ? records : {};
                 await audit(tx, { orgId, workspaceId, actorId, action: 'instance.support_view', targetKind: 'app', targetId: appId, detail: { userId } });
                 return {
                     userId,
                     name: member.name,
-                    updatedAt: new Date(Math.max(...times)).toISOString(),
-                    instance: instance?.diff ?? {},
-                    data: Object.fromEntries(datasets.map((row) => [row.binding, { model: row.model, records: row.records }]))
+                    updatedAt: head.updated_at.toISOString(),
+                    instance: localData === undefined ? diff : { ...diff, data: localData },
+                    data: Object.fromEntries(Object.entries(bindings).map(([binding, value]) => [binding, { model: (state.meta.get(`data.${binding}`) as { model?: string } | undefined)?.model ?? '', records: value }]))
                 };
             },
             { workspaceIds: [workspaceId] }

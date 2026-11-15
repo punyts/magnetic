@@ -1,3 +1,4 @@
+import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentModel, ModelMessage } from '../agent/AgentModel.js';
@@ -300,7 +301,8 @@ describe('Enterprise controls', () => {
         await magnetic.database.transaction(
             async (tx) => {
                 await tx.query("INSERT INTO chat_entry (workspace_id, app_id, user_id, role, text, at) VALUES ($1, $2, $3, 'person', 'old', $4), ($1, $2, $3, 'person', 'new', $5)", [workspaceId, appId, aliceId, new Date('2026-09-01T00:00:00Z'), new Date('2026-11-14T00:00:00Z')]);
-                await tx.query("INSERT INTO instance (workspace_id, persona, app_id, diff, updated_at) VALUES ($1, 'left-person', $2, '{}', $3), ($1, $4, $2, '{}', $3)", [workspaceId, appId, new Date('2026-09-01T00:00:00Z'), aliceId]);
+                for (const persona of ['left-person', aliceId]) await new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), persona).write(appId, {}, { route: { screen: 'x' } } as never);
+                await tx.query('UPDATE namespace_head SET updated_at = $2 WHERE workspace_id = $1', [workspaceId, new Date('2026-09-01T00:00:00Z')]);
             },
             { workspaceIds: [workspaceId] }
         );
@@ -308,7 +310,7 @@ describe('Enterprise controls', () => {
         // Act
         const removed = await magnetic.policies.applyRetention(now);
         const left = await magnetic.database.transaction(
-            async (tx) => ({ chats: (await tx.query('SELECT text FROM chat_entry WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows, instances: (await tx.query('SELECT persona FROM instance WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows }),
+            async (tx) => ({ chats: (await tx.query('SELECT text FROM chat_entry WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows, instances: (await tx.query("SELECT split_part(address, '/', 1) AS persona FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 2) = $2", [workspaceId, appId])).rows }),
             { workspaceIds: [workspaceId] }
         );
 
@@ -332,7 +334,7 @@ describe('Enterprise controls', () => {
         expect(byAdmin.status).toBe(403);
         expect(exported.status).toBe(200);
         expect(exported.headers.get('content-disposition')).toBe('attachment; filename="acme-export.json"');
-        expect(body.format).toBe('magnetic-org-export/1');
+        expect(body.format).toBe('magnetic-org-export/2');
         expect(body.parts.map((part) => part.name)).toEqual(expect.arrayContaining(['roster', 'budgeted']));
         expect(body.members.length).toBeGreaterThanOrEqual(2);
         expect(body.audit.length).toBeGreaterThan(5);

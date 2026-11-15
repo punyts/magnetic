@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PART_KINDS } from '@punyts/stateui-mcp';
+import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
 import type { Database, Queryable } from '@punyts/stateui-pg';
 
 /** What an import wrote, for the command's report */
@@ -131,7 +132,8 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
                 const appId = name.slice(0, -'.json'.length);
                 const diff = await readJson<object>(join(dir, 'personas', persona, 'apps', owner, name)).catch(() => undefined);
                 if (!UUID.test(appId) || diff === undefined) continue;
-                await tx.query('INSERT INTO instance (workspace_id, persona, app_id, diff) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [workspaceId, persona, appId.toLowerCase(), JSON.stringify(diff)]);
+                // Stored as it was: the diff over an empty definition is the diff itself
+                await new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), persona).write(appId.toLowerCase(), {}, diff as never);
                 report.instances++;
             }
         }
@@ -142,14 +144,7 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
                 const binding = name.slice(0, -'.json'.length).replace(/\^([a-z])/g, (_match, letter: string) => letter.toUpperCase());
                 const dataset = await readJson<{ model: string; records: object }>(join(dir, 'personas', persona, 'data', appId, name)).catch(() => undefined);
                 if (dataset === undefined || typeof dataset.model !== 'string') continue;
-                await tx.query('INSERT INTO persona_dataset (workspace_id, persona, app_id, binding, model, records) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING', [
-                    workspaceId,
-                    persona,
-                    appId.toLowerCase(),
-                    binding,
-                    dataset.model,
-                    JSON.stringify(dataset.records ?? {})
-                ]);
+                await new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), persona).writeData(appId.toLowerCase(), binding, { model: dataset.model, records: (dataset.records ?? {}) as never });
             }
         }
     }

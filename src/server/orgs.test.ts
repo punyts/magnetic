@@ -1,3 +1,4 @@
+import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
 import { randomUUID } from 'node:crypto';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -168,8 +169,9 @@ describe('Orgs over HTTP', () => {
         const workspaceId = (await magnetic.orgs.get(orgId))?.workspaceId as string;
         await magnetic.database.transaction(
             async (tx) => {
-                await tx.query('INSERT INTO instance (workspace_id, persona, app_id, diff) VALUES ($1, $2, $3, $4)', [workspaceId, bobId, appId, JSON.stringify({ route: { screen: 'list' } })]);
-                await tx.query("INSERT INTO persona_dataset (workspace_id, persona, app_id, binding, model, records) VALUES ($1, $2, $3, 'drafts', 'draft', $4)", [workspaceId, bobId, appId, JSON.stringify({ d1: { title: 'Printer jam' } })]);
+                const bobState = new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), bobId);
+                await bobState.write(appId, {}, { route: { screen: 'list' } } as never);
+                await bobState.writeData(appId, 'drafts', { model: 'draft', records: { d1: { title: 'Printer jam' } } } as never);
             },
             { workspaceIds: [workspaceId] }
         );

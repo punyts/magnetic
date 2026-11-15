@@ -121,10 +121,18 @@ export class OrgPolicies {
             removed += await this.db.transaction(
                 async (tx) => {
                     const chats = (await tx.query('DELETE FROM chat_entry WHERE workspace_id = $1 AND at < $2', [org.workspace_id, cutoff])).rowCount ?? 0;
+                    // The state of people no longer in the org (and the workspace's own preview state) not changed since the cutoff
+                    const gone = (
+                        await tx.query<{ address: string }>(
+                            `SELECT address FROM namespace_head WHERE workspace_id = $1 AND updated_at < $2 AND split_part(address, '/', 3) = 'user'
+                                AND split_part(address, '/', 1) NOT IN (SELECT user_id::text FROM org_member WHERE org_id = $3)`,
+                            [org.workspace_id, cutoff, org.org_id]
+                        )
+                    ).rows.map((row) => row.address);
                     let state = 0;
-                    for (const table of ['instance', 'persona_dataset']) {
-                        state +=
-                            (await tx.query(`DELETE FROM ${table} WHERE workspace_id = $1 AND updated_at < $2 AND persona NOT IN (SELECT user_id::text FROM org_member WHERE org_id = $3)`, [org.workspace_id, cutoff, org.org_id])).rowCount ?? 0;
+                    for (const table of ['state_change', 'state_node', 'namespace_head']) {
+                        const deleted = (await tx.query(`DELETE FROM ${table} WHERE workspace_id = $1 AND address = ANY($2::text[])`, [org.workspace_id, gone])).rowCount ?? 0;
+                        if (table === 'state_node') state = deleted;
                     }
                     return chats + state;
                 },
