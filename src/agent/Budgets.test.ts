@@ -45,7 +45,7 @@ describe('Budgets', () => {
         await budgets.charge(U2, 1);
         expect(await budgets.check(U3)).toMatch(/budget for this month/);
         const again = new Budgets(test.db, { dailyPerUser: 10, monthly: 3 }, clock);
-        expect(await again.spent(U1)).toEqual({ today: 2, month: 3 });
+        expect(await again.spent(U1)).toEqual({ today: 2, total: 2, month: 3 });
         const rows = (await test.db.query('SELECT user_id, model, input_tokens, dollars FROM agent_request ORDER BY id')).rows;
         expect(rows).toEqual([
             { user_id: U1, model: 'claude-haiku-5-5', input_tokens: 10, dollars: 2 },
@@ -53,11 +53,24 @@ describe('Budgets', () => {
         ]);
     });
 
+    it("should refuse a user who has spent their one-time allowance, whatever the day or month", async () => {
+        const budgets = new Budgets(test.db, { perUserTotal: 5, monthly: 100 }, clock);
+        await budgets.charge(U1, 3);
+        now = new Date('2026-12-02T10:00:00Z');
+        expect(await budgets.check(U1)).toBeUndefined();
+        await budgets.charge(U1, 2.5);
+        expect(await budgets.check(U1)).toContain('your $5 of agent use');
+        expect(await budgets.check(U2)).toBeUndefined();
+        now = new Date('2027-03-01T10:00:00Z');
+        expect(await budgets.check(U1)).toContain('your $5 of agent use');
+        expect(await budgets.spent(U1)).toEqual({ today: 0, total: 5.5, month: 0 });
+    });
+
     it('should count only this month toward the monthly budget', async () => {
         const budgets = new Budgets(test.db, { dailyPerUser: 10, monthly: 100 }, clock);
         await budgets.charge(U1, 1);
         now = new Date('2026-12-01T10:00:00Z');
         await budgets.charge(U1, 2);
-        expect(await budgets.spent(U1)).toEqual({ today: 2, month: 2 });
+        expect(await budgets.spent(U1)).toEqual({ today: 2, total: 3, month: 2 });
     });
 });

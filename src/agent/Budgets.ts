@@ -37,8 +37,10 @@ export function costOf(model: string, usage: TokenUsage): number {
 }
 
 export interface BudgetLimits {
-    /** Dollars each user may spend on agent turns per UTC day */
-    readonly dailyPerUser: number;
+    /** Dollars each user may spend on agent turns per UTC day; undefined for no daily limit */
+    readonly dailyPerUser?: number | undefined;
+    /** Dollars each user may spend on agent turns ever, such as a beta's one-time allowance; undefined for none */
+    readonly perUserTotal?: number | undefined;
     /** Dollars the whole server may spend per UTC month */
     readonly monthly: number;
 }
@@ -73,23 +75,27 @@ export class Budgets {
         return { day: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), month: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) };
     }
 
-    /** What the user has spent today and the server this month */
-    async spent(userId: string): Promise<{ today: number; month: number }> {
+    /** What the user has spent today and ever, and the server this month */
+    async spent(userId: string): Promise<{ today: number; total: number; month: number }> {
         const { day, month } = this.bounds();
         const row = (
-            await this.db.query<{ today: number | null; month: number | null }>(
-                'SELECT (SELECT sum(dollars) FROM agent_request WHERE user_id = $1 AND at >= $2) AS today, (SELECT sum(dollars) FROM agent_request WHERE at >= $3) AS month',
+            await this.db.query<{ today: number | null; total: number | null; month: number | null }>(
+                `SELECT (SELECT sum(dollars) FROM agent_request WHERE user_id = $1 AND at >= $2) AS today,
+                        (SELECT sum(dollars) FROM agent_request WHERE user_id = $1) AS total,
+                        (SELECT sum(dollars) FROM agent_request WHERE at >= $3) AS month`,
                 [userId, day, month]
             )
         ).rows[0];
-        return { today: row?.today ?? 0, month: row?.month ?? 0 };
+        return { today: row?.today ?? 0, total: row?.total ?? 0, month: row?.month ?? 0 };
     }
 
     /** Whether the user may start a turn now */
     async check(userId: string): Promise<BudgetRefusal> {
         const spent = await this.spent(userId);
         if (spent.month >= this.limits.monthly) return 'Magnetic has used its agent budget for this month. Everything else still works, and the agent will be back next month.';
-        if (spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
+        if (this.limits.perUserTotal !== undefined && spent.total >= this.limits.perUserTotal)
+            return `You have used your $${this.limits.perUserTotal} of agent use. Everything else still works: your apps, editing by hand and sharing.`;
+        if (this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
         return undefined;
     }
 

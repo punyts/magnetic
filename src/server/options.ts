@@ -36,8 +36,10 @@ export interface CliOptions {
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     /** The models people may pick in the editor; undefined for the default list */
     models: string[] | undefined;
-    /** Dollars per user per UTC day */
-    dailyBudget: number;
+    /** Dollars per user per UTC day; undefined for no daily limit */
+    dailyBudget: number | undefined;
+    /** Dollars per user ever (a one-time allowance); undefined for none */
+    userAllowance: number | undefined;
     /** Dollars for the whole server per UTC month */
     monthlyBudget: number;
     /** This server as one of several on the database, a node of the statenet: set by `--mesh-port` */
@@ -110,7 +112,9 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
   --models <ids>         The models people may pick, comma-separated (env MAGNETIC_MODELS,
                          default claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5)
   --effort <level>       low, medium, high, xhigh or max (env MAGNETIC_EFFORT, default high)
-  --daily-budget <usd>   Dollars each user may spend per UTC day (env MAGNETIC_DAILY_BUDGET, default 1)
+  --daily-budget <usd>   Dollars each user may spend per UTC day, or off (env MAGNETIC_DAILY_BUDGET, default 1)
+  --user-allowance <usd> Dollars each user may spend ever, a one-time allowance such as a beta's
+                         (env MAGNETIC_USER_ALLOWANCE, default none)
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
   --mock-agent           A scripted agent that adds each request as a text on the app's first screen,
                          to try the editor without an API key (env MAGNETIC_MOCK_AGENT=true). Loopback hosts only
@@ -197,6 +201,8 @@ const parseDollars = (name: string, text: string): number => {
     return value;
 };
 
+const parseOptionalDollars = (name: string, text: string): number | undefined => (text.trim() === 'off' ? undefined : parseDollars(name, text));
+
 const parseEmbedding = (text: string): 'local' | 'hash' | 'off' => {
     if (text !== 'local' && text !== 'hash' && text !== 'off') throw new UsageError(`Invalid embedding: ${text} (local, hash or off)`);
     return text;
@@ -236,7 +242,8 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let model = env['MAGNETIC_MODEL'] !== undefined ? parseModel(env['MAGNETIC_MODEL']) : 'claude-haiku-5-5';
     let models = env['MAGNETIC_MODELS'] !== undefined ? parseModels(env['MAGNETIC_MODELS']) : undefined;
     let effort = env['MAGNETIC_EFFORT'] !== undefined ? parseEffort(env['MAGNETIC_EFFORT']) : 'high';
-    let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
+    let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseOptionalDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
+    let userAllowance = env['MAGNETIC_USER_ALLOWANCE'] !== undefined && env['MAGNETIC_USER_ALLOWANCE'] !== '' ? parseOptionalDollars('user allowance', env['MAGNETIC_USER_ALLOWANCE']) : undefined;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
     const envUsers = (env['MAGNETIC_DEV_USERS'] ?? '')
         .split(',')
@@ -324,7 +331,10 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 effort = parseEffort(value());
                 break;
             case '--daily-budget':
-                dailyBudget = parseDollars('daily budget', value());
+                dailyBudget = parseOptionalDollars('daily budget', value());
+                break;
+            case '--user-allowance':
+                userAllowance = parseOptionalDollars('user allowance', value());
                 break;
             case '--monthly-budget':
                 monthlyBudget = parseDollars('monthly budget', value());
@@ -363,5 +373,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, monthlyBudget, statenet, nodeId, out, help };
 }

@@ -73,6 +73,13 @@ describe('parseOptions', () => {
         expect(options).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium', dailyBudget: 0.5, monthlyBudget: 20 });
     });
 
+    it('should take a one-time allowance per user and turn the daily budget off', () => {
+        expect(parseOptions([], {})).toMatchObject({ userAllowance: undefined });
+        expect(parseOptions([], { MAGNETIC_USER_ALLOWANCE: '5', MAGNETIC_DAILY_BUDGET: 'off' })).toMatchObject({ userAllowance: 5, dailyBudget: undefined });
+        expect(parseOptions(['--user-allowance', '2', '--daily-budget', 'off'], {})).toMatchObject({ userAllowance: 2, dailyBudget: undefined });
+        expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
+    });
+
     it('should run as one of several servers with a mesh port, from flags over the environment, and only with the secret key', () => {
         const secret = { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' };
         expect(parseOptions([], secret).statenet).toBeUndefined();

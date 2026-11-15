@@ -199,8 +199,9 @@ can run twice).
     can reach a signed-in page, and so are the answer tools, as no logic waits for an agent here.
   - Each chat is kept in `chat_entry`, every entry; a turn reads the last 100.
 - **Budgets** (`Budgets`, a ledger of requests in `agent_request`). Each request is priced from its token counts. A user may spend
-  `--daily-budget` dollars per UTC day (default 1) and the server `--monthly-budget` per UTC month (default 100).
-  A turn ends as soon as a request spends the last of either budget, so a limit is passed by one request at most;
+  `--daily-budget` dollars per UTC day (default 1; `off` for none), `--user-allowance` dollars ever (a one-time
+  allowance such as the beta's $5; default none), and the server `--monthly-budget` per UTC month (default 100).
+  A turn ends as soon as a request spends the last of any budget, so a limit is passed by one request at most;
   the next turn is refused with a message.
 
 - **Sharing** (`Grants`, `link_grant` and `link_grant_member`). The editor's Share panel makes links to the app:
