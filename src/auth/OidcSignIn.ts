@@ -197,9 +197,24 @@ export class OidcSignIn {
                 ...(pending.verifier !== undefined && { pkceCodeVerifier: pending.verifier })
             });
         } catch (error) {
-            // openid-client's ResponseBodyError carries the provider's own error and description, for the log
-            const said = error as { error?: unknown; error_description?: unknown };
-            const detail = typeof said.error === 'string' ? `${said.error.slice(0, 100)}${typeof said.error_description === 'string' ? `: ${said.error_description.slice(0, 300)}` : ''}` : undefined;
+            // For the log: openid-client's ResponseBodyError carries the provider's own error and description; its other
+            // errors carry a code and, under `cause`, which check of the response failed (such as an ID token claim)
+            const said = error as { error?: unknown; error_description?: unknown; code?: unknown; cause?: unknown };
+            const causeText = (cause: unknown): string | undefined => {
+                if (cause instanceof Error) return cause.message;
+                if (cause !== undefined && cause !== null && typeof cause === 'object') {
+                    // Never the response body, which may hold the tokens: only which claim failed
+                    const { claim, expected } = cause as { claim?: unknown; expected?: unknown };
+                    if (claim !== undefined) return `claim ${String(claim)}, expected ${JSON.stringify(expected)}`;
+                }
+                return undefined;
+            };
+            const parts = [
+                typeof said.error === 'string' ? `${said.error}${typeof said.error_description === 'string' ? `: ${said.error_description}` : ''}` : undefined,
+                typeof said.code === 'string' ? said.code : undefined,
+                causeText(said.cause)
+            ].filter((part): part is string => part !== undefined);
+            const detail = parts.length === 0 ? undefined : parts.join(' | ').slice(0, 500);
             throw new SignInError(`The sign-in could not be checked (${error instanceof Error ? error.message : String(error)}).`, { cause: error, ...(detail !== undefined && { detail }) });
         }
         const claims = tokens.claims();
