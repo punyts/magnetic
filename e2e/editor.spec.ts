@@ -62,7 +62,9 @@ test.describe('The editor', () => {
     test('Select opens the inspector, and a part of the app shows its properties', async ({ page }) => {
         await editor.ask('Select me');
         await editor.button('Select a part of the app (S)').click();
-        for (const tab of ['Properties', 'Add', 'State']) await expect(editor.editor.getByRole('tab', { name: tab })).toBeVisible();
+        for (const tab of ['Properties', 'State']) await expect(editor.editor.getByRole('tab', { name: tab })).toBeVisible();
+        // The library is a panel of its own now, not a tab of the inspector
+        await expect(editor.editor.getByRole('tab', { name: 'Add' })).toHaveCount(0);
         const text = editor.app.getByText('Select me');
         const box = await text.boundingBox();
         expect(box).not.toBeNull();
@@ -80,31 +82,6 @@ test.describe('The editor', () => {
         await expect(editor.editor.getByRole('tab', { name: 'Properties' })).toBeHidden();
     });
 
-    test('the library narrows to what is searched for, once Enter is pressed', async () => {
-        // The search box raises change on Enter or when it is left, not as each letter is typed: N2 narrows as you type
-        await editor.button('Select a part of the app (S)').click();
-        await editor.editor.getByRole('tab', { name: 'Add' }).click();
-        await expect(editor.editor.getByText('accordion', { exact: true })).toBeVisible();
-        await editor.editor.getByPlaceholder('Find a component').fill('button');
-        await editor.editor.getByPlaceholder('Find a component').press('Enter');
-        await expect(editor.editor.getByText('accordion', { exact: true })).toBeHidden();
-        await expect(editor.editor.getByText('button', { exact: true }).first()).toBeVisible();
-    });
-
-    test('a component from the library is placed where the app is clicked', async ({ page }) => {
-        await editor.ask('Place below');
-        await editor.button('Select a part of the app (S)').click();
-        await editor.editor.getByRole('tab', { name: 'Add' }).click();
-        await editor.button('Close the chat').click();
-        await editor.editor.getByPlaceholder('Find a component').fill('button');
-        await editor.editor.getByText('button', { exact: true }).first().click();
-        await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('place');
-        const box = await editor.app.getByText('Place below').boundingBox();
-        expect(box).not.toBeNull();
-        if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height + 4);
-        await expect(editor.app.getByRole('button')).toHaveCount(1);
-    });
-
     test('Ctrl+Shift+E leaves the editor for the app, and brings it back', async ({ page }) => {
         const appId = editor.appId;
         await page.locator('main').click({ position: { x: 5, y: 5 } });
@@ -120,4 +97,92 @@ test.describe('The editor', () => {
         await editor.button('All your apps').click();
         await page.waitForURL((url) => url.pathname === '/');
     });
+});
+
+test.describe('The component library', () => {
+    let editor: EditorPage;
+
+    test.beforeEach(async ({ context, home }, info) => {
+        await signIn(context, 'alice');
+        await home.goto();
+        editor = await home.makeApp(uniqueName(info, 'library'));
+    });
+
+    test('shows beside the rail on a wide window and starts hidden on a phone; its button and A show and hide it', async ({ page }) => {
+        const wide = (page.viewportSize()?.width ?? 1440) >= 760;
+        await expect(editor.librarySearch).toBeVisible({ visible: wide });
+        await editor.button('Components (A)').click();
+        await expect(editor.librarySearch).toBeVisible({ visible: !wide });
+        await page.locator('main').click({ position: { x: 5, y: 5 } });
+        await page.keyboard.press('a');
+        await expect(editor.librarySearch).toBeVisible({ visible: wide });
+        await editor.openLibrary();
+        await editor.button('Close the components').click();
+        await expect(editor.librarySearch).toBeHidden();
+    });
+
+    test('narrows to what is typed, letter by letter, and by category', async () => {
+        await editor.openLibrary();
+        await expect(editor.card('accordion')).toBeVisible();
+        await editor.librarySearch.pressSequentially('butt');
+        await expect(editor.card('accordion')).toBeHidden();
+        await expect(editor.card('button')).toBeVisible();
+        await editor.librarySearch.fill('');
+        await editor.editor.getByRole('combobox').filter({ hasText: 'All' }).selectOption({ label: 'Feedback' });
+        await expect(editor.card('alert')).toBeVisible();
+        await expect(editor.card('accordion')).toBeHidden();
+    });
+
+    test('a component pressed and then clicked in the app lands there', async ({ page }) => {
+        await editor.ask('Place below');
+        await editor.button('Close the chat').click();
+        await editor.openLibrary();
+        await editor.librarySearch.fill('button');
+        await editor.card('button').click();
+        await expect.poll(() => editor.tool()).toBe('place');
+        const box = await editor.app.getByText('Place below').boundingBox();
+        expect(box).not.toBeNull();
+        if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height + 4);
+        await expect(editor.app.getByRole('button')).toHaveCount(1);
+    });
+
+    test('a component dragged from the library onto the app lands where it is dropped', async ({ page }) => {
+        test.skip((page.viewportSize()?.width ?? 1440) < 760, 'On a phone the library is a sheet over the app, and a component is pressed, then placed');
+        await editor.ask('Drop below');
+        await editor.button('Close the chat').click();
+        await editor.librarySearch.fill('badge');
+        const card = editor.card('badge');
+        const from = await card.boundingBox();
+        const target = await editor.app.getByText('Drop below').boundingBox();
+        expect(from).not.toBeNull();
+        expect(target).not.toBeNull();
+        if (from === null || target === null) return;
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 20, from.y + from.height / 2, { steps: 4 });
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height + 4, { steps: 12 });
+        await page.mouse.up();
+        await expect(editor.app.getByText('Badge', { exact: true })).toHaveCount(1);
+        await expect.poll(() => editor.tool()).toBe('select');
+    });
+
+    test('a drag dropped outside the app adds nothing', async ({ page }) => {
+        test.skip((page.viewportSize()?.width ?? 1440) < 760, 'No drag on a phone');
+        await editor.ask('Nothing added');
+        await editor.button('Close the chat').click();
+        await editor.librarySearch.fill('button');
+        const from = await editor.card('button').boundingBox();
+        expect(from).not.toBeNull();
+        if (from === null) return;
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 40, from.y + 10, { steps: 4 });
+        // The canvas below the frame, outside the app
+        const viewport = page.viewportSize() ?? { width: 1440, height: 900 };
+        await page.mouse.move(viewport.width - 60, viewport.height / 2, { steps: 8 });
+        await page.mouse.up();
+        await expect.poll(() => editor.tool()).not.toBe('place');
+        await expect(editor.app.getByRole('button')).toHaveCount(0);
+    });
+
 });

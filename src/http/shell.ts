@@ -424,6 +424,23 @@ async function loadLinks() {
         showLinks();
     } catch { shareSays(T['share.loadFailed']); }
 }
+/**
+ * The component library beside the rail: shown when the editor opens on a wide window, and after that as the person
+ * last left it in this browser. The rail's button is soft while it shows. A fitted view fits again around it
+ */
+let libraryOpen = null;
+function showLibraryPanel(open, remember) {
+    libraryOpen = open;
+    ed({ libraryHidden: !open, libraryLook: open ? 'soft' : 'ghost', libraryTone: open ? 'accent' : 'neutral' });
+    if (remember) { try { localStorage.setItem('magnetic.library', open ? '1' : '0'); } catch { /* storage may be blocked */ } }
+    if (fittedRail !== null) setTimeout(() => fit(true), 50);
+}
+function libraryAtFirst() {
+    let kept = null;
+    try { kept = localStorage.getItem('magnetic.library'); } catch { /* storage may be blocked */ }
+    return kept === null ? !NARROW.matches : kept === '1';
+}
+
 /** The Share and choices sheets open under their buttons, one at a time */
 function showSheet(name, open) {
     ed({ shareHidden: name === 'share' ? !open : true, prefsHidden: name === 'prefs' ? !open : true });
@@ -503,6 +520,8 @@ emitListeners.push((name, payload) => {
         case 'focusClear': magneticShell.focus.length = 0; showFocus(); return;
         case 'focusRemove': if (typeof value === 'string') removeFocus(value); return;
         case 'tab': if (typeof value === 'string') editorState.tab = value; return;
+        case 'library': showLibraryPanel(!libraryOpen, true); return;
+        case 'libraryClose': showLibraryPanel(false, true); return;
     }
     const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
     if (show) {
@@ -564,7 +583,9 @@ function freeArea() {
     const bar = box('chatBar');
     const zoomBox = box('zoom');
     const inspector = box('inspector');
-    const left = upright ? rail.x + rail.width + 24 : 24;
+    // The library beside the rail, when it shows down the side rather than as a sheet across the bottom
+    const library = libraryOpen ? box('library') : null;
+    const left = library && library.height > innerHeight / 2 && library.x < innerWidth / 2 ? library.x + library.width + 24 : upright ? rail.x + rail.width + 24 : 24;
     const top = Math.max(corner ? corner.y + corner.height : 0, rail && !upright ? rail.y + rail.height : 0) + 32;
     const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
     const bottom = Math.min(bar ? bar.y : innerHeight, zoomBox ? zoomBox.y : innerHeight) - 24;
@@ -711,6 +732,7 @@ const TOOL_KEYS = {
     '-': () => zoomCentre(view.zoom / 1.25),
     '0': () => zoomCentre(1),
     '1': () => fit(true),
+    a: () => showLibraryPanel(!libraryOpen, true),
     escape: () => { for (const listener of escapeListeners) if (listener()) return; if (chatOpen) showChat(false); }
 };
 /** What Escape lets go of first: inspect.js adds placing and the selection */
@@ -907,6 +929,7 @@ function showAll() {
     setRunning(running);
     showChat(chatOpen);
     showWidth();
+    showLibraryPanel(libraryOpen === null ? libraryAtFirst() : libraryOpen, false);
     if (editing()) watchStage();
 }
 

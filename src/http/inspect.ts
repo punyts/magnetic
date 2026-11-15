@@ -12,8 +12,11 @@ import { SCRIPT_TEXTS } from './text.js';
  *
  * - Select (S): hover outlines a node, a click selects it; the breadcrumb selects a parent; Escape lets go.
  * - Properties: a field per property of the node's component, saved as a `set`; Delete removes the node.
- * - Add: pick a component, then click where it goes; dragging the selected node moves it; Alt+Arrow moves it before
- *   or after its sibling. Where it lands: between the children of a column or row, beside the nearest child in a
+ * - The library (a panel of the editor beside the rail): drag a component onto the app, or press it and then click
+ *   where it goes. A card holds the pointer while it is dragged and emits `grab`, `dragMove` and `dragEnd` with the
+ *   pointer in the editor's frame, which covers the window, so in the page's own pixels: over the app frame the drop
+ *   shows where it would land, let go there it lands, and anywhere else (or Escape) it is cancelled. Dragging the
+ *   selected node moves it; Alt+Arrow moves it before or after its sibling. Where it lands: between the children of a column or row, beside the nearest child in a
  *   grid, at the point in an `adhoc` layout (its placement in pixels).
  * - State: `$.data` as a tree, what shows, reads and writes each path, and the changes as they happen.
  */
@@ -305,6 +308,28 @@ async function commitDrop() {
     const operations = [{ op: 'move', path: what.move, to: where.target.path + '.children', ...position }];
     if (where.kind === 'adhoc') operations.push({ op: 'merge', path: where.target.path + '.children.' + key, value: { placement: { x: where.x + 'px', y: where.y + 'px' } } });
     if (await writeNodes(operations)) setTimeout(() => select(where.target.path + '.children.' + key), 300);
+}
+
+// A component dragged from the library: where the pointer is, in the page's pixels, as a point of the app frame when
+// it is over it
+function overFrame(payload) {
+    if (!payload || typeof payload.x !== 'number' || typeof payload.y !== 'number') return null;
+    const box = artboard.getBoundingClientRect();
+    if (payload.x < box.left || payload.x > box.right || payload.y < box.top || payload.y > box.bottom) return null;
+    return framePoint({ clientX: payload.x, clientY: payload.y });
+}
+function dragMoved(payload) {
+    if (!placing || !placing.dragged) return;
+    const point = overFrame(payload);
+    if (point) void inspectAt(point);
+    else if (drop) { drop = null; draw(); }
+}
+async function dragEnded(payload) {
+    if (!placing || !placing.dragged) return;
+    const point = payload && payload.cancelled !== true ? overFrame(payload) : null;
+    if (!point) { stopPlacing(T['inspect.cancelled']); return; }
+    dropAt(await host.inspect({ at: point }), point);
+    await commitDrop();
 }
 
 // The Select tool works on the shield over the frame
@@ -677,6 +702,9 @@ function onEmit(name, payload) {
         case 'search': search = String(valueOf(payload) ?? ''); showLibrary(); return;
         case 'category': category = String(valueOf(payload) ?? 'all'); showLibrary(); return;
         case 'place': if (typeof payload === 'string') startPlacing({ component: payload }); return;
+        case 'grab': if (typeof payload === 'string') startPlacing({ component: payload, dragged: true }); return;
+        case 'dragMove': dragMoved(payload); return;
+        case 'dragEnd': void dragEnded(payload); return;
         case 'path': {
             const chosen = valueOf(payload);
             const key = Array.isArray(chosen) ? chosen[0] : chosen;

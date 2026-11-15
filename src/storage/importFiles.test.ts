@@ -97,7 +97,7 @@ describe('importPeople', () => {
         expect((await test.db.query('SELECT token_hash FROM session')).rows).toEqual([{ token_hash: 'livehash' }]);
         const grants = new Grants(test.db);
         expect(await grants.access(APP, BEN)).toEqual({ live: expect.objectContaining({ appName: 'notes', ownerId: ANA }) });
-        expect(await new Budgets(test.db, undefined, () => NOW).spent(ANA)).toEqual({ today: 0.25, month: 0.75 });
+        expect(await new Budgets(test.db, undefined, () => NOW).spent(ANA)).toEqual({ today: 0.25, total: 0.25, month: 0.75 });
         const chat = await new Chats(test.db).read(ANA, APP);
         expect(chat).toEqual([
             { role: 'person', text: 'Make a list', at: '2026-11-04T00:00:00.000Z' },

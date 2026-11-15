@@ -40,7 +40,7 @@ export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'showTheme', 'showLayout', 'showData', 'showLogic', 'showScreens',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
-    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'path', 'ask'
+    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'path', 'ask'
 ] as const;
 
 const E = '$.data.editor';
@@ -48,7 +48,7 @@ const E = '$.data.editor';
 /** The fields of `$.data.editor` that are true until the page says otherwise: what starts hidden */
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
-    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden'
+    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden'
 ];
 
 /** The models of the editor's data */
@@ -71,6 +71,8 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'show', type: 'object', default: { theme: false, layout: false, data: false, logic: false, screens: false } },
         // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the toggles)
         { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
+        { op: 'set', field: 'libraryLook', type: 'string', default: 'ghost' },
+        { op: 'set', field: 'libraryTone', type: 'string', default: 'neutral' },
         { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
         // And their tone: the accent while on, the ink while off
         { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
@@ -126,6 +128,7 @@ export const EDITOR_ICONS = {
     minus: { outline: ['M5 12h14'] },
     plus: { outline: ['M12 5v14M5 12h14'] },
     fit: { outline: ['M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'] },
+    components: { outline: ['M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z', 'M17 14v6M14 17h6'] },
     prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
 } as const;
 
@@ -155,6 +158,16 @@ const INSPECTOR = {
     // (760px - 100vw) * 1000 is far below the lower bound from 760px up and far above the upper one below it
     y: 'clamp(64px, (760px - 100vw) * 1000, calc(55vh - 100px))',
     width: `clamp(${fit('320px')}, (760px - 100vw) * 1000, calc(100% - 24px))`
+};
+/**
+ * The component library: right of the rail, below the corners, 288px wide and down to above the chat bar; below 760px
+ * a sheet across the bottom, as the inspector is
+ */
+const LIBRARY = {
+    x: 'clamp(12px, (100vw - 760px) * 1000, 96px)',
+    bottom: '100px',
+    y: 'clamp(76px, (760px - 100vw) * 1000, calc(55vh - 100px))',
+    width: `clamp(${fit('288px')}, (760px - 100vw) * 1000, calc(100% - 24px))`
 };
 /** Below 1120px the chat bar reaches the zoom's corner, so the zoom sits above it */
 const ABOVE_CHAT = 'clamp(12px, (1120px - 100vw) * 1000, 80px)';
@@ -235,7 +248,13 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
             component: 'panel',
             padding: 'none',
             layout: { type: line, gap: 'sm', align: 'center' },
-            children: { use: tool('use', 'shell.useKey', 'pointer'), move: tool('move', 'shell.moveKey', 'hand'), select: tool('select', 'shell.selectKey', 'select') }
+            children: {
+                use: tool('use', 'shell.useKey', 'pointer'),
+                move: tool('move', 'shell.moveKey', 'hand'),
+                select: tool('select', 'shell.selectKey', 'select'),
+                // Solid while the library shows, as a tool is while it is on
+                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, on: { press: emit('library') } }
+            }
         },
         line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal' },
         showLabel: caption(t['shell.show'], { caps: true, muted: true, align: 'center' }),
@@ -373,15 +392,33 @@ function propertiesTab(t: Texts): Record<string, unknown> {
     };
 }
 
-/** The Add tab: find a component by its words or its category, then click where it goes */
-function addTab(t: Texts): Record<string, unknown> {
+/**
+ * The component library, a panel of its own beside the rail, shown when the editor opens on a wide window: find a
+ * component by its words (narrowed as they are typed) or its category, then drag it onto the app, or press it and click
+ * where it goes
+ */
+function library(t: Texts): Record<string, unknown> {
+    return float(
+        LIBRARY,
+        {
+            head: row({
+                title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['library.title'] },
+                close: icon(t['library.close'], 'libraryClose', 'x')
+            }),
+            body: libraryBody(t)
+        },
+        { '<-hidden': `${E}.libraryHidden` }
+    );
+}
+
+function libraryBody(t: Texts): Record<string, unknown> {
     return {
         component: 'panel',
-        placement: { _tab: t['inspector.add'] },
-        padding: 'sm',
+        padding: 'none',
+        placement: { grow: 1 },
         layout: { type: 'column', gap: 'sm' },
         children: {
-            search: { component: 'searchBox', size: 'sm', _label: t['inspector.find'], _placeholder: t['inspector.find'], value: '', on: { change: emit('search') } },
+            search: { component: 'searchBox', size: 'sm', _label: t['inspector.find'], _placeholder: t['inspector.find'], value: '', on: { input: emit('search'), change: emit('search') } },
             category: {
                 component: 'selectField',
                 size: 'sm',
@@ -395,9 +432,20 @@ function addTab(t: Texts): Record<string, unknown> {
                 component: 'list',
                 '<-items': '$.data.components',
                 rowHeight: 'xl',
-                placement: { height: 'calc(100vh - 360px)' },
+                placement: { grow: 1 },
                 _empty: t['inspector.noMatch'],
-                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.name', '<-_subtitle': '$row.summary', on: { press: emit('place', '$row.name') } }
+                // A drag source: the card holds the pointer and says where it is, so the page sees the drag cross out of
+                // the editor's frame (which covers the window) onto the canvas, and takes the drop
+                row: {
+                    component: 'card',
+                    elevation: 'flat',
+                    padding: 'sm',
+                    interactive: true,
+                    draggable: true,
+                    '<-_title': '$row.name',
+                    '<-_subtitle': '$row.summary',
+                    on: { press: emit('place', '$row.name'), dragStart: emit('grab', '$row.name'), dragMove: emit('dragMove'), dragEnd: emit('dragEnd') }
+                }
             }
         }
     };
@@ -432,7 +480,7 @@ function stateTab(t: Texts): Record<string, unknown> {
     };
 }
 
-/** The inspector at the right: its title and close button, what it is doing, and its three tabs */
+/** The inspector at the right: its title and close button, what it is doing, and its two tabs, Properties and State (the library is a panel of its own) */
 function inspector(t: Texts): Record<string, unknown> {
     return float(
         INSPECTOR,
@@ -443,7 +491,7 @@ function inspector(t: Texts): Record<string, unknown> {
                 close: icon(t['shell.closeInspector'], 'inspectorClose', 'x')
             }),
             // The tabs take the inspector's height below its head, and the open tab scrolls
-            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, on: { change: emit('tab') }, children: { properties: propertiesTab(t), add: addTab(t), state: stateTab(t) } }
+            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, on: { change: emit('tab') }, children: { properties: propertiesTab(t), state: stateTab(t) } }
         },
         { '<-hidden': `${E}.inspectorHidden` }
     );
@@ -537,6 +585,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     hint: blankHint(t),
                     chat: chatPanel(t),
                     chatBar: chatBar(t),
+                    library: library(t),
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),

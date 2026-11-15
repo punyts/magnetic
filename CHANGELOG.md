@@ -2,6 +2,16 @@
 
 ## 0.1.0 (unreleased)
 
+- **The component library is a panel of its own, and components drag onto the app** (M8, N2).
+  - **Where it is.** The library left the inspector's Add tab for a panel beside the rail. It shows when the editor opens on a wide window, and on a phone it is a sheet across the bottom that starts hidden. The rail's new Components button, or `A`, shows and hides it, and the browser remembers the choice. A fitted app is fitted again to the right of it. The inspector keeps Properties and State.
+  - **Search as you type.** The search narrows the list with each letter, through `searchBox`'s new `input` event. Before, it narrowed only on Enter or when the box was left.
+  - **Drag.** A card drags onto the app. The card (now `draggable`) holds the pointer and emits `grab`, `dragMove` and `dragEnd` with the pointer's place. The editor's frame covers the window, so the page reads those as its own pixels. Over the app frame the drop line shows where the component would land. Let go there, it lands as one `add`. Let go anywhere else, or press Escape, and it is cancelled.
+  - **Press, then click.** Pressing a card and clicking the app still places it, which is the way on a phone.
+  - **Text.** The panel's words are in English, German, French and Spanish.
+  - Tests:
+    - `e2e/editor.spec.ts`: shown and hidden, search by letter and category, press-then-click, drag and drop, a drop outside;
+    - `inspectRoutes.test.ts`, `editor.browser.test.ts`: the rail is one button taller than the old editor's.
+
 - **The whole UI under test with Playwright** (M8, N1). `npm run e2e` builds Magnetic and runs `e2e/`: 29 tests at desktop and phone sizes, covering sign-in and sign-out, Your apps, the editor, sharing and orgs, as a person uses them. The suite starts its own server (`e2e/server.mjs`) on a fresh schema with the dev users, the mock provider and the scripted agent, and makes a trace and a screenshot of each failure (`npm run e2e:report`). `npm run typecheck` checks the suite too.
 - **A one-time agent allowance per person.** `--user-allowance` (`MAGNETIC_USER_ALLOWANCE`) caps what one person spends on the agent ever, for the beta's $5. `--daily-budget off` drops the daily limit. The server's monthly cap stays. Tests: `Budgets.test.ts`, `options.test.ts`.
 

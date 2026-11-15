@@ -101,11 +101,11 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     const nextRevision = async (from: number): Promise<void> => {
         await expect.poll(async () => (await app()).revision, { timeout: 10_000 }).toBe(from + 1);
     };
-    /** The inspector shows: its Add tab is on screen */
-    const inspectorOpen = (): Promise<boolean> => editor.getByRole('tab', { name: 'Add' }).isVisible();
+    /** The inspector shows: its Properties tab is on screen */
+    const inspectorOpen = (): Promise<boolean> => editor.getByRole('tab', { name: 'Properties' }).isVisible();
     const toolButton = (name: string) => editor.getByRole('button', { name });
+    /** Presses a component in the library, which shows beside the rail when the editor opens */
     const pick = async (component: string): Promise<void> => {
-        await editor.getByRole('tab', { name: 'Add' }).click();
         await editor.getByText(component, { exact: true }).first().click();
         await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('place');
     };
@@ -149,7 +149,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         onLoad = { open: await inspectorOpen(), tool: await page.evaluate('window.magneticShell.tool()') };
         await page.mouse.click(5, 450);
         await page.keyboard.press('s');
-        await editor.getByRole('tab', { name: 'Add' }).waitFor({ timeout: 5000 });
+        await editor.getByRole('tab', { name: 'Properties' }).waitFor({ timeout: 5000 });
     }, 60_000);
 
     it('should select a node by clicking it, and its parent from the breadcrumb, without writing anything', async () => {
@@ -343,7 +343,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should keep the sizes of the old editor (41fa580): compact corners, a narrow rail, a 640px pill chat bar', async () => {
         // Arrange: what the old editor measured at a wide window, before it was a StateUI app. A change that makes the
         // editor drift from that design fails here (the panels' own looks are in stateui-components' screenshot tests)
-        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
+        // The rail is the old one with one more button under the tools, the library's (M8 N2): 25px taller
+        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 25 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
         const answer = (await page.evaluate(`window.magneticShell.editor.inspect({ paths: ${JSON.stringify(Object.keys(OLD).map((key) => `${stage}.children.${key}`))} })`)) as { nodes: { path: string; rect: { width: number; height: number } }[] };
         const size = (key: string) => answer.nodes.find((node) => node.path.endsWith(`.${key}`))?.rect;

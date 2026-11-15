@@ -122,6 +122,23 @@ export class EditorPage {
     get zoomButton(): Locator {
         return this.button(/^\d+%$/);
     }
+    /** The component library beside the rail */
+    get librarySearch(): Locator {
+        return this.editor.getByPlaceholder('Find a component');
+    }
+    /** A component's card in the library, by its name */
+    card(name: string): Locator {
+        return this.editor.getByText(name, { exact: true }).first();
+    }
+    /** Shows the library if it is not showing (it starts hidden on a phone) */
+    async openLibrary(): Promise<void> {
+        if (!(await this.librarySearch.isVisible())) await this.button('Components (A)').click();
+        await expect(this.librarySearch).toBeVisible();
+    }
+    /** The tool the page is on: use, move, select or place */
+    tool(): Promise<unknown> {
+        return this.page.evaluate('window.magneticShell.tool()');
+    }
 }
 
 /**

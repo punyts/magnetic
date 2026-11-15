@@ -119,8 +119,10 @@ describe("The editor's inspector routes", () => {
         expect(anonymous.status).toBe(401);
         expect(served.status).toBe(200);
         expect(body.fallback).toBeUndefined();
-        expect(Object.keys(stage.children)).toEqual(expect.arrayContaining(['nameCorner', 'shareCorner', 'rail', 'zoom', 'chat', 'chatBar', 'inspector', 'share', 'prefs']));
-        expect(Object.keys((stage.children['inspector'] as Node).children['tabs']!.children)).toEqual(['properties', 'add', 'state']);
+        expect(Object.keys(stage.children)).toEqual(expect.arrayContaining(['nameCorner', 'shareCorner', 'rail', 'zoom', 'chat', 'chatBar', 'library', 'inspector', 'share', 'prefs']));
+        // The library is a panel of its own beside the rail; the inspector keeps Properties and State
+        expect(Object.keys((stage.children['inspector'] as Node).children['tabs']!.children)).toEqual(['properties', 'state']);
+        expect((stage.children['library'] as Node).children['body']!.children['cards']).toMatchObject({ component: 'list', row: { component: 'card', draggable: true } });
         expect(typeof body.icons).toBe('object');
         expect(body.document.icons).toEqual(EDITOR_ICONS);
         for (const name of Object.keys(EDITOR_ICONS)) expect(body.icons, name).not.toHaveProperty(name);
