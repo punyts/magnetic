@@ -900,7 +900,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 redirect(response, done.next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
             } catch (error) {
                 if (!(error instanceof SignInError)) throw error;
-                options.report.info('Sign-in did not finish', { provider: name, error: error.message });
+                options.report.info('Sign-in did not finish', { provider: name, error: error.message, ...(error.detail !== undefined && { providerSaid: error.detail }) });
                 sendAppPage(request, response, await signInPageOf(request, '/', error.message), 400, pendingCookie('', 0));
             }
             return true;

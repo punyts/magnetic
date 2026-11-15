@@ -55,7 +55,15 @@ interface Pending {
 }
 
 /** Why a sign-in did not finish; its message can be shown to the person */
-export class SignInError extends Error {}
+export class SignInError extends Error {
+    /** What the provider said, for the log only: its `error` and `error_description` */
+    readonly detail: string | undefined;
+
+    constructor(message: string, options: { readonly detail?: string; readonly cause?: unknown } = {}) {
+        super(message, options.cause === undefined ? undefined : { cause: options.cause });
+        this.detail = options.detail;
+    }
+}
 
 export interface SignedIn {
     readonly identity: Identity;
@@ -175,7 +183,11 @@ export class OidcSignIn {
         const configuration = await this.configuration(provider);
         const callback = new URL(this.redirectUri(name));
         callback.search = search;
-        if (callback.searchParams.has('error')) throw new SignInError(`${provider.label.replace(/^Sign in with /, '')} did not sign you in${callback.searchParams.get('error') === 'access_denied' ? ': access was declined' : ''}.`);
+        if (callback.searchParams.has('error')) {
+            const code = callback.searchParams.get('error') ?? '';
+            const description = callback.searchParams.get('error_description');
+            throw new SignInError(`${provider.label.replace(/^Sign in with /, '')} did not sign you in${code === 'access_denied' ? ': access was declined' : ''}.`, { detail: `${code.slice(0, 100)}${description === null ? '' : `: ${description.slice(0, 300)}`}` });
+        }
         let tokens;
         try {
             tokens = await client.authorizationCodeGrant(configuration, callback, {
