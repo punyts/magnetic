@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
 import type { Language, Preferences } from '../prefs/Preferences.js';
 import { textsOf } from '../http/text.js';
 import type { Texts } from '../http/text.js';
 import { run } from '../stateui/run.js';
-import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
+import type { Stamps } from '../storage/Stamps.js';
 
 /** The name of each person's "Your apps" app, which Magnetic makes in their workspace and shows at `/` */
 export const HOME_APP = 'your-apps';
@@ -139,7 +138,7 @@ function homeStamp(language: Language): string {
 /**
  * Each person's "Your apps": a StateUI app in their own workspace, built with the same tools the agent uses. It is made
  * the first time it is needed, and made again when Magnetic ships a new definition or the person changes language (the
- * stamp in `users/<id>/magnetic/home.json` differs); each visit writes the lists of apps and the person's choices into
+ * stamp kept for the workspace differs); each visit writes the lists of apps and the person's choices into
  * its data, so it is never stale
  */
 export class HomeApps {
@@ -148,8 +147,8 @@ export class HomeApps {
 
     constructor(
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
-        /** The folder of each user's data, `users/` */
-        private readonly usersDir: string
+        /** Where the version of the home app made in each workspace is kept */
+        private readonly stamps: Stamps
     ) {}
 
     /** The id of the home app of a person's workspace in a language, making it first when it has none in that language */
@@ -164,8 +163,7 @@ export class HomeApps {
 
     private async ensure(services: Services, userId: string, language: Language): Promise<string> {
         const HOME_STAMP = homeStamp(language);
-        const stampFile = join(this.usersDir, userId, 'magnetic', 'home.json');
-        const stamp = (await readJson<{ stamp?: string }>(stampFile))?.stamp;
+        const stamp = (await this.stamps.get<{ stamp?: string }>(userId, 'home'))?.stamp;
         const existing = (await services.instanceViews.list()).find((app) => app.name === HOME_APP);
         if (existing !== undefined && stamp === HOME_STAMP) return existing.id;
         const tools = this.toolsOf(services);
@@ -176,7 +174,7 @@ export class HomeApps {
         }
         const created = await run(tools, 'ui_app_create', { name: HOME_APP, ...homeDefinition(language) });
         if (typeof created['id'] !== 'string') throw new Error('ui_app_create gave no id');
-        await writeJsonAtomic(stampFile, { stamp: HOME_STAMP });
+        await this.stamps.set(userId, 'home', { stamp: HOME_STAMP });
         return created['id'];
     }
 

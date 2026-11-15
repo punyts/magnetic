@@ -1,4 +1,4 @@
-import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
+import type { Database } from '@punyts/stateui-pg';
 
 /** The tokens of one model request, as the Claude API reports them in `usage` */
 export interface TokenUsage {
@@ -45,46 +45,44 @@ export interface BudgetLimits {
 
 export const DEFAULT_BUDGETS: BudgetLimits = { dailyPerUser: 1, monthly: 100 };
 
-interface BudgetFile {
-    /** UTC day → user id → dollars */
-    days: Record<string, Record<string, number>>;
-    /** UTC month → dollars */
-    months: Record<string, number>;
-}
-
 /** Why a turn may not start, said to the person; or `undefined` when it may */
 export type BudgetRefusal = string | undefined;
 
+/** Where a request was spent, for the spend ledger */
+export interface ChargeDetail {
+    readonly workspaceId?: string;
+    readonly appId?: string;
+    readonly model?: string;
+    readonly usage?: TokenUsage;
+}
+
 /**
- * What agent turns have cost: per user per UTC day and in total per UTC month, in one JSON file. A turn may start
- * while both are under their limits; the turn that crosses a limit finishes, and the next is refused. Days older
- * than a week are dropped
+ * What agent turns have cost, as a ledger of requests (`agent_request`): summed per user per UTC day and in total per
+ * UTC month. A turn may start while both are under their limits; the turn that crosses a limit finishes, and the next
+ * is refused
  */
 export class Budgets {
-    private file: BudgetFile | undefined;
-    private writes: Promise<void> = Promise.resolve();
-
     constructor(
-        private readonly path: string,
+        private readonly db: Database,
         readonly limits: BudgetLimits = DEFAULT_BUDGETS,
         private readonly now: () => Date = () => new Date()
     ) {}
 
-    private async load(): Promise<BudgetFile> {
-        this.file ??= (await readJson<BudgetFile>(this.path)) ?? { days: {}, months: {} };
-        return this.file;
-    }
-
-    private keys(): { day: string; month: string } {
-        const iso = this.now().toISOString();
-        return { day: iso.slice(0, 10), month: iso.slice(0, 7) };
+    private bounds(): { day: Date; month: Date } {
+        const now = this.now();
+        return { day: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), month: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) };
     }
 
     /** What the user has spent today and the server this month */
     async spent(userId: string): Promise<{ today: number; month: number }> {
-        const file = await this.load();
-        const { day, month } = this.keys();
-        return { today: file.days[day]?.[userId] ?? 0, month: file.months[month] ?? 0 };
+        const { day, month } = this.bounds();
+        const row = (
+            await this.db.query<{ today: number | null; month: number | null }>(
+                'SELECT (SELECT sum(dollars) FROM agent_request WHERE user_id = $1 AND at >= $2) AS today, (SELECT sum(dollars) FROM agent_request WHERE at >= $3) AS month',
+                [userId, day, month]
+            )
+        ).rows[0];
+        return { today: row?.today ?? 0, month: row?.month ?? 0 };
     }
 
     /** Whether the user may start a turn now */
@@ -96,18 +94,23 @@ export class Budgets {
     }
 
     /** Adds what a request cost */
-    charge(userId: string, dollars: number): Promise<void> {
-        const result = this.writes.then(async () => {
-            const file = await this.load();
-            const { day, month } = this.keys();
-            const today = (file.days[day] ??= {});
-            today[userId] = (today[userId] ?? 0) + dollars;
-            file.months[month] = (file.months[month] ?? 0) + dollars;
-            const weekAgo = new Date(this.now().getTime() - 7 * 86_400_000).toISOString().slice(0, 10);
-            for (const key of Object.keys(file.days)) if (key < weekAgo) delete file.days[key];
-            await writeJsonAtomic(this.path, file);
-        });
-        this.writes = result.catch(() => undefined);
-        return result;
+    async charge(userId: string, dollars: number, detail: ChargeDetail = {}): Promise<void> {
+        const usage = detail.usage;
+        await this.db.query(
+            `INSERT INTO agent_request (user_id, workspace_id, app_id, model, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, dollars, at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+                userId,
+                detail.workspaceId ?? null,
+                detail.appId ?? null,
+                detail.model ?? null,
+                usage?.input_tokens ?? null,
+                usage?.output_tokens ?? null,
+                usage?.cache_creation_input_tokens ?? null,
+                usage?.cache_read_input_tokens ?? null,
+                dollars,
+                this.now()
+            ]
+        );
     }
 }

@@ -8,6 +8,20 @@ import { WebSocket } from 'ws';
 import { homeOf } from '../testing/homeOf.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { MagneticOptions, RunningMagnetic } from './startMagnetic.js';
+import type { Database } from '@punyts/stateui-pg';
+import type { TestDatabase } from '@punyts/stateui-pg/testing';
+import { magneticTestDatabase } from '../testing/testDb.js';
+const databases: TestDatabase[] = [];
+/** A database of its own for each server a test starts, dropped after the file */
+async function freshDb(): Promise<Database> {
+    const test = await magneticTestDatabase();
+    databases.push(test);
+    return test.db;
+}
+afterAll(async () => {
+    await Promise.all(databases.splice(0).map((test) => test.drop()));
+});
+
 
 const silent = { info: () => undefined };
 
@@ -28,7 +42,7 @@ const noBrowser: PreviewBrowser = {
 };
 
 async function start(dataDir: string, extra: Partial<MagneticOptions> = {}): Promise<RunningMagnetic> {
-    return startMagnetic({ dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob'], starter: 'none', browser: noBrowser, ...extra });
+    return startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob'], starter: 'none', browser: noBrowser, ...extra });
 }
 
 /** Signs a development user in and returns the `Cookie` header that carries the session */
@@ -144,7 +158,7 @@ describe('Magnetic', () => {
             expect(cookie).toContain('HttpOnly');
             expect(cookie).toContain('SameSite=Lax');
             expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-            expect(await readFile(join(dataDir, 'sessions.json'), 'utf8')).not.toContain(token);
+            expect(JSON.stringify((await magnetic.database.query('SELECT * FROM session')).rows)).not.toContain(token);
         });
 
         it('should sign the same development user in as the same user each time', async () => {

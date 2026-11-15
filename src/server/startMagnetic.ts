@@ -3,6 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcase, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Report } from '@punyts/core';
+import type { Database } from '@punyts/stateui-pg';
+import { Stamps } from '../storage/Stamps.js';
 import { Accounts } from '../accounts/Accounts.js';
 import { ClaudeModel } from '../agent/AgentModel.js';
 import type { AgentModel } from '../agent/AgentModel.js';
@@ -38,6 +40,8 @@ import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
+import { assertMigrated } from '@punyts/stateui-pg';
+import { ALL_MIGRATIONS } from '../storage/db.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
 
 /** The bounds on each app's logic when no others are given: other people's logic runs on this server */
@@ -99,7 +103,9 @@ export interface MagneticAgentOptions {
 }
 
 export interface MagneticOptions {
-    /** Where the accounts, the sessions and each user's workspace (`users/<userId>`) live */
+    /** Magnetic's database, migrated (`migrate(db, ALL_MIGRATIONS)`); the server does not close it */
+    readonly database: Database;
+    /** Where each user's workspace (`users/<userId>`) lives */
     readonly dataDir: string;
     readonly host: string;
     /** 0 picks a free port */
@@ -139,6 +145,8 @@ export interface MagneticOptions {
 
 export interface RunningMagnetic {
     readonly origin: string;
+    /** The database the server was given */
+    readonly database: Database;
     readonly port: number;
     readonly runtimePort: number;
     readonly accounts: Accounts;
@@ -244,8 +252,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     );
     const chunk3d = loadChunk3d(options.chunk3dDir);
     const hostScript = loadHostScript();
-    const accounts = new Accounts(join(options.dataDir, 'accounts.json'));
-    const sessions = new Sessions(join(options.dataDir, 'sessions.json'));
+    const db = options.database;
+    await assertMigrated(db, ALL_MIGRATIONS);
+    const accounts = new Accounts(db);
+    const sessions = new Sessions(db);
+    const stamps = new Stamps(db);
     let origin = '';
     let runtimePort = 0;
     const publicOrigin = options.publicOrigin?.replace(/\/+$/, '');
@@ -310,12 +321,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return found;
     };
     /** Each person's "Your apps", made with the tools the agent uses */
-    const homes = new HomeApps(toolsOf, join(options.dataDir, 'users'));
-    const preferences = new PreferenceStore(join(options.dataDir, 'users'));
+    const homes = new HomeApps(toolsOf, stamps);
+    const preferences = new PreferenceStore(db);
     /** How Magnetic looks and speaks to a signed-in person */
     const lookOf = (request: IncomingMessage, userId: string): Promise<Preferences> => preferences.read(userId, request.headers['accept-language']);
     /** Each person's editor, an app of their own made with the tools the agent uses */
-    const editors = new EditorApps(toolsOf, join(options.dataDir, 'users'));
+    const editors = new EditorApps(toolsOf, stamps);
     /** Magnetic's own editor, in the system workspace: what a person gets when theirs does not load */
     const systemWorkspace = async (): Promise<{ services: Services; release: () => void }> => {
         const release = workspaces.retain(SYSTEM_USER_ID);
@@ -326,22 +337,22 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             throw error;
         }
     };
-    const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, join(options.dataDir, 'users', SYSTEM_USER_ID, 'magnetic'));
+    const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, stamps);
     /** Magnetic's own pages before a person's workspace (sign in, share links), as StateUI apps */
-    const pageApps = new PageApps(systemWorkspace, toolsOf, join(options.dataDir, 'users', SYSTEM_USER_ID, 'magnetic'), { providers: providerButtons, devUsers });
+    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers });
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
         .map((component) => ({ name: component.name, category: component.category, summary: component.summary }));
     let system: string | undefined;
-    const budgets = new Budgets(join(options.dataDir, 'budgets.json'), options.agent?.budgets ?? DEFAULT_BUDGETS);
+    const budgets = new Budgets(db, options.agent?.budgets ?? DEFAULT_BUDGETS);
     const turns = new AgentTurns({
         model: options.agent?.model ?? new ClaudeModel(),
         modelName: options.agent?.modelName ?? DEFAULT_AGENT_MODEL,
         models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
-        chats: new Chats(join(options.dataDir, 'users')),
+        chats: new Chats(db),
         ...(options.agent?.limits !== undefined && { limits: options.agent.limits }),
         report: options.report,
         workspace: async (userId) => {
@@ -358,7 +369,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     });
     /** The open view sockets of each session (by the hash of its token), closed when it signs out */
     const sessionSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
-    const grants = new Grants(join(options.dataDir, 'grants.json'));
+    const grants = new Grants(db);
     /** The open view sockets of apps shared with a person, by `<userId>/<appId>`, closed when a link is revoked */
     const sharedSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
     const linkOf = (grant: Grant): string => `${publicOrigin ?? origin}/s/${grant.token}`;
@@ -854,7 +865,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 sendJson(response, 409, { message: 'Everyone starts with this app already. Ask the agent to make an app of your own from it, and share that.' });
                 return;
             }
-            const grant = await grants.create(userId, { id: appId, name: app.name }, right);
+            const grant = await grants.create(userId, { id: appId, name: app.name }, right, userId);
             sendJson(response, 201, { id: grant.id, right: grant.right, url: linkOf(grant) });
             return;
         }
@@ -960,6 +971,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     let stopped = false;
     return {
         origin,
+        database: db,
         port: http.port,
         runtimePort: http.runtimePort,
         accounts,

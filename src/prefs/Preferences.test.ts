@@ -1,7 +1,6 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TestDatabase } from '@punyts/stateui-pg/testing';
+import { magneticTestDatabase } from '../testing/testDb.js';
 import { languageOf, PreferenceStore } from './Preferences.js';
 
 describe('languageOf', () => {
@@ -20,27 +19,30 @@ describe('languageOf', () => {
     });
 });
 
+const U1 = '00000000-0000-4000-8000-0000000000c1';
+const U2 = '00000000-0000-4000-8000-0000000000c2';
+
 describe('PreferenceStore', () => {
-    let dir: string;
+    let test: TestDatabase;
 
     beforeEach(async () => {
-        dir = await mkdtemp(join(tmpdir(), 'magnetic-prefs-'));
+        test = await magneticTestDatabase();
     });
 
     afterEach(async () => {
-        await rm(dir, { recursive: true, force: true });
+        await test.drop();
     });
 
     it("should follow the system and the browser's language until the person chooses, then keep each choice", async () => {
         // Arrange
-        const store = new PreferenceStore(dir);
+        const store = new PreferenceStore(test.db);
 
         // Act
-        const before = await store.read('u1', 'fr-FR');
-        const mode = await store.write('u1', 'fr-FR', { mode: 'dark' });
-        const language = await store.write('u1', 'fr-FR', { language: 'es' });
-        const after = await store.read('u1', 'de');
-        const other = await store.read('u2', 'de');
+        const before = await store.read(U1, 'fr-FR');
+        const mode = await store.write(U1, 'fr-FR', { mode: 'dark' });
+        const language = await store.write(U1, 'fr-FR', { language: 'es' });
+        const after = await store.read(U1, 'de');
+        const other = await store.read(U2, 'de');
 
         // Assert
         expect(before).toEqual({ mode: 'system', language: 'fr' });

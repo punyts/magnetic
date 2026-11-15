@@ -1,4 +1,10 @@
 export interface CliOptions {
+    /** The command: run the server (default), apply the migrations, or import a file data folder */
+    command: 'serve' | 'migrate' | 'import';
+    /** Magnetic's Postgres database, `postgres://...`; required */
+    databaseUrl: string | undefined;
+    /** Applies the migrations before serving, for development */
+    migrate: boolean;
     dataDir: string;
     host: string;
     port: number;
@@ -29,10 +35,19 @@ export const DEFAULT_PORT = 4300;
 
 export const HELP_TEXT = `magnetic: the Magnetic app builder: sign-in, one workspace per user, live StateUI apps
 
-Usage: magnetic [options]
+Usage: magnetic [command] [options]
+
+Commands:
+  serve                  Run the server (the default)
+  migrate                Apply the database migrations, then exit
+  import                 Copy a file data folder of an earlier Magnetic (--data-dir) into the
+                         database, then exit. A workspace already in the database is skipped
 
 Options:
-  --data-dir <dir>       Where the accounts, sessions and workspaces live
+  --database-url <url>   Magnetic's Postgres database with pgvector, postgres://...
+                         (env MAGNETIC_DATABASE_URL; required)
+  --migrate              Apply the database migrations before serving (development)
+  --data-dir <dir>       Where the workspaces live; for import, the folder to import
                          (env MAGNETIC_DATA_DIR, default ./data)
   --port <number>        Port of the pages and sockets (env MAGNETIC_PORT, default ${DEFAULT_PORT})
   --runtime-port <n>     Port of the runtime origin that serves the app frame
@@ -140,6 +155,9 @@ const parseStarter = (text: string): 'showcase' | 'none' => {
 
 /** Reads the command line and the environment. A flag wins over its environment variable */
 export function parseOptions(argv: readonly string[], env: Readonly<Record<string, string | undefined>>): CliOptions {
+    let command: CliOptions['command'] = 'serve';
+    let databaseUrl = env['MAGNETIC_DATABASE_URL'];
+    let migrate = env['MAGNETIC_MIGRATE'] === 'true';
     let dataDir = env['MAGNETIC_DATA_DIR'] ?? './data';
     let host = env['MAGNETIC_HOST'] ?? '127.0.0.1';
     let port = env['MAGNETIC_PORT'] !== undefined ? parsePort(env['MAGNETIC_PORT']) : DEFAULT_PORT;
@@ -163,7 +181,12 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let flagUsers: string[] | undefined;
     let help = false;
 
-    for (let index = 0; index < argv.length; index++) {
+    let first = 0;
+    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import') {
+        command = argv[0];
+        first = 1;
+    }
+    for (let index = first; index < argv.length; index++) {
         const argument = argv[index] as string;
         const equals = argument.startsWith('--') ? argument.indexOf('=') : -1;
         const flag = equals < 0 ? argument : argument.slice(0, equals);
@@ -175,6 +198,12 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             return next;
         };
         switch (flag) {
+            case '--database-url':
+                databaseUrl = value();
+                break;
+            case '--migrate':
+                migrate = true;
+                break;
             case '--data-dir':
                 dataDir = value();
                 break;
@@ -228,5 +257,6 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 throw new UsageError(`Unknown option: ${argument}`);
         }
     }
-    return { dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, help };
+    if (databaseUrl !== undefined && !/^postgres(ql)?:\/\//.test(databaseUrl)) throw new UsageError('Invalid database URL: it starts with postgres://');
+    return { command, databaseUrl, migrate, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, help };
 }

@@ -284,7 +284,7 @@ export class AgentTurns {
                 }
                 const spent = costOf(response.model, response.usage);
                 cost += spent;
-                await budgets.charge(userId, spent);
+                await budgets.charge(userId, spent, { workspaceId: userId, appId: app.id, model: response.model, usage: response.usage });
                 if (spoken !== '') said.push(spoken);
                 // A spent budget ends the turn at once, so a hard limit is passed by one request at most
                 const spentOut = await budgets.check(userId);

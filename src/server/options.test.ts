@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { parseOptions, UsageError } from './options.js';
 
 describe('parseOptions', () => {
+    it('should take the database from the flag over the environment, and the command first', () => {
+        // Act
+        const fromEnv = parseOptions([], { MAGNETIC_DATABASE_URL: 'postgres://env/db' });
+        const fromFlag = parseOptions(['migrate', '--database-url', 'postgres://flag/db'], { MAGNETIC_DATABASE_URL: 'postgres://env/db' });
+
+        // Assert
+        expect(fromEnv).toMatchObject({ command: 'serve', databaseUrl: 'postgres://env/db' });
+        expect(fromFlag).toMatchObject({ command: 'migrate', databaseUrl: 'postgres://flag/db' });
+        expect(parseOptions(['import', '--data-dir', 'old'], {})).toMatchObject({ command: 'import', dataDir: 'old', databaseUrl: undefined });
+    });
+
+    it('should refuse a database URL that is not postgres', () => {
+        expect(() => parseOptions(['--database-url', 'mysql://x/y'], {})).toThrow(UsageError);
+    });
+
     it('should read LinkedIn from the environment, with PKCE on by default', () => {
         // Act
         const options = parseOptions([], { MAGNETIC_LINKEDIN_CLIENT_ID: 'id', MAGNETIC_LINKEDIN_CLIENT_SECRET: 'secret' });

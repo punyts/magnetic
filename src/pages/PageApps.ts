@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LOGO_SVG } from '../http/logo.js';
 import { textsOf } from '../http/text.js';
@@ -7,7 +6,8 @@ import type { Texts } from '../http/text.js';
 import { writeLocales } from '../stateui/localize.js';
 import { run } from '../stateui/run.js';
 import { ensureMagneticTheme, MAGNETIC_THEME, THEME_STAMP } from '../stateui/theme.js';
-import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
+import { SYSTEM_USER_ID } from '../inspector/constants.js';
+import type { Stamps } from '../storage/Stamps.js';
 
 /** A page app as a page mounts it: its assembled document and icons */
 export interface PageAppDocument {
@@ -149,7 +149,8 @@ export class PageApps {
     constructor(
         private readonly workspace: () => Promise<{ readonly services: Services; readonly release: () => void }>,
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
-        private readonly stampDir: string,
+        /** Where the version of each page app made in the system workspace is kept */
+        private readonly stamps: Stamps,
         /** What this server signs in with, which the sign-in page shows */
         private readonly context: PageAppContext = { providers: [], devUsers: [] }
     ) {}
@@ -171,8 +172,7 @@ export class PageApps {
             const made = spec.definition(textsOf('en'), this.context);
             const models = spec.models(this.context);
             const stamp = createHash('sha256').update(JSON.stringify({ models, theme: THEME_STAMP, made, texts: ['de', 'fr', 'es'].map((language) => textsOf(language as 'de')) })).digest('hex').slice(0, 16);
-            const stampFile = join(this.stampDir, `${spec.name}.json`);
-            const kept = (await readJson<{ stamp?: string }>(stampFile))?.stamp;
+            const kept = (await this.stamps.get<{ stamp?: string }>(SYSTEM_USER_ID, `page:${spec.name}`))?.stamp;
             let listed = (await services.instanceViews.list()).find((app) => app.name === spec.name);
             if (listed === undefined || kept !== stamp) {
                 if (listed !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: spec.name, expectedRevision: listed.revision });
@@ -184,7 +184,7 @@ export class PageApps {
                 await ensureMagneticTheme(tools);
                 const created = await run(tools, 'ui_app_create', { name: spec.name, themes: [MAGNETIC_THEME], ...made });
                 await writeLocales(tools, spec.name, { home: made['home'] }, typeof created['revision'] === 'number' ? created['revision'] : 1);
-                await writeJsonAtomic(stampFile, { stamp });
+                await this.stamps.set(SYSTEM_USER_ID, `page:${spec.name}`, { stamp });
                 listed = (await services.instanceViews.list()).find((app) => app.name === spec.name);
             }
             const app = listed === undefined ? undefined : await services.instanceViews.find(listed.id);

@@ -7,6 +7,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { RunningMagnetic } from '../server/startMagnetic.js';
 import { EDITOR_APP, EDITOR_KEYS, EditorApps } from './EditorApp.js';
+import type { TestDatabase } from '@punyts/stateui-pg/testing';
+import { Stamps } from '../storage/Stamps.js';
+import { magneticTestDatabase } from '../testing/testDb.js';
 
 const silent = { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined } as never;
 const noBrowser = { open: async () => ({ rendered: false }), rendered: async () => [], screenshot: async () => ({}), interact: async () => ({}), closePage: async () => undefined, close: async () => undefined } as unknown as PreviewBrowser;
@@ -35,14 +38,17 @@ function pathOfKey(node: unknown, key: string, at: string): string | undefined {
 describe('EditorApps', () => {
     let dataDir: string;
     let magnetic: RunningMagnetic;
+    let test: TestDatabase;
 
     beforeAll(async () => {
         dataDir = await mkdtemp(join(tmpdir(), 'magnetic-editor-app-'));
-        magnetic = await startMagnetic({ dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
+        test = await magneticTestDatabase();
+        magnetic = await startMagnetic({ database: test.db, dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
     }, 60_000);
 
     afterAll(async () => {
         await magnetic.stop();
+        await test.drop();
         await rm(dataDir, { recursive: true, force: true });
     });
 
@@ -50,7 +56,7 @@ describe('EditorApps', () => {
         // Arrange
         const services = await magnetic.workspaces.get('7c1f3a52-9b0d-4e7a-8c11-2f9e6d4b5a01');
         const tools = createStateUiTools(services);
-        const editors = new EditorApps(() => tools, join(dataDir, 'users'));
+        const editors = new EditorApps(() => tools, new Stamps(test.db));
 
         // Act
         const made = await editors.document(services, '7c1f3a52-9b0d-4e7a-8c11-2f9e6d4b5a01');

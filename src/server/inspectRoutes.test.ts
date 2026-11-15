@@ -7,6 +7,20 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { EDITOR_ICONS } from '../editor/EditorApp.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { RunningMagnetic } from './startMagnetic.js';
+import type { Database } from '@punyts/stateui-pg';
+import type { TestDatabase } from '@punyts/stateui-pg/testing';
+import { magneticTestDatabase } from '../testing/testDb.js';
+const databases: TestDatabase[] = [];
+/** A database of its own for each server a test starts, dropped after the file */
+async function freshDb(): Promise<Database> {
+    const test = await magneticTestDatabase();
+    databases.push(test);
+    return test.db;
+}
+afterAll(async () => {
+    await Promise.all(databases.splice(0).map((test) => test.drop()));
+});
+
 
 const silent = { info: () => undefined };
 
@@ -61,7 +75,7 @@ describe("The editor's inspector routes", () => {
 
     beforeAll(async () => {
         dataDir = await mkdtemp(join(tmpdir(), 'magnetic-inspect-'));
-        magnetic = await startMagnetic({ dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
+        magnetic = await startMagnetic({ database: await freshDb(), dataDir, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser });
         alice = await signIn(magnetic.origin, 'alice');
         aliceId = (await magnetic.sessions.find(alice.split('=')[1]))?.userId as string;
         tools = createStateUiTools(await magnetic.workspaces.get(aliceId));

@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
+import type { Database } from '@punyts/stateui-pg';
 
 /** The languages Magnetic speaks; the first is the fallback */
 export const LANGUAGES = ['en', 'de', 'fr', 'es'] as const;
@@ -41,21 +40,14 @@ export function languageOf(acceptLanguage: string | undefined): Language {
 }
 
 /**
- * Each person's preferences, in `users/<id>/magnetic/prefs.json`. A person who never chose has the system's mode and
- * the language their browser asks for
+ * Each person's preferences (`user_preference`). A person who never chose has the system's mode and the language
+ * their browser asks for
  */
 export class PreferenceStore {
-    constructor(
-        /** The folder of each user's data, `users/` */
-        private readonly usersDir: string
-    ) {}
-
-    private file(userId: string): string {
-        return join(this.usersDir, userId, 'magnetic', 'prefs.json');
-    }
+    constructor(private readonly db: Database) {}
 
     async read(userId: string, acceptLanguage: string | undefined): Promise<Preferences> {
-        const stored = await readJson<{ mode?: unknown; language?: unknown }>(this.file(userId)).catch(() => undefined);
+        const stored = (await this.db.query<{ prefs: { mode?: unknown; language?: unknown } }>('SELECT prefs FROM user_preference WHERE user_id = $1', [userId])).rows[0]?.prefs;
         return {
             mode: isMode(stored?.mode) ? stored.mode : 'system',
             language: isLanguage(stored?.language) ? stored.language : languageOf(acceptLanguage)
@@ -65,7 +57,7 @@ export class PreferenceStore {
     /** Keeps the choices given over the stored ones, and answers what holds now */
     async write(userId: string, acceptLanguage: string | undefined, change: Partial<Preferences>): Promise<Preferences> {
         const now = { ...(await this.read(userId, acceptLanguage)), ...change };
-        await writeJsonAtomic(this.file(userId), now);
+        await this.db.query('INSERT INTO user_preference (user_id, prefs, updated_at) VALUES ($1, $2, now()) ON CONFLICT (user_id) DO UPDATE SET prefs = EXCLUDED.prefs, updated_at = now()', [userId, JSON.stringify(now)]);
         return now;
     }
 }

@@ -1,0 +1,15 @@
+# Magnetic's database for development: Postgres 16 with pgvector, on port 5433 so it never meets another Postgres.
+# Start it with `npm run magnetic:db` from the workspace; the data stays in the `magnetic-db` volume.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: magnetic
+      POSTGRES_PASSWORD: magnetic
+      POSTGRES_DB: magnetic
+    ports:
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - magnetic-db:/var/lib/postgresql/data
+volumes:
+  magnetic-db:

@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
+import type { Database } from '@punyts/stateui-pg';
 
 /** One tool call of an agent turn, as the activity drawer lists it */
 export interface ToolLine {
@@ -19,33 +18,52 @@ export type ChatEntry =
 /** The most entries kept per app */
 const KEEP = 100;
 
+interface ChatRow {
+    role: 'person' | 'agent';
+    text: string;
+    tools: ToolLine[] | null;
+    outcome: TurnOutcome | null;
+    message: string | null;
+    at: Date;
+}
+
+function entryOf(row: ChatRow): ChatEntry {
+    const at = row.at.toISOString();
+    if (row.role === 'person') return { role: 'person', text: row.text, at };
+    return { role: 'agent', text: row.text, at, tools: row.tools ?? [], outcome: row.outcome ?? 'finished', ...(row.message !== null && { message: row.message }) };
+}
+
 /**
- * The chat of each of a user's apps, one JSON file per app under the user's folder (`magnetic/chats/<appId>.json`).
- * Writes to one file go one at a time
+ * The chat of each person with the agent about each app of a workspace (`chat_entry`). Every entry is kept; a read
+ * gives the last 100, oldest first. Today the workspace is the person's own, so both ids are the user's
  */
 export class Chats {
-    private readonly writes = new Map<string, Promise<void>>();
+    constructor(private readonly db: Database) {}
 
-    constructor(private readonly usersDir: string) {}
-
-    private path(userId: string, appId: string): string {
-        return join(this.usersDir, userId, 'magnetic', 'chats', `${appId}.json`);
+    async read(userId: string, appId: string, workspaceId: string = userId): Promise<readonly ChatEntry[]> {
+        const rows = (
+            await this.db.query<ChatRow>(
+                `SELECT role, text, tools, outcome, message, at FROM (
+                    SELECT id, role, text, tools, outcome, message, at FROM chat_entry
+                     WHERE workspace_id = $1 AND app_id = $2 AND user_id = $3 ORDER BY id DESC LIMIT $4
+                 ) last ORDER BY id`,
+                [workspaceId, appId, userId, KEEP]
+            )
+        ).rows;
+        return rows.map(entryOf);
     }
 
-    async read(userId: string, appId: string): Promise<readonly ChatEntry[]> {
-        return (await readJson<ChatEntry[]>(this.path(userId, appId))) ?? [];
-    }
-
-    append(userId: string, appId: string, entry: ChatEntry): Promise<void> {
-        const path = this.path(userId, appId);
-        const result = (this.writes.get(path) ?? Promise.resolve()).then(async () => {
-            const entries = [...((await readJson<ChatEntry[]>(path)) ?? []), entry];
-            await writeJsonAtomic(path, entries.slice(-KEEP));
-        });
-        this.writes.set(
-            path,
-            result.catch(() => undefined)
-        );
-        return result;
+    async append(userId: string, appId: string, entry: ChatEntry, workspaceId: string = userId): Promise<void> {
+        await this.db.query('INSERT INTO chat_entry (workspace_id, app_id, user_id, role, text, tools, outcome, message, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [
+            workspaceId,
+            appId,
+            userId,
+            entry.role,
+            entry.text,
+            entry.role === 'agent' ? JSON.stringify(entry.tools) : null,
+            entry.role === 'agent' ? entry.outcome : null,
+            entry.role === 'agent' ? (entry.message ?? null) : null,
+            entry.at
+        ]);
     }
 }

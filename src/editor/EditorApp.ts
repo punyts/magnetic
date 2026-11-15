@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LOGO_SVG } from '../http/logo.js';
 import { textsOf } from '../http/text.js';
@@ -9,7 +8,8 @@ import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
 import { writeLocales } from '../stateui/localize.js';
 import { run } from '../stateui/run.js';
 import { ensureMagneticTheme, MAGNETIC_THEME, THEME_STAMP } from '../stateui/theme.js';
-import { readJson, writeJsonAtomic } from '../storage/jsonFile.js';
+import { SYSTEM_USER_ID } from '../inspector/constants.js';
+import type { Stamps } from '../storage/Stamps.js';
 
 /** The name of each person's editor, an app of their own in their workspace */
 export const EDITOR_APP = 'magnetic-editor';
@@ -603,17 +603,13 @@ async function makeEditor(tools: readonly UiToolDefinition[]): Promise<{ id: str
 export class EditorApps {
     constructor(
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
-        /** The folder of each user's data, `users/` */
-        private readonly usersDir: string
+        /** Where the version of each person's editor, and the revision Magnetic left it at, is kept */
+        private readonly stamps: Stamps
     ) {}
-
-    private stampFile(userId: string): string {
-        return join(this.usersDir, userId, 'magnetic', 'editor.json');
-    }
 
     /** The id of a person's editor, making it when they have none, or when Magnetic's changed and theirs did not */
     async id(services: Services, userId: string): Promise<string> {
-        const kept = await readJson<{ stamp?: string; revision?: number }>(this.stampFile(userId));
+        const kept = await this.stamps.get<{ stamp?: string; revision?: number }>(userId, 'editor');
         const existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
         if (existing !== undefined) {
             const untouched = kept?.revision === existing.revision;
@@ -632,7 +628,7 @@ export class EditorApps {
         const tools = this.toolsOf(services);
         if (replacing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: EDITOR_APP, expectedRevision: replacing });
         const made = await makeEditor(tools);
-        await writeJsonAtomic(this.stampFile(userId), { stamp: EDITOR_STAMP, revision: made.revision });
+        await this.stamps.set(userId, 'editor', { stamp: EDITOR_STAMP, revision: made.revision });
         return made.id;
     }
 
@@ -656,7 +652,8 @@ export class DefaultEditor {
     constructor(
         private readonly workspace: () => Promise<{ readonly services: Services; readonly release: () => void }>,
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
-        private readonly stampDir: string
+        /** Where the version of the default editor made in the system workspace is kept */
+        private readonly stamps: Stamps
     ) {}
 
     document(): Promise<EditorDocument> {
@@ -671,13 +668,12 @@ export class DefaultEditor {
         const { services, release } = await this.workspace();
         try {
             const tools = this.toolsOf(services);
-            const stampFile = join(this.stampDir, 'editor.json');
-            const stamp = (await readJson<{ stamp?: string }>(stampFile))?.stamp;
+            const stamp = (await this.stamps.get<{ stamp?: string }>(SYSTEM_USER_ID, 'editor'))?.stamp;
             let existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
             if (existing === undefined || stamp !== EDITOR_STAMP) {
                 if (existing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: EDITOR_APP, expectedRevision: existing.revision });
                 await makeEditor(tools);
-                await writeJsonAtomic(stampFile, { stamp: EDITOR_STAMP });
+                await this.stamps.set(SYSTEM_USER_ID, 'editor', { stamp: EDITOR_STAMP });
                 existing = (await services.instanceViews.list()).find((app) => app.name === EDITOR_APP);
             }
             const app = existing === undefined ? undefined : await services.instanceViews.find(existing.id);

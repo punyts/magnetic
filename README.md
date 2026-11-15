@@ -17,9 +17,15 @@ keep the two the same).
 From the workspace:
 
 ```bash
+npm run magnetic:db      # Postgres 16 with pgvector in Docker, on 127.0.0.1:5433 (magnetic/docker-compose.yml)
 npm run magnetic:build   # the libraries Magnetic uses, Magnetic itself and the runtime bundle
 npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob, a mock provider and the mock agent
 ```
+
+Magnetic keeps its people, links, spend, chats and preferences in Postgres (`docs/design/magnetic-postgres.md` in the
+workspace). `npm run magnetic` applies the migrations as it starts (`--migrate`); a server started any other way
+refuses a database that is behind, so run `magnetic migrate` first. The workspaces (parts, instances and files) are
+still folders under `--data-dir` until stage P2 moves them into the database too.
 
 `npm run magnetic` runs the scripted mock agent, so the editor works without an API key and costs nothing. To use
 Claude, set `ANTHROPIC_API_KEY` and start the server without `--mock-agent`:
@@ -49,12 +55,19 @@ a new app would make everyone a new user.
 Or on its own:
 
 ```bash
-node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
+node dist/cli.js migrate --database-url postgres://magnetic:magnetic@127.0.0.1:5433/magnetic
+node dist/cli.js --database-url postgres://magnetic:magnetic@127.0.0.1:5433/magnetic --data-dir ./data --dev-user alice --dev-user bob
 ```
+
+The commands are `serve` (the default), `migrate` (apply the migrations, then exit) and `import` (copy the people of an
+earlier, file-based Magnetic's `--data-dir` into the database: `accounts.json`, live sessions, `grants.json`,
+`budgets.json` as ledger rows and every chat; rows already there are left alone, so it can run twice).
 
 | Option | Environment | Default | What |
 |---|---|---|---|
-| `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | Where the accounts, sessions and workspaces live |
+| `--database-url <url>` | `MAGNETIC_DATABASE_URL` | none, required | Magnetic's Postgres database with pgvector |
+| `--migrate` | `MAGNETIC_MIGRATE=true` | off | Applies the migrations before serving |
+| `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | Where the workspaces live; for `import`, the folder to import |
 | `--port <n>` | `MAGNETIC_PORT` | `4300` | Port of the pages and sockets |
 | `--runtime-port <n>` | `MAGNETIC_RUNTIME_PORT` | the next port | Port of the runtime origin, which serves only the app frame |
 | `--host <address>` | `MAGNETIC_HOST` | `127.0.0.1` | Address to bind |
@@ -79,13 +92,13 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
   - Any workspace that has had no open view socket and no request for 10 minutes is closed.
   - Past 200 open workspaces, the least recently used ones without sockets are closed.
   - A new workspace starts with the component showcase, unless `--starter none`.
-- **Users and identities.** `data/accounts.json` maps each sign-in identity (`<provider>:<subject>`) to a user id, a
+- **Users and identities.** `identity` maps each sign-in identity (`<provider>:<subject>`) to a user id, a
   UUID, and keeps the user's name, email and picture. The user id owns everything. A second provider can later point
   at the same user.
 - **Sessions.**
   - The cookie `magnetic_session` holds a token of 32 random bytes. It is `HttpOnly`, `SameSite=Lax` and
     `Path=/`, and `Secure` with `secureCookies`.
-  - `data/sessions.json` keeps the token's SHA-256 hash, not the token, so the file alone opens no session.
+  - `session` keeps the token's SHA-256 hash, not the token, so the table alone opens no session.
   - A session lasts 30 days.
   - Signing out ends the session and closes that session's view sockets (1008 `Signed out`). Other sessions of the
     same user stay open.
@@ -172,13 +185,13 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
     on Stop.
   - The browser tools (`ui_preview`, `ui_screenshot`, `ui_interact`) are withheld until the headless browser
     can reach a signed-in page, and so are the answer tools, as no logic waits for an agent here.
-  - Each chat is kept in `users/<userId>/magnetic/chats/<appId>.json` (the last 100 entries).
-- **Budgets** (`Budgets`, `data/budgets.json`). Each request is priced from its token counts. A user may spend
+  - Each chat is kept in `chat_entry`, every entry; a turn reads the last 100.
+- **Budgets** (`Budgets`, a ledger of requests in `agent_request`). Each request is priced from its token counts. A user may spend
   `--daily-budget` dollars per UTC day (default 1) and the server `--monthly-budget` per UTC month (default 100).
   A turn ends as soon as a request spends the last of either budget, so a limit is passed by one request at most;
   the next turn is refused with a message.
 
-- **Sharing** (`Grants`, `data/grants.json`). The editor's Share panel makes links to the app:
+- **Sharing** (`Grants`, `link_grant` and `link_grant_member`). The editor's Share panel makes links to the app:
   - `use` (the default): each person who opens it gets their own instance of the app, with their own data
     (persona = their user id);
   - `view`: the owner's instance, live and read only. Changes are rejected and file uploads refused;
@@ -196,7 +209,7 @@ node dist/cli.js --data-dir ./data --dev-user alice --dev-user bob
 ```ts
 import { startMagnetic } from '@punyts/magnetic';
 
-const magnetic = await startMagnetic({ dataDir: './data', host: '127.0.0.1', port: 4300, report: console, devUsers: ['alice'] });
+const magnetic = await startMagnetic({ database: createDatabase({ url }), dataDir: './data', host: '127.0.0.1', port: 4300, report: console, devUsers: ['alice'] });
 console.log(magnetic.origin);
 await magnetic.stop();
 ```
@@ -235,5 +248,5 @@ The options also take:
 
 ```bash
 npm run build
-npm test        # vitest: accounts, sessions, workspaces, the options, budgets, grants, provider sign-in against the mock provider, agent turns against recorded answers, sharing and revoking, and the server over HTTP and WebSockets
+npm test        # needs the database: npm run magnetic:db, or PUNYTS_TEST_DATABASE_URL. Each test file gets a schema of its own. vitest: accounts, sessions, workspaces, the options, budgets, grants, provider sign-in against the mock provider, agent turns against recorded answers, sharing and revoking, and the server over HTTP and WebSockets
 ```
