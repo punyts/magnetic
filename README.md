@@ -235,7 +235,16 @@ Moving an app of one's own into an org (`POST /apps/<id>/move`) keeps its id, so
 instances, persona records, files, chat and links go with it in one transaction, and the parts it reaches are copied
 (the person's own workspace keeps its copies). The org's apps show on Your apps beside the apps shared with the person.
 
-The routes are JSON, for a settings page to come:
+People manage their orgs at `/settings/orgs` (the **Orgs** button on Your apps): make an org, and on its page see the
+members, groups and apps and, as far as their role goes, change roles, make groups, invite people (the link is shown
+once), make an app in the org or bring one of their own in, give apps to people and groups, open them to the org, see
+who uses each app, and read the audit log. An invite link (`/invites/<token>`) opens a page that joins the org. Org
+admins can open a member's state of an app read only, for support; each look is written to the audit log.
+
+The agent changes an app for one person at a time: while one person's turn works on an org app, another person's turn
+on it is refused until it ends.
+
+The same is there as JSON routes:
 
 | Route | What |
 |---|---|
@@ -248,6 +257,8 @@ The routes are JSON, for a settings page to come:
 | `GET`, `POST /orgs/<id>/apps/<appId>/access` | The access list; set or remove an entry (`{ principalKind, principalId, permission }`) |
 | `POST /orgs/<id>/apps/<appId>/open` | Open the app to every member, or close it (`{ open }`) |
 | `GET /orgs/<id>/audit` | The audit log, newest first (admins) |
+| `GET /orgs/<id>/apps/<appId>/instances` | Who uses the app, last used first (people who manage it) |
+| `GET /orgs/<id>/apps/<appId>/instances/<userId>` | A member's state as last saved, read only (admins; audited) |
 | `POST /apps/<id>/move` | Move an app of your own into an org (`{ orgId }`) |
 
 ## Semantic search

@@ -160,6 +160,40 @@ describe('Orgs over HTTP', () => {
         expect((await magnetic.orgs.auditLog(aliceId, orgId)).map((event) => event['action'])).toEqual(expect.arrayContaining(['app.moved_in', 'access.set', 'invite.accepted', 'org.created']));
     });
 
+    it("should list who uses an app for its managers, and open a member's instance read only for an admin, audited", async () => {
+        // Arrange
+        const made = await send(`/orgs/${orgId}/apps`, alice, 'POST', { name: 'Tickets' });
+        const appId = ((await made.json()) as { id: string }).id;
+        await send(`/orgs/${orgId}/apps/${appId}/access`, alice, 'POST', { principalKind: 'user', principalId: bobId, permission: 'use' });
+        const workspaceId = (await magnetic.orgs.get(orgId))?.workspaceId as string;
+        await magnetic.database.transaction(
+            async (tx) => {
+                await tx.query('INSERT INTO instance (workspace_id, persona, app_id, diff) VALUES ($1, $2, $3, $4)', [workspaceId, bobId, appId, JSON.stringify({ route: { screen: 'list' } })]);
+                await tx.query("INSERT INTO persona_dataset (workspace_id, persona, app_id, binding, model, records) VALUES ($1, $2, $3, 'drafts', 'draft', $4)", [workspaceId, bobId, appId, JSON.stringify({ d1: { title: 'Printer jam' } })]);
+            },
+            { workspaceIds: [workspaceId] }
+        );
+
+        // Act
+        const listed = await send(`/orgs/${orgId}/apps/${appId}/instances`, alice, 'GET');
+        const listedByBob = await send(`/orgs/${orgId}/apps/${appId}/instances`, bob, 'GET');
+        const viewed = await send(`/orgs/${orgId}/apps/${appId}/instances/${bobId}`, alice, 'GET');
+        const viewedByBob = await send(`/orgs/${orgId}/apps/${appId}/instances/${bobId}`, bob, 'GET');
+        const nobody = await send(`/orgs/${orgId}/apps/${appId}/instances/${aliceId}`, alice, 'GET');
+
+        // Assert
+        expect(listed.status).toBe(200);
+        expect(((await listed.json()) as { instances: unknown[] }).instances).toEqual([{ userId: bobId, name: 'bob', updatedAt: expect.any(String) }]);
+        expect(listedByBob.status).toBe(403);
+        expect(viewed.status).toBe(200);
+        expect(await viewed.json()).toMatchObject({ userId: bobId, name: 'bob', instance: { route: { screen: 'list' } }, data: { drafts: { model: 'draft', records: { d1: { title: 'Printer jam' } } } } });
+        expect(viewedByBob.status).toBe(403);
+        expect(nobody.status).toBe(404);
+        const views = (await magnetic.orgs.auditLog(aliceId, orgId)).filter((event) => event['action'] === 'instance.support_view');
+        expect(views).toHaveLength(1);
+        expect(views[0]).toMatchObject({ actor_id: aliceId, target_id: appId, detail: { userId: bobId } });
+    });
+
     it("should refuse what a role does not allow, and end a removed member's access at once", async () => {
         // Act
         const bobInvites = await send(`/orgs/${orgId}/invites`, bob, 'POST', { email: 'x@acme.test', role: 'member' });

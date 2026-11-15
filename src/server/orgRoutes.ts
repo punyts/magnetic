@@ -3,6 +3,7 @@ import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Database } from '@punyts/stateui-pg';
 import type { User } from '../accounts/Accounts.js';
 import { AppAccess, isAppPermission, moveAppToOrg } from '../orgs/AppAccess.js';
+import type { AppInstances } from '../orgs/Instances.js';
 import { isOrgRole, OrgError, Orgs } from '../orgs/Orgs.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
 
@@ -11,6 +12,7 @@ export interface OrgRouteContext {
     readonly db: Database;
     readonly orgs: Orgs;
     readonly access: AppAccess;
+    readonly instances: AppInstances;
     readonly workspaces: Workspaces;
     readonly toolsOf: (services: Services) => readonly UiToolDefinition[];
     /** The signed-in person of a request */
@@ -38,8 +40,41 @@ const ROUTES = {
     apps: new RegExp(`^/orgs/${UUID}/apps$`),
     appAccess: new RegExp(`^/orgs/${UUID}/apps/${UUID}/access$`),
     appOpen: new RegExp(`^/orgs/${UUID}/apps/${UUID}/open$`),
+    appInstances: new RegExp(`^/orgs/${UUID}/apps/${UUID}/instances$`),
+    appInstance: new RegExp(`^/orgs/${UUID}/apps/${UUID}/instances/${UUID}$`),
     move: new RegExp(`^/apps/${UUID}/move$`)
 };
+
+/** Said to a person whose open view of an org app closes because they lost it */
+export const ACCESS_CHANGED = 'Your access to this app changed';
+
+/**
+ * After a change of access, closes the open views of each person given who may no longer open an app: the apps named,
+ * or every app of the workspace (a change of groups)
+ */
+export async function closeLostViews(context: Pick<OrgRouteContext, 'access' | 'workspaces' | 'closeOrgViews'>, workspaceId: string, userIds: readonly string[], appIds?: readonly string[]): Promise<void> {
+    if (userIds.length === 0) return;
+    const apps = appIds ?? (await (await context.workspaces.get(workspaceId)).instanceViews.list()).map((app) => app.id);
+    for (const userId of userIds) {
+        const lost: string[] = [];
+        for (const appId of apps) if ((await context.access.permission(userId, workspaceId, appId)) === undefined) lost.push(appId);
+        if (lost.length > 0) context.closeOrgViews(userId, lost, ACCESS_CHANGED);
+    }
+}
+
+/** Makes an app in an org's workspace for a builder or above, who then manages it; its id */
+export async function createOrgApp(context: Pick<OrgRouteContext, 'orgs' | 'access' | 'workspaces' | 'toolsOf' | 'appNameOf'>, userId: string, orgId: string, workspaceId: string, typed: string): Promise<{ readonly id: string; readonly name: string }> {
+    await context.orgs.require(orgId, userId, 'builder');
+    const name = context.appNameOf(typed);
+    if (name === undefined) throw new OrgError(400, 'Give the app a name that starts with a letter.');
+    const services = await context.workspaces.get(workspaceId);
+    const create = context.toolsOf(services).find((tool) => tool.name === 'ui_app_create');
+    const outcome = create === undefined ? undefined : await create.run({ name } as never);
+    const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
+    if (outcome === undefined || outcome.isError || typeof created?.id !== 'string') throw new OrgError(400, typeof created?.message === 'string' ? created.message : 'The app could not be made.');
+    await context.access.recordCreated(userId, workspaceId, created.id);
+    return { id: created.id, name };
+}
 
 function field(body: unknown, name: string): unknown {
     return typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[name] : undefined;
@@ -52,7 +87,8 @@ function text(body: unknown, name: string): string {
 
 /**
  * The JSON routes of orgs: making one and listing yours; members, roles and removal; groups; invites and accepting
- * them; the audit log; an org's apps, making one and their access lists; and moving an app of your own into an org.
+ * them; the audit log; an org's apps, making one and their access lists; who uses an app, and one member's instance
+ * of it read only, for support; and moving an app of your own into an org.
  * Every change is checked against the person's role or the app's permission, and an `OrgError` answers with its
  * status. Answers whether it handled the request
  */
@@ -101,7 +137,10 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
             return true;
         }
         if ((match = ROUTES.groupMember.exec(path)) !== null && (method === 'POST' || method === 'DELETE')) {
-            await orgs.setGroupMember(user.id, match[1] as string, match[2] as string, match[3] as string, method === 'POST');
+            const [orgId, groupId, userId] = [match[1] as string, match[2] as string, match[3] as string];
+            await orgs.setGroupMember(user.id, orgId, groupId, userId, method === 'POST');
+            // Someone taken out of a group loses the apps they had only through it
+            if (method === 'DELETE') await closeLostViews(context, await orgWorkspace(orgId), [userId]);
             sendJson(response, 200, { ok: true });
             return true;
         }
@@ -138,17 +177,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
                 return true;
             }
             if (method === 'POST') {
-                await orgs.require(orgId, user.id, 'builder');
-                const name = context.appNameOf(text(await context.readJson(request), 'name'));
-                if (name === undefined) throw new OrgError(400, 'Give the app a name that starts with a letter.');
-                const services = await context.workspaces.get(workspaceId);
-                const create = context.toolsOf(services).find((tool) => tool.name === 'ui_app_create');
-                const outcome = create === undefined ? undefined : await create.run({ name } as never);
-                const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
-                if (outcome === undefined || outcome.isError || typeof created?.id !== 'string')
-                    throw new OrgError(400, typeof created?.message === 'string' ? created.message : 'The app could not be made.');
-                await access.recordCreated(user.id, workspaceId, created.id);
-                sendJson(response, 201, { id: created.id, name });
+                sendJson(response, 201, await createOrgApp(context, user.id, orgId, workspaceId, text(await context.readJson(request), 'name')));
                 return true;
             }
             return false;
@@ -170,9 +199,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
                 await access.set(user.id, workspaceId, appId, { kind, id: principalId }, permission ?? undefined);
                 // Whoever lost the app loses its open views at once
                 const affected = kind === 'user' ? [principalId] : ((await orgs.groups(user.id, orgId)).find((group) => group.id === principalId)?.members ?? []);
-                for (const userId of affected) {
-                    if ((await access.permission(userId, workspaceId, appId)) === undefined) context.closeOrgViews(userId, [appId], 'Your access to this app changed');
-                }
+                await closeLostViews(context, workspaceId, affected, [appId]);
                 sendJson(response, 200, { ok: true });
                 return true;
             }
@@ -183,12 +210,18 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
             const workspaceId = await orgWorkspace(orgId);
             const open = field(await context.readJson(request), 'open') === true;
             await access.setOpenToOrg(user.id, workspaceId, appId, open);
-            if (!open) {
-                for (const member of await orgs.members(user.id, orgId)) {
-                    if ((await access.permission(member.userId, workspaceId, appId)) === undefined) context.closeOrgViews(member.userId, [appId], 'Your access to this app changed');
-                }
-            }
+            if (!open) await closeLostViews(context, workspaceId, (await orgs.members(user.id, orgId)).map((member) => member.userId), [appId]);
             sendJson(response, 200, { ok: true });
+            return true;
+        }
+        if ((match = ROUTES.appInstances.exec(path)) !== null && method === 'GET') {
+            const [orgId, appId] = [match[1] as string, match[2] as string];
+            sendJson(response, 200, { instances: await context.instances.list(user.id, orgId, await orgWorkspace(orgId), appId) });
+            return true;
+        }
+        if ((match = ROUTES.appInstance.exec(path)) !== null && method === 'GET') {
+            const [orgId, appId, userId] = [match[1] as string, match[2] as string, match[3] as string];
+            sendJson(response, 200, await context.instances.view(user.id, orgId, await orgWorkspace(orgId), appId, userId));
             return true;
         }
         if ((match = ROUTES.move.exec(path)) !== null && method === 'POST') {
@@ -203,7 +236,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
     }
 
     return async (request, response, method, path) => {
-        if (!path.startsWith('/orgs') && !path.startsWith('/invites/') && !ROUTES.move.test(path)) return false;
+        if (!path.startsWith('/orgs') && !ROUTES.accept.test(path) && !ROUTES.move.test(path)) return false;
         const who = await context.signedIn(request);
         if (who === undefined) {
             sendJson(response, 401, { message: 'Sign in first.' });

@@ -48,8 +48,8 @@ const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.valu
 const TOP = '$.screens.home.children.page.children.top.children';
 
 /**
- * The home screen, in a centred column: Magnetic, the menus of mode and language (`mode`, `language`) and Sign out
- * (`signout`), a field and a button that make an app (`create`, with the name), the person's apps, the apps shared
+ * The home screen, in a centred column: Magnetic, the menus of mode and language (`mode`, `language`), the org
+ * settings (`orgs`) and Sign out (`signout`), a field and a button that make an app (`create`, with the name), the person's apps, the apps shared
  * with them, and their editor (`editEditor`, `resetEditor`). Each `emit` reaches the page (`stateui:emit`), whose script acts on it
  */
 function homeScreen(t: Texts): Record<string, unknown> {
@@ -80,6 +80,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                             title: { component: 'text', textRole: 'title', placement: { grow: 1 }, _text: 'Magnetic' },
                             mode: menu('mode', t['prefs.mode'], Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }]))),
                             language: menu('language', t['prefs.language'], Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }]))),
+                            orgs: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.orgs'], on: { press: { command: 'emit', target: 'orgs' } } },
                             signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
                         }
                     },

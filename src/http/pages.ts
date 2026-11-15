@@ -44,6 +44,31 @@ form.new { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1.5re
 h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; }
 form.new input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .stack { display: grid; gap: 0.75rem; max-width: 20rem; }
+main.settings { max-width: 60rem; }
+main.settings header nav { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+main.settings input, main.settings select { font: inherit; padding: 0.4rem 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); max-width: 100%; }
+main.settings .stack label { display: grid; gap: 0.25rem; }
+main.settings form.row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; margin-top: 0.75rem; }
+main.settings div.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
+main.settings form.spaced { display: block; margin-top: 0.75rem; }
+main.settings div.table { overflow-x: auto; }
+main.settings table { width: 100%; border-collapse: collapse; }
+main.settings th, main.settings td { text-align: left; vertical-align: top; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--line); }
+main.settings th { color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+main.settings table.audit code { font-size: 0.8rem; overflow-wrap: anywhere; }
+main.settings ul.plain { list-style: none; padding: 0; margin: 0.5rem 0; display: grid; gap: 0.25rem; }
+main.settings ul.list li.app { display: block; }
+main.settings .app-head { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+main.settings .app-head a.button { margin-left: auto; padding: 0.25rem 0.7rem; }
+main.settings h4 { margin: 0.75rem 0 0.25rem; font-size: 0.95rem; }
+main.settings fieldset { border: 1px solid var(--line); border-radius: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+main.settings label.check { display: flex; gap: 0.35rem; align-items: center; }
+main.settings .chip { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--line); border-radius: 1rem; padding: 0.1rem 0.6rem; margin: 0.15rem 0.15rem 0 0; }
+main.settings button.link { border: none; padding: 0 0.25rem; color: var(--accent); background: none; }
+main.settings button.danger { color: var(--bad); }
+main.settings .notice { border: 1px solid var(--accent); border-radius: 0.5rem; padding: 0.6rem 0.8rem; }
+main.settings code.link { overflow-wrap: anywhere; user-select: all; }
+main.settings pre { background: color-mix(in srgb, var(--line) 35%, transparent); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.85rem; }
 `;
 
 /** An app another person shared with the user */

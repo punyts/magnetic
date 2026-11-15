@@ -79,6 +79,10 @@ interface Running {
 }
 
 const key = (userId: string, appId: string): string => `${userId}:${appId}`;
+/** Where an app is, `<workspaceId>:<appId>`: one turn at a time works on it, whoever starts it */
+const placeOf = (app: TurnApp, userId: string): string => `${app.workspaceId ?? userId}:${app.id}`;
+/** Said to a person whose app is being changed by someone else's agent */
+export const APP_BUSY = "Someone else's agent is changing this app right now. Try again when it has finished.";
 const clip = (text: string, size: number): string => (text.length <= size ? text : `${text.slice(0, size)}…`);
 
 /** The note added to the last message when a tool input was not JSON, before the request is sent again */
@@ -150,12 +154,15 @@ async function runTool(tool: UiToolDefinition | undefined, name: string, input: 
 }
 
 /**
- * The agent's turns: one at a time per user. A turn reads the facts the person asked for, then runs the model over the
+ * The agent's turns: one at a time per user, and one at a time per app, so two people of an org never have their agents
+ * change one app at once (each would write over the other's revisions). A turn reads the facts the person asked for, then runs the model over the
  * user's own StateUI tools until it answers, is stopped, or reaches a limit. Each request is charged to the user's
  * budget. Everything the agent says and does is sent to the app's listeners as it happens and kept in the app's chat
  */
 export class AgentTurns {
     private readonly running = new Map<string, Running>();
+    /** The user whose turn works on each app now, by `<workspaceId>:<appId>` */
+    private readonly busy = new Map<string, string>();
     private readonly finishing = new Set<Promise<void>>();
     private readonly listeners = new Map<string, Set<(event: AgentEvent) => void>>();
     private readonly limits: TurnLimits;
@@ -203,23 +210,35 @@ export class AgentTurns {
      */
     async start(userId: string, app: TurnApp, text: string, toggles: readonly ContextToggle[], model: string = this.options.modelName, focus: readonly string[] = []): Promise<{ refused: string } | { finished: Promise<void> }> {
         if (!this.models.includes(model)) return { refused: 'That model is not offered on this server.' };
-        if (this.running.has(userId)) return { refused: 'The agent is still working on your last request.' };
+        const place = placeOf(app, userId);
+        const taken = (): { refused: string } | undefined =>
+            this.running.has(userId) ? { refused: 'The agent is still working on your last request.' } : this.busy.has(place) ? { refused: APP_BUSY } : undefined;
+        const before = taken();
+        if (before !== undefined) return before;
         const refusal = await this.options.budgets.check(userId);
         if (refusal !== undefined) return { refused: refusal };
+        // Again after the await: another turn may have taken the person or the app meanwhile
+        const after = taken();
+        if (after !== undefined) return after;
         const abort = new AbortController();
         this.running.set(userId, { appId: app.id, abort });
+        this.busy.set(place, userId);
+        const free = (): void => {
+            this.running.delete(userId);
+            this.busy.delete(place);
+        };
         let workspace: TurnWorkspace;
         try {
             workspace = await this.options.workspace(userId, app.workspaceId ?? userId);
         } catch (error) {
-            this.running.delete(userId);
+            free();
             throw error;
         }
         const finished = this.run(userId, workspace, app, text, toggles, model, abort.signal, focus)
             .catch((error: unknown) => this.options.report.info('Agent turn could not be recorded', { userId, appId: app.id, error: error instanceof Error ? error.message : String(error) }))
             .finally(() => {
                 workspace.release();
-                this.running.delete(userId);
+                free();
             });
         this.finishing.add(finished);
         void finished.then(() => this.finishing.delete(finished));

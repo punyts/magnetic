@@ -42,7 +42,9 @@ import { Workspaces } from '../workspaces/Workspaces.js';
 import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Orgs } from '../orgs/Orgs.js';
+import { AppInstances } from '../orgs/Instances.js';
 import { orgRoutes } from './orgRoutes.js';
+import { orgSettingsRoutes } from './orgSettingsRoutes.js';
 import { assertMigrated, EmbeddingIndex, PART_SOURCE, partSource, pgWorkspaceStorage } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
@@ -274,6 +276,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const stamps = new Stamps(db);
     const orgs = new Orgs(db);
     const access = new AppAccess(db);
+    const instances = new AppInstances(db, access);
     const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource }, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
     index?.start(options.embedEveryMs);
@@ -453,19 +456,22 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     }
 
-    const handleOrgRoute = orgRoutes({
+    const orgContext = {
         db,
         orgs,
         access,
+        instances,
         workspaces,
         toolsOf,
         signedIn,
-        readJson: (request) => readJsonBody(request, MAX_FORM_BYTES),
+        readJson: (request: IncomingMessage) => readJsonBody(request, MAX_FORM_BYTES),
         sendJson,
         origin: () => publicOrigin ?? origin,
         closeOrgViews,
         appNameOf
-    });
+    };
+    const handleOrgRoute = orgRoutes(orgContext);
+    const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location) });
 
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
@@ -839,6 +845,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (await handleOrgRoute(request, response, method, path)) return true;
+        if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');

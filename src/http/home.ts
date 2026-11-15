@@ -52,7 +52,7 @@ html, body.home { height: 100%; margin: 0; overflow: hidden; background: var(--p
 
 /**
  * `/assets/home.js`: what the home app emits, raised on the page by the host script as `stateui:emit`. `open` goes to
- * an app, `create` makes one (`POST /new`, answered with its id) and opens its editor, `signout` signs out, and `mode`
+ * an app, `create` makes one (`POST /new`, answered with its id) and opens its editor, `orgs` opens the org settings, `signout` signs out, and `mode`
  * and `language` keep the person's choice (`POST /prefs`) and load the page again in it, `editEditor` opens the person's
  * editor in the editor and `resetEditor` puts it back to Magnetic's
  */
@@ -106,6 +106,7 @@ addEventListener('stateui:emit', (event) => {
     else if ((name === 'mode' || name === 'language') && typeof payload === 'string') void choose({ [name]: payload });
     else if (name === 'editEditor') void editor('/editor');
     else if (name === 'resetEditor') { if (confirm(T['home.resetConfirm'])) void editor('/editor/reset'); }
+    else if (name === 'orgs') location.assign('/settings/orgs');
     else if (name === 'signout') void fetch('/signout', { method: 'POST' }).finally(() => location.assign('/signin'));
 });
 `;

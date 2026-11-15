@@ -2,7 +2,7 @@ import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentModel, ModelListener, ModelMessage, ModelRequest } from '../agent/AgentModel.js';
-import { SMALLER_INPUTS_NOTE } from '../agent/AgentTurns.js';
+import { APP_BUSY, SMALLER_INPUTS_NOTE } from '../agent/AgentTurns.js';
 import type { AgentEvent } from '../agent/AgentTurns.js';
 import { Chats } from '../agent/Chats.js';
 import { appNameOf, startMagnetic } from './startMagnetic.js';
@@ -386,6 +386,41 @@ describe('Agent turns', () => {
         const done = (await events).at(-1);
         expect(done).toMatchObject({ type: 'done', outcome: 'stopped' });
         expect(magnetic.turns.isRunning(aliceId)).toBe(false);
+    });
+
+    it("should refuse a second person's turn on an org app while another's runs, and take it once that one ends", async () => {
+        // Arrange
+        const bob = await signIn(magnetic.origin, 'bob');
+        const bobId = (await magnetic.sessions.find(bob.split('=')[1]))?.userId as string;
+        const org = await magnetic.orgs.create(aliceId, { name: 'Turn Co', slug: 'turn-co' });
+        await magnetic.database.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'builder')", [org.id, bobId]);
+        const json = (cookie: string): Record<string, string> => ({ Cookie: cookie, Origin: magnetic.origin, 'Content-Type': 'application/json' });
+        const made = await fetch(`${magnetic.origin}/orgs/${org.id}/apps`, { method: 'POST', headers: json(alice), body: JSON.stringify({ name: 'Shared board' }) });
+        const orgAppId = ((await made.json()) as { id: string }).id;
+        await magnetic.access.set(aliceId, org.workspaceId, orgAppId, { kind: 'user', id: bobId }, 'edit');
+        model.steps = [(_params, _listener, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))))];
+        const { all: events } = await opened(magnetic.origin, orgAppId, alice, (event) => event.type === 'done');
+
+        // Act
+        const first = await postTurn(magnetic.origin, orgAppId, alice, 'Add a column');
+        const second = await postTurn(magnetic.origin, orgAppId, bob, 'Add a row');
+        const own = await fetch(`${magnetic.origin}/new`, { method: 'POST', headers: { Cookie: bob, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=bobs-own', redirect: 'manual' });
+        const ownId = decodeURIComponent((own.headers.get('location') ?? '').replace('/edit/', ''));
+        model.steps.push(() => answer([{ type: 'text', text: 'Done.' }], 'end_turn'));
+        const elsewhere = await postTurn(magnetic.origin, ownId, bob, 'Something of my own');
+        await fetch(`${magnetic.origin}/edit/${orgAppId}/stop`, { method: 'POST', headers: json(alice), body: '{}' });
+        await events;
+        while (magnetic.turns.isRunning(aliceId) || magnetic.turns.isRunning(bobId)) await new Promise((resolve) => setTimeout(resolve, 10));
+        model.steps.push(() => answer([{ type: 'text', text: 'Done.' }], 'end_turn'));
+        const after = await postTurn(magnetic.origin, orgAppId, bob, 'Add a row');
+
+        // Assert
+        expect(first.status).toBe(202);
+        expect(second.status).toBe(409);
+        expect(((await second.json()) as { message: string }).message).toBe(APP_BUSY);
+        expect(elsewhere.status).toBe(202);
+        expect(after.status).toBe(202);
+        while (magnetic.turns.isRunning(bobId)) await new Promise((resolve) => setTimeout(resolve, 10));
     });
 
     it('should report a refusal of the model and run no tools', async () => {

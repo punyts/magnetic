@@ -325,6 +325,15 @@ export class Orgs {
         return (await this.get(orgId)) as Org;
     }
 
+    /** What an invite is for, to show before it is accepted; `undefined` when it is not valid any more */
+    async invitation(token: string): Promise<{ readonly org: Org; readonly email: string; readonly role: OrgRole } | undefined> {
+        if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
+        const invite = (await this.db.query<{ org_id: string; email: string; role: OrgRole; expires_at: Date; accepted_at: Date | null }>('SELECT org_id, email, role, expires_at, accepted_at FROM org_invite WHERE token_hash = $1', [hashOf(token)])).rows[0];
+        if (invite === undefined || invite.accepted_at !== null || invite.expires_at.getTime() <= this.now().getTime()) return undefined;
+        const org = await this.get(invite.org_id);
+        return org === undefined ? undefined : { org, email: invite.email, role: invite.role };
+    }
+
     /** The org's audit log, newest first; admins and owners */
     async auditLog(actorId: string, orgId: string, limit = 200): Promise<Array<Record<string, unknown>>> {
         await this.require(orgId, actorId, 'admin');
