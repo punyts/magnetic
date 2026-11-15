@@ -3,12 +3,31 @@ import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
 import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
-import { createDatabase, migrate } from '@punyts/stateui-pg';
+import { createDatabase, EmbeddingIndex, hashEmbedder, localEmbedder, migrate, PART_SOURCE, partSource } from '@punyts/stateui-pg';
+import type { Embedder } from '@punyts/stateui-pg';
+import { CHAT_SOURCE } from './agent/Chats.js';
+import { chatSource } from './search/Search.js';
 import { ALL_MIGRATIONS } from './storage/db.js';
 import { importPeople } from './storage/importFiles.js';
 import type { OidcProvider } from './auth/OidcSignIn.js';
 import { MockAgentModel } from './testing/mockAgentModel.js';
 import { startMockOidcProvider } from './testing/mockOidcProvider.js';
+
+/** The embedder the options name; the local model only when its package is installed, as it never falls back to another */
+async function embedderOf(kind: 'local' | 'hash' | 'off', modelCache: string | undefined): Promise<Embedder | undefined> {
+    if (kind === 'off') return undefined;
+    if (kind === 'hash') return hashEmbedder();
+    const name = '@huggingface/transformers';
+    const installed = await import(name).then(
+        () => true,
+        () => false
+    );
+    if (!installed) {
+        process.stderr.write('magnetic: semantic search is off: the local model needs @huggingface/transformers (npm install @huggingface/transformers -w @punyts/magnetic), or start with --embedding hash\n');
+        return undefined;
+    }
+    return localEmbedder(modelCache === undefined ? {} : { cacheDir: modelCache });
+}
 
 async function main(): Promise<void> {
     let options;
@@ -52,6 +71,22 @@ async function main(): Promise<void> {
         }
         return;
     }
+    const embedder = await embedderOf(options.embedding, options.modelCache);
+    if (options.command === 'reindex') {
+        try {
+            if (embedder === undefined) throw new Error('reindex needs an embedder: --embedding local or hash');
+            await migrate(database, ALL_MIGRATIONS);
+            // Every part and chat entry of every workspace: the migration owner role sees past row-level security
+            await database.query("INSERT INTO embedding_job (workspace_id, source_kind, source_id) SELECT workspace_id, $1, kind || '/' || id FROM part", [PART_SOURCE]);
+            await database.query('INSERT INTO embedding_job (workspace_id, source_kind, source_id) SELECT workspace_id, $1, id::text FROM chat_entry', [CHAT_SOURCE]);
+            const index = new EmbeddingIndex(database, embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource });
+            await index.drain();
+            process.stdout.write(`magnetic: everything is embedded with ${embedder.model}\n`);
+        } finally {
+            await database.close();
+        }
+        return;
+    }
     if (options.migrate) {
         for (const migration of await migrate(database, ALL_MIGRATIONS)) process.stderr.write(`magnetic: applied ${migration.owner} ${String(migration.version).padStart(4, '0')} ${migration.name}\n`);
     }
@@ -69,6 +104,7 @@ async function main(): Promise<void> {
     if (mock !== undefined) providers.push({ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret });
     const server = await startMagnetic({
         database,
+        ...(embedder !== undefined && { embedder }),
         host: options.host,
         port: options.port,
         ...(options.runtimePort !== undefined && { runtimePort: options.runtimePort }),

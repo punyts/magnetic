@@ -18,6 +18,9 @@ export type ChatEntry =
 /** The most entries kept per app */
 const KEEP = 100;
 
+/** The source kind of chat entries in the embedding index; an entry's source id is its id */
+export const CHAT_SOURCE = 'chat';
+
 interface ChatRow {
     role: 'person' | 'agent';
     text: string;
@@ -38,7 +41,11 @@ function entryOf(row: ChatRow): ChatEntry {
  * gives the last 100, oldest first. Today the workspace is the person's own, so both ids are the user's
  */
 export class Chats {
-    constructor(private readonly db: Database) {}
+    constructor(
+        private readonly db: Database,
+        /** Queues each new entry's embedding, for the agent's recall of earlier chats */
+        private readonly options: { readonly embed?: boolean } = {}
+    ) {}
 
     async read(userId: string, appId: string, workspaceId: string = userId): Promise<readonly ChatEntry[]> {
         const rows = (
@@ -54,7 +61,10 @@ export class Chats {
     }
 
     async append(userId: string, appId: string, entry: ChatEntry, workspaceId: string = userId): Promise<void> {
-        await this.db.query('INSERT INTO chat_entry (workspace_id, app_id, user_id, role, text, tools, outcome, message, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [
+        const insert = 'INSERT INTO chat_entry (workspace_id, app_id, user_id, role, text, tools, outcome, message, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)';
+        // The entry and its embedding job commit together
+        const sql = this.options.embed === true ? `WITH entry AS (${insert} RETURNING id, workspace_id) INSERT INTO embedding_job (workspace_id, source_kind, source_id) SELECT workspace_id, '${CHAT_SOURCE}', id::text FROM entry` : insert;
+        await this.db.query(sql, [
             workspaceId,
             appId,
             userId,

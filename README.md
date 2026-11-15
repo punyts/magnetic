@@ -74,6 +74,8 @@ can run twice).
 |---|---|---|---|
 | `--database-url <url>` | `MAGNETIC_DATABASE_URL` | none, required | Magnetic's Postgres database with pgvector |
 | `--migrate` | `MAGNETIC_MIGRATE=true` | off | Applies the migrations before serving |
+| `--embedding <kind>` | `MAGNETIC_EMBEDDING` | `local` | What makes search vectors: `local`, `hash` or `off` |
+| `--model-cache <dir>` | `MAGNETIC_MODEL_CACHE` | the library's | Where the local model is kept |
 | `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | For `import`: the data folder of an earlier, file-based Magnetic |
 | `--port <n>` | `MAGNETIC_PORT` | `4300` | Port of the pages and sockets |
 | `--runtime-port <n>` | `MAGNETIC_RUNTIME_PORT` | the next port | Port of the runtime origin, which serves only the app frame |
@@ -247,6 +249,25 @@ The routes are JSON, for a settings page to come:
 | `POST /orgs/<id>/apps/<appId>/open` | Open the app to every member, or close it (`{ open }`) |
 | `GET /orgs/<id>/audit` | The audit log, newest first (admins) |
 | `POST /apps/<id>/move` | Move an app of your own into an org (`{ orgId }`) |
+
+## Semantic search
+
+Magnetic embeds every part when it changes and every chat entry when it is written, and searches them by meaning
+(`docs/design/magnetic-postgres.md`, "Every stored vector names its model"). A write never waits: it queues a job in
+its own transaction, and a worker in the server embeds the queue every 2 seconds. Every vector is stored with the model
+that made it, and a search compares only that model's vectors, through the model's own HNSW index.
+
+- `GET /search?q=...` finds the apps a person may open, in their own workspace and their orgs', best first.
+- The agent gets `parts_search` (the parts of the workspace closest to a need, to reuse one) and `chat_recall` (the
+  person's own earlier chats in the workspace, about any app).
+
+`--embedding local` (the default) runs all-MiniLM-L6-v2 on the CPU through ONNX Runtime: no key, and no text leaves
+the server. It needs `@huggingface/transformers` (`npm install @huggingface/transformers -w @punyts/magnetic`); the
+model, about 90 MB, is downloaded into `--model-cache` on first use, so bake it into a hosted image. Without the
+package the server says so and runs without semantic search; it never stores vectors under another model.
+`--embedding hash` hashes words instead (no model, for development and tests), and `off` turns it off. After changing
+the embedding, `magnetic reindex` embeds everything again with the new model; run it as the database's owner, as it
+reads every workspace.
 
 ## Use it from code
 

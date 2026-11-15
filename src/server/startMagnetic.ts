@@ -43,7 +43,10 @@ import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Orgs } from '../orgs/Orgs.js';
 import { orgRoutes } from './orgRoutes.js';
-import { assertMigrated, pgWorkspaceStorage } from '@punyts/stateui-pg';
+import { assertMigrated, EmbeddingIndex, PART_SOURCE, partSource, pgWorkspaceStorage } from '@punyts/stateui-pg';
+import type { Embedder } from '@punyts/stateui-pg';
+import { CHAT_SOURCE } from '../agent/Chats.js';
+import { chatSource, Search } from '../search/Search.js';
 import { ALL_MIGRATIONS } from '../storage/db.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
 
@@ -108,6 +111,13 @@ export interface MagneticAgentOptions {
 export interface MagneticOptions {
     /** Magnetic's database, migrated (`migrate(db, ALL_MIGRATIONS)`); the server does not close it */
     readonly database: Database;
+    /**
+     * Makes the vectors of semantic search (apps and parts, the agent's recall of earlier chats), such as
+     * `localEmbedder()`; without one there is no semantic search and nothing is queued to embed
+     */
+    readonly embedder?: Embedder;
+    /** How often the embedding worker looks for work; default 2 s */
+    readonly embedEveryMs?: number;
     readonly host: string;
     /** 0 picks a free port */
     readonly port: number;
@@ -154,6 +164,8 @@ export interface RunningMagnetic {
     readonly sessions: Sessions;
     readonly orgs: Orgs;
     readonly access: AppAccess;
+    /** The embedding index, when the server has an embedder */
+    readonly index?: EmbeddingIndex;
     readonly workspaces: Workspaces;
     readonly signIn: OidcSignIn;
     readonly turns: AgentTurns;
@@ -262,6 +274,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const stamps = new Stamps(db);
     const orgs = new Orgs(db);
     const access = new AppAccess(db);
+    const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource }, { report: (message, fields) => options.report.info(message, fields) });
+    const search = index === undefined ? undefined : new Search(db, index, access);
+    index?.start(options.embedEveryMs);
     let origin = '';
     let runtimePort = 0;
     const publicOrigin = options.publicOrigin?.replace(/\/+$/, '');
@@ -295,7 +310,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
-                const storage = pgWorkspaceStorage(db, workspaceId);
+                const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined });
                 // A person's own workspace starts with the showcase; an org's starts empty
                 if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
@@ -360,15 +375,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
-        chats: new Chats(db),
+        chats: new Chats(db, { embed: index !== undefined }),
         ...(options.agent?.limits !== undefined && { limits: options.agent.limits }),
         report: options.report,
-        workspace: async (_userId, workspaceId) => {
+        workspace: async (userId, workspaceId) => {
             const release = workspaces.retain(workspaceId);
             try {
                 const services = await workspaces.get(workspaceId);
                 system ??= agentSystemPrompt(services);
-                return { tools: toolsOf(services), system, release };
+                return { tools: [...toolsOf(services), ...(search?.tools(userId, workspaceId) ?? [])], system, release };
             } catch (error) {
                 release();
                 throw error;
@@ -824,6 +839,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (await handleOrgRoute(request, response, method, path)) return true;
+        if (method === 'GET' && path === '/search') {
+            const who = await signedIn(request);
+            if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const query = (new URL(request.url ?? '/', 'http://localhost').searchParams.get('q') ?? '').slice(0, 500);
+            sendJson(response, 200, { apps: search === undefined ? [] : await search.apps(who.user.id, query), semantic: search !== undefined });
+            return true;
+        }
         const link = /^\/s\/([A-Za-z0-9_-]{1,64})(\/remix)?$/.exec(path);
         if (link !== null && (method === 'GET' ? link[2] === undefined : method === 'POST' && link[2] !== undefined)) {
             await linkRoute(request, response, method, link[1] as string, link[2] !== undefined);
@@ -1071,6 +1093,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sessions,
         orgs,
         access,
+        ...(index !== undefined && { index }),
         workspaces,
         signIn,
         turns,
@@ -1082,6 +1105,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             stopped = true;
             clearInterval(sweep);
             await turns.stopAll();
+            await index?.stop();
             await http.close();
             await workspaces.close();
         }
