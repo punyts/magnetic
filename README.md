@@ -406,4 +406,34 @@ The options also take:
 ```bash
 npm run build
 npm test        # needs the database: npm run magnetic:db, or PUNYTS_TEST_DATABASE_URL. Each test file gets a schema of its own. vitest: accounts, sessions, workspaces, the options, budgets, grants, provider sign-in against the mock provider, agent turns against recorded answers, sharing and revoking, and the server over HTTP and WebSockets
+npm run e2e     # builds, then the Playwright suite: the whole UI as a person uses it, at desktop and phone sizes
+npm run e2e:report   # the last run's report, with a trace and a screenshot of each failure
 ```
+
+**The Playwright suite** (`e2e/`, `playwright.config.ts`) starts its own server, `e2e/server.mjs`:
+- Magnetic from `dist` on a fresh schema of the test database, dropped when the run ends;
+- the dev users alice, bob, carol and dan, the mock OIDC provider, and the scripted agent, so no test needs an API
+  key or LinkedIn;
+- the beta's budget ($5 per person);
+- a control port (the page port + 2) that sets who the mock provider signs in next, so a test can sign in as a
+  person with a verified email.
+
+`e2e/fixtures.ts` has a page object per page. Magnetic's own pages are StateUI apps in frames from the runtime
+origin, and the page objects find them:
+- the sign-in page's frame is in `#page-app`;
+- Your apps' frame is in `body.home`;
+- the editor is `#editor iframe`, with the person's app on the canvas at `#artboard iframe`;
+- an app opened on its own, as a person given it sees it, has only one frame.
+
+The org settings, Shared by me and privacy pages are plain HTML.
+
+| Spec | Covers |
+|---|---|
+| `signin.spec.ts` | The sign-in choices; a dev user and a provider sign-in landing on Your apps; back to the page asked for; sign out; the privacy page without a session |
+| `home.spec.ts` | Making an app (and the name it needs); its card opening it; Orgs; appearance and language kept across a reload |
+| `editor.spec.ts` | The bars and tools; the ideas of a blank app; a turn of the agent and the chat; frame sizes; zoom and fit; selecting a part, its properties, and editing its text by hand; searching the library; placing a component from it; Ctrl+Shift+E; going home |
+| `share.spec.ts` | What each right means; a `use` link opened by another person, on their Your apps, then revoked; a remix becoming the other person's copy |
+| `orgs.spec.ts` | Making an org; a group; an invite accepted by the person with that verified email, with its role; an invite refused for another email; an app made in the org |
+
+The server can be started on its own for a look around, as the `magnetic-e2e` launch configuration does:
+`node e2e/server.mjs` serves http://127.0.0.1:4390.
