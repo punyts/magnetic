@@ -39,6 +39,10 @@ import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
+import { allows, AppAccess } from '../orgs/AppAccess.js';
+import type { AppPermission } from '../orgs/AppAccess.js';
+import { Orgs } from '../orgs/Orgs.js';
+import { orgRoutes } from './orgRoutes.js';
 import { assertMigrated, pgWorkspaceStorage } from '@punyts/stateui-pg';
 import { ALL_MIGRATIONS } from '../storage/db.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
@@ -148,6 +152,8 @@ export interface RunningMagnetic {
     readonly runtimePort: number;
     readonly accounts: Accounts;
     readonly sessions: Sessions;
+    readonly orgs: Orgs;
+    readonly access: AppAccess;
     readonly workspaces: Workspaces;
     readonly signIn: OidcSignIn;
     readonly turns: AgentTurns;
@@ -254,6 +260,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const accounts = new Accounts(db);
     const sessions = new Sessions(db);
     const stamps = new Stamps(db);
+    const orgs = new Orgs(db);
+    const access = new AppAccess(db);
     let origin = '';
     let runtimePort = 0;
     const publicOrigin = options.publicOrigin?.replace(/\/+$/, '');
@@ -286,14 +294,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         });
     const workspaces = new Workspaces(
         {
-            open: async (userId) => {
-                const storage = pgWorkspaceStorage(db, userId);
-                if ((options.starter ?? 'showcase') === 'showcase' && userId !== SYSTEM_USER_ID) {
+            open: async (workspaceId) => {
+                const storage = pgWorkspaceStorage(db, workspaceId);
+                // A person's own workspace starts with the showcase; an org's starts empty
+                if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
                 }
                 const services = createServices({
                     storage,
-                    ownerId: userId,
+                    ownerId: workspaceId,
                     report: options.report,
                     origin: () => origin,
                     agentAnswers: false,
@@ -354,10 +363,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         chats: new Chats(db),
         ...(options.agent?.limits !== undefined && { limits: options.agent.limits }),
         report: options.report,
-        workspace: async (userId) => {
-            const release = workspaces.retain(userId);
+        workspace: async (_userId, workspaceId) => {
+            const release = workspaces.retain(workspaceId);
             try {
-                const services = await workspaces.get(userId);
+                const services = await workspaces.get(workspaceId);
                 system ??= agentSystemPrompt(services);
                 return { tools: toolsOf(services), system, release };
             } catch (error) {
@@ -405,6 +414,44 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return user === undefined ? undefined : { user, token };
     }
 
+    /** The open view sockets of org apps by `<userId>/<appId>`, closed when the person loses the app */
+    const orgSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
+
+    /** An app a person reaches: one of their own (they manage it), or one of an org's they may at least view */
+    async function reach(userId: string, appId: string): Promise<{ readonly services: Services; readonly app: AppPart; readonly workspaceId: string; readonly orgId?: string; readonly permission: AppPermission } | undefined> {
+        const own = await workspaces.get(userId);
+        const app = await own.instanceViews.find(appId);
+        if (app !== undefined) return { services: own, app, workspaceId: userId, permission: 'manage' };
+        const place = await access.locate(userId, appId);
+        if (place?.orgId === undefined) return undefined;
+        const services = await workspaces.get(place.workspaceId);
+        const found = await services.instanceViews.find(appId);
+        return found === undefined ? undefined : { services, app: found, workspaceId: place.workspaceId, orgId: place.orgId, permission: place.permission };
+    }
+
+    /** Closes a person's open views of an org's apps, such as when they leave the org or lose an app */
+    function closeOrgViews(userId: string, appIds: readonly string[] | 'all', reason: string): void {
+        for (const [key, closes] of [...orgSockets]) {
+            const [owner, appId] = key.split('/');
+            if (owner !== userId || (appIds !== 'all' && !appIds.includes(appId ?? ''))) continue;
+            for (const close of [...closes]) close(reason);
+        }
+    }
+
+    const handleOrgRoute = orgRoutes({
+        db,
+        orgs,
+        access,
+        workspaces,
+        toolsOf,
+        signedIn,
+        readJson: (request) => readJsonBody(request, MAX_FORM_BYTES),
+        sendJson,
+        origin: () => publicOrigin ?? origin,
+        closeOrgViews,
+        appNameOf
+    });
+
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
         if (who === undefined) {
@@ -415,6 +462,29 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const key = Sessions.keyOf(who.token);
         const appId = APP_PATH.exec(new URL(request.url ?? '/', 'http://localhost').pathname)?.[1]?.toLowerCase();
         if (appId !== undefined && (await services.instanceViews.find(appId)) === undefined) {
+            // An app of one of their orgs: their own instance (persona = their id), as far as their permission goes
+            const place = await reach(who.user.id, appId);
+            if (place?.orgId !== undefined) {
+                const orgAnswer: HttpTenant = {
+                    useCases: place.services.useCases,
+                    hub: place.services.hub,
+                    liveViews: place.services.liveViews,
+                    instances: place.services.instanceViews,
+                    persona: who.user.id,
+                    access: allows(place.permission, 'edit') ? 'owner' : place.permission === 'use' ? 'use' : 'view',
+                    retain: (close) => {
+                        const release = workspaces.retain(place.workspaceId);
+                        const untrackSession = track(sessionSockets, key, close);
+                        const untrackOrg = track(orgSockets, `${who.user.id}/${appId}`, close);
+                        return () => {
+                            release();
+                            untrackSession();
+                            untrackOrg();
+                        };
+                    }
+                };
+                return { tenant: orgAnswer };
+            }
             // Not one of theirs: an app shared with them, or one taken back from them
             const shared = await grants.access(appId, who.user.id);
             if (shared !== undefined && 'revoked' in shared) {
@@ -467,12 +537,23 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         };
     }
 
-    /** The apps shared with a person, for their home page */
+    /** The apps shared with a person and the apps of their orgs they may open, for their home page */
     async function sharedApps(userId: string): Promise<SharedApp[]> {
         const found: SharedApp[] = [];
         for (const grant of await grants.sharedWith(userId)) {
             const owner = await accounts.user(grant.ownerId);
             found.push({ appId: grant.appId, name: grant.appName, right: grant.right === 'use' ? 'use' : 'view', ownerName: owner?.name ?? 'Someone' });
+        }
+        // The apps of their orgs that they may open, with the org as the one who shares them
+        for (const membership of await orgs.of(userId)) {
+            const visible = await access.visibleApps(userId, membership.workspaceId);
+            if (visible.size === 0) continue;
+            const services = await workspaces.get(membership.workspaceId);
+            for (const app of await services.instanceViews.list()) {
+                const permission = visible.get(app.id);
+                if (permission === undefined || found.some((shared) => shared.appId === app.id)) continue;
+                found.push({ appId: app.id, name: app.name, right: permission === 'view' ? 'view' : 'use', ownerName: membership.name });
+            }
         }
         return found;
     }
@@ -742,6 +823,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
         }
+        if (await handleOrgRoute(request, response, method, path)) return true;
         const link = /^\/s\/([A-Za-z0-9_-]{1,64})(\/remix)?$/.exec(path);
         if (link !== null && (method === 'GET' ? link[2] === undefined : method === 'POST' && link[2] !== undefined)) {
             await linkRoute(request, response, method, link[1] as string, link[2] !== undefined);
@@ -751,14 +833,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     /** The page of an app, with the editor hidden (`editing` false) or shown */
-    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean, look: PageLook): string {
+    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean, look: PageLook, persona?: string): string {
         return shellPage({
             look,
             appId: app.id,
             name: app.name,
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
-            namespace: services.instanceViews.namespace(app),
+            namespace: services.instanceViews.namespace(app, persona),
             models: turns.models.map(modelChoice),
             editing,
             blank: isBlank(app.body)
@@ -769,14 +851,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     async function ownAppPage(request: IncomingMessage, response: ServerResponse, appId: string): Promise<boolean> {
         const who = await signedIn(request);
         if (who === undefined) return false;
-        const services = await workspaces.get(who.user.id);
-        const app = await services.instanceViews.find(appId);
-        if (app === undefined) return false;
+        const place = await reach(who.user.id, appId);
+        // An org app the person may only use or view is served as any shared app is, by the tenant
+        if (place === undefined || !allows(place.permission, 'edit')) return false;
+        const { services, app } = place;
         if (app.name === HOME_APP) {
             redirect(response, '/');
             return true;
         }
-        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id)));
+        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id));
         return true;
     }
 
@@ -788,9 +871,16 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             else sendJson(response, 401, { message: 'Sign in first.' });
             return;
         }
-        const services = await workspaces.get(who.user.id);
-        const app = await services.instanceViews.find(appId);
-        if (app === undefined) throw new HttpError(404, 'No app with this id', 'not_found');
+        const place = await reach(who.user.id, appId);
+        if (place === undefined) throw new HttpError(404, 'No app with this id', 'not_found');
+        // Only people who may edit an app open its editor; the others are sent to the app
+        if (!allows(place.permission, 'edit')) {
+            if (what === undefined && method === 'GET') redirect(response, `/apps/${encodeURIComponent(appId)}`);
+            else sendJson(response, 403, { message: 'Your access to this app does not include changing it.' });
+            return;
+        }
+        const { services, app, workspaceId } = place;
+        const persona = place.orgId === undefined ? undefined : who.user.id;
         // "Your apps" is Magnetic's own: the agent does not change it
         if (app.name === HOME_APP) {
             if (what === undefined && method === 'GET') redirect(response, '/');
@@ -799,21 +889,21 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id)));
+            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona));
             return;
         }
         if (what === '/events' && method === 'GET') {
             response.writeHead(200, { ...COMMON_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
             response.write(': open\n\n');
             const key = Sessions.keyOf(who.token);
-            const release = workspaces.retain(userId);
+            const release = workspaces.retain(workspaceId);
             const open = sessionSockets.get(key) ?? new Set();
             const close = (): void => {
                 response.end();
             };
             open.add(close);
             sessionSockets.set(key, open);
-            const stopListening = await turns.subscribe(userId, appId, (event) => response.write(`data: ${JSON.stringify(event)}\n\n`));
+            const stopListening = await turns.subscribe(userId, appId, (event) => response.write(`data: ${JSON.stringify(event)}\n\n`), workspaceId);
             const beat = setInterval(() => response.write(': beat\n\n'), 25_000);
             response.on('close', () => {
                 clearInterval(beat);
@@ -838,7 +928,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 sendJson(response, 400, { message: 'Choose one of the models offered.' });
                 return;
             }
-            const started = await turns.start(userId, { id: appId, name: app.name }, text, context, typeof fields.model === 'string' ? fields.model : undefined, focus);
+            const started = await turns.start(userId, { id: appId, name: app.name, workspaceId }, text, context, typeof fields.model === 'string' ? fields.model : undefined, focus);
             if ('refused' in started) sendJson(response, 409, { message: started.refused });
             else sendJson(response, 202, { ok: true });
             return;
@@ -847,8 +937,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendJson(response, 200, { stopped: turns.stop(userId) });
             return;
         }
+        if (what?.startsWith('/share') === true && !allows(place.permission, 'manage')) {
+            sendJson(response, 403, { message: 'Only people who manage the app can share it.' });
+            return;
+        }
         if (what === '/share' && method === 'GET') {
-            const links = (await grants.forApp(userId, appId)).map((grant) => ({ id: grant.id, right: grant.right, url: linkOf(grant), members: Object.keys(grant.members).length, revoked: grant.revokedAt !== undefined, createdAt: grant.createdAt }));
+            const links = (await grants.forApp(workspaceId, appId)).map((grant) => ({ id: grant.id, right: grant.right, url: linkOf(grant), members: Object.keys(grant.members).length, revoked: grant.revokedAt !== undefined, createdAt: grant.createdAt }));
             sendJson(response, 200, { grants: links });
             return;
         }
@@ -864,7 +958,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 sendJson(response, 409, { message: 'Everyone starts with this app already. Ask the agent to make an app of your own from it, and share that.' });
                 return;
             }
-            const grant = await grants.create(userId, { id: appId, name: app.name }, right, userId);
+            const grant = await grants.create(workspaceId, { id: appId, name: app.name }, right, userId);
             sendJson(response, 201, { id: grant.id, right: grant.right, url: linkOf(grant) });
             return;
         }
@@ -874,7 +968,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const revoke = what === undefined ? null : /^\/share\/([^/]+)\/revoke$/.exec(what);
         if (revoke !== null && method === 'POST') {
-            const grant = await grants.revoke(userId, decodeURIComponent(revoke[1] as string));
+            const grant = await grants.revoke(workspaceId, decodeURIComponent(revoke[1] as string));
             if (grant === undefined || grant.appId !== appId) {
                 sendJson(response, 404, { message: 'No such link.' });
                 return;
@@ -975,6 +1069,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         runtimePort: http.runtimePort,
         accounts,
         sessions,
+        orgs,
+        access,
         workspaces,
         signIn,
         turns,

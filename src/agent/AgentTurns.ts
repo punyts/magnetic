@@ -30,6 +30,13 @@ export interface TurnLimits {
 
 export const DEFAULT_TURN_LIMITS: TurnLimits = { toolCalls: 40, ms: 5 * 60_000, maxTokens: 32_000 };
 
+/** The app a turn works on, and the workspace it is in when that is not the user's own */
+export interface TurnApp {
+    readonly id: string;
+    readonly name: string;
+    readonly workspaceId?: string;
+}
+
 /** What a turn works with: the tools of the user's workspace, the system prompt, and a hold on the workspace released when the turn ends */
 export interface TurnWorkspace {
     readonly tools: readonly UiToolDefinition[];
@@ -45,7 +52,8 @@ export interface AgentTurnsOptions {
     /** The model ids a turn may name; default only `modelName` */
     readonly models?: readonly string[];
     readonly effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-    readonly workspace: (userId: string) => Promise<TurnWorkspace>;
+    /** The workspace a turn works in: the user's own, or an org's for an app of the org */
+    readonly workspace: (userId: string, workspaceId: string) => Promise<TurnWorkspace>;
     readonly budgets: Budgets;
     readonly chats: Chats;
     readonly limits?: TurnLimits;
@@ -157,11 +165,11 @@ export class AgentTurns {
     }
 
     /** Listens to an app's turns; the listener is first sent the chat so far. Returns the function that stops it */
-    async subscribe(userId: string, appId: string, listener: (event: AgentEvent) => void): Promise<() => void> {
+    async subscribe(userId: string, appId: string, listener: (event: AgentEvent) => void, workspaceId: string = userId): Promise<() => void> {
         const set = this.listeners.get(key(userId, appId)) ?? new Set();
         set.add(listener);
         this.listeners.set(key(userId, appId), set);
-        listener({ type: 'state', running: this.running.get(userId)?.appId === appId, history: await this.options.chats.read(userId, appId) });
+        listener({ type: 'state', running: this.running.get(userId)?.appId === appId, history: await this.options.chats.read(userId, appId, workspaceId) });
         return () => {
             set.delete(listener);
             if (set.size === 0) this.listeners.delete(key(userId, appId));
@@ -193,7 +201,7 @@ export class AgentTurns {
      * Starts a turn on an app. Refused, with a reason for the person, when a turn of the user is already running or
      * the budget is spent. The turn runs on; its end is the `done` event. `finished` resolves when it has ended
      */
-    async start(userId: string, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string = this.options.modelName, focus: readonly string[] = []): Promise<{ refused: string } | { finished: Promise<void> }> {
+    async start(userId: string, app: TurnApp, text: string, toggles: readonly ContextToggle[], model: string = this.options.modelName, focus: readonly string[] = []): Promise<{ refused: string } | { finished: Promise<void> }> {
         if (!this.models.includes(model)) return { refused: 'That model is not offered on this server.' };
         if (this.running.has(userId)) return { refused: 'The agent is still working on your last request.' };
         const refusal = await this.options.budgets.check(userId);
@@ -202,7 +210,7 @@ export class AgentTurns {
         this.running.set(userId, { appId: app.id, abort });
         let workspace: TurnWorkspace;
         try {
-            workspace = await this.options.workspace(userId);
+            workspace = await this.options.workspace(userId, app.workspaceId ?? userId);
         } catch (error) {
             this.running.delete(userId);
             throw error;
@@ -224,7 +232,7 @@ export class AgentTurns {
         return [modelName, ...models.filter((model) => model !== modelName)];
     }
 
-    private async run(userId: string, workspace: TurnWorkspace, app: { readonly id: string; readonly name: string }, text: string, toggles: readonly ContextToggle[], model: string, signal: AbortSignal, focus: readonly string[]): Promise<void> {
+    private async run(userId: string, workspace: TurnWorkspace, app: TurnApp, text: string, toggles: readonly ContextToggle[], model: string, signal: AbortSignal, focus: readonly string[]): Promise<void> {
         const { chats, budgets, report } = this.options;
         // Stopped by the person or by the deadline; wired before the first await, so a stop that comes early is not lost
         const turnAbort = new AbortController();
@@ -240,8 +248,8 @@ export class AgentTurns {
             stopTurn();
         }, this.limits.ms);
         const at = new Date().toISOString();
-        const history = await chats.read(userId, app.id);
-        await chats.append(userId, app.id, { role: 'person', text, at });
+        const history = await chats.read(userId, app.id, app.workspaceId ?? userId);
+        await chats.append(userId, app.id, { role: 'person', text, at }, app.workspaceId ?? userId);
         this.emit(userId, app.id, { type: 'person', text, at });
 
         const tools = workspace.tools.filter((tool) => !WITHHELD_TOOLS.has(tool.name));
@@ -284,7 +292,7 @@ export class AgentTurns {
                 }
                 const spent = costOf(response.model, response.usage);
                 cost += spent;
-                await budgets.charge(userId, spent, { workspaceId: userId, appId: app.id, model: response.model, usage: response.usage });
+                await budgets.charge(userId, spent, { workspaceId: app.workspaceId ?? userId, appId: app.id, model: response.model, usage: response.usage });
                 if (spoken !== '') said.push(spoken);
                 // A spent budget ends the turn at once, so a hard limit is passed by one request at most
                 const spentOut = await budgets.check(userId);
@@ -348,7 +356,7 @@ export class AgentTurns {
             signal.removeEventListener('abort', stopTurn);
         }
         const entry: ChatEntry = { role: 'agent', text: said.join('\n\n'), at: new Date().toISOString(), tools: lines, outcome, ...(message !== undefined && { message }) };
-        await chats.append(userId, app.id, entry);
+        await chats.append(userId, app.id, entry, app.workspaceId ?? userId);
         this.emit(userId, app.id, { type: 'done', outcome, ...(message !== undefined && { message }), cost });
         report.info('Agent turn', { userId, appId: app.id, model, outcome, toolCalls: lines.length, cost: Number(cost.toFixed(4)) });
     }

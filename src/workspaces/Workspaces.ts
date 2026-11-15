@@ -89,6 +89,11 @@ export class Workspaces {
         await Promise.all([...this.entries.keys()].map((userId) => this.closeOne(userId)));
     }
 
+    /** Closes one workspace now, if it is open, so its next use opens it afresh (after an app moved out of it) */
+    reopen(workspaceId: string): Promise<void> {
+        return this.closeOne(workspaceId);
+    }
+
     /** Past `max`, closes the least recently used workspaces that have no open view */
     private async trim(): Promise<void> {
         if (this.entries.size <= this.max) return;

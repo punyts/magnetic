@@ -211,6 +211,43 @@ can run twice).
   Copies made by remixing are not touched. The starter apps cannot be shared, as every workspace has them under the
   same id.
 
+## Orgs
+
+An org is a company: its members have one role each, its apps live in the org's workspace, and each app has an access
+list (`src/orgs/`, `docs/design/magnetic-postgres.md`).
+
+| Role | Can |
+|---|---|
+| `owner` | Everything, including changing owners; an org always keeps one |
+| `admin` | Members, groups, invites, access lists, the audit log; manages every app |
+| `builder` | Makes apps in the org, moves apps of their own into it, and edits the apps their access allows |
+| `member` | Uses the apps their access allows |
+
+An app's permission for a person is the highest of their own entry and their groups' entries on its access list
+(`manage`, `edit`, `use`, `view`), or `use` when the app is open to the org; owners, admins and whoever made the app
+manage it. Each member has their own instance of an org app (persona = their user id): their route, form values and
+the records of its persona bindings are theirs, and its datasets are shared. Only `edit` and up open the editor and the
+agent, and only `manage` shares it. Losing an app, or leaving the org, closes its open views at once.
+
+Moving an app of one's own into an org (`POST /apps/<id>/move`) keeps its id, so its address and links still work; its
+instances, persona records, files, chat and links go with it in one transaction, and the parts it reaches are copied
+(the person's own workspace keeps its copies). The org's apps show on Your apps beside the apps shared with the person.
+
+The routes are JSON, for a settings page to come:
+
+| Route | What |
+|---|---|
+| `GET`, `POST /orgs` | Your orgs; make one (`{ name, slug }`) |
+| `GET /orgs/<id>/members`, `POST`, `DELETE /orgs/<id>/members/<userId>` | Members; change a role (`{ role }`); remove |
+| `GET`, `POST /orgs/<id>/groups`, `POST`, `DELETE /orgs/<id>/groups/<groupId>/members/<userId>` | Groups and their members |
+| `POST /orgs/<id>/invites` | Invite an email (`{ email, role, groups }`); answers the link |
+| `POST /invites/<token>/accept` | Accept, signed in with the verified email invited, within 7 days |
+| `GET`, `POST /orgs/<id>/apps` | The org's apps you may open; make one (`{ name }`, builders) |
+| `GET`, `POST /orgs/<id>/apps/<appId>/access` | The access list; set or remove an entry (`{ principalKind, principalId, permission }`) |
+| `POST /orgs/<id>/apps/<appId>/open` | Open the app to every member, or close it (`{ open }`) |
+| `GET /orgs/<id>/audit` | The audit log, newest first (admins) |
+| `POST /apps/<id>/move` | Move an app of your own into an org (`{ orgId }`) |
+
 ## Use it from code
 
 ```ts
