@@ -220,6 +220,39 @@ describe('The org settings pages', () => {
         expect((await magnetic.orgs.auditLog(aliceId, orgId)).some((event) => event['action'] === 'instance.support_view')).toBe(true);
     });
 
+    it("should show admins the org's policies, domains, sign-in and spend, change them from the page, and keep sign-in rules to owners", async () => {
+        // Arrange
+        await magnetic.database.query("UPDATE org_member SET role = 'admin' WHERE org_id = $1 AND user_id = $2", [orgId, bobId]);
+        await magnetic.policies.set(aliceId, orgId, { requireSso: true });
+
+        // Act
+        const ownerPage = await (await page(`/settings/orgs/${orgId}`, alice)).text();
+        const adminPage = await (await page(`/settings/orgs/${orgId}`, bob)).text();
+        const byAdmin = await post(`/settings/orgs/${orgId}`, bob, { do: 'policy', externalLinks: 'on', personalWorkspaces: 'on', agentModels: ['claude-haiku-5-5'], retentionDays: '90', monthlyBudget: '' });
+        const domain = await post(`/settings/orgs/${orgId}`, alice, { do: 'addDomain', domain: 'acme.test' });
+        const domainByAdmin = await post(`/settings/orgs/${orgId}`, bob, { do: 'addDomain', domain: 'other.test' });
+        const notThere = await post(`/settings/orgs/${orgId}`, alice, { do: 'verifyDomain', domain: 'acme.test' });
+        const noKey = await post(`/settings/orgs/${orgId}`, alice, { do: 'sso', issuer: 'https://login.acme.test', clientId: 'magnetic', clientSecret: 'secret', enabled: 'on' });
+        const after = await (await page(`/settings/orgs/${orgId}`, alice)).text();
+
+        // Assert
+        expect(ownerPage).toContain('Policies');
+        expect(ownerPage).toContain('Delete the org');
+        expect(ownerPage).toContain('This server has no secret key');
+        expect(adminPage).toContain('Agent spend this month');
+        expect(adminPage).not.toContain('Delete the org');
+        expect(adminPage).toMatch(/name="requireSso" value="on" checked disabled/);
+        expect(byAdmin.status).toBe(303);
+        expect(await magnetic.policies.get(orgId)).toEqual({ personalWorkspaces: true, externalLinks: true, autoJoin: false, requireSso: true, agentModels: ['claude-haiku-5-5'], retentionDays: 90 });
+        expect(domain.status).toBe(303);
+        expect(domainByAdmin.status).toBe(403);
+        expect(notThere.status).toBe(409);
+        expect(noKey.status).toBe(409);
+        expect(after).toContain('_magnetic-challenge.acme.test');
+        await magnetic.policies.set(aliceId, orgId, { requireSso: null, externalLinks: null, agentModels: null, retentionDays: null });
+        await magnetic.database.query("UPDATE org_member SET role = 'member' WHERE org_id = $1 AND user_id = $2", [orgId, bobId]);
+    });
+
     it('should let a member leave the org from its page', async () => {
         // Act
         const left = await post(`/settings/orgs/${orgId}`, bob, { do: 'leave' });

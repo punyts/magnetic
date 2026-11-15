@@ -48,6 +48,7 @@ main.settings { max-width: 60rem; }
 main.settings header nav { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 main.settings input, main.settings select { font: inherit; padding: 0.4rem 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--ink); max-width: 100%; }
 main.settings .stack label { display: grid; gap: 0.25rem; }
+main.settings .stack.wide { max-width: 34rem; }
 main.settings form.row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; margin-top: 0.75rem; }
 main.settings div.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
 main.settings form.spaced { display: block; margin-top: 0.75rem; }

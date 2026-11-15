@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { User } from '../accounts/Accounts.js';
 import { invitePage, orgListPage, orgPage, supportPage } from '../http/orgSettings.js';
-import type { OrgAppView } from '../http/orgSettings.js';
+import type { EnterpriseView, OrgAppView } from '../http/orgSettings.js';
+import { deleteOrg } from '../orgs/Lifecycle.js';
 import { orgTextsOf } from '../http/orgText.js';
 import type { PageLook } from '../http/pages.js';
 import { EDITOR_APP } from '../editor/EditorApp.js';
@@ -20,7 +21,12 @@ export interface OrgSettingsContext extends OrgRouteContext {
     /** Sends one of Magnetic's own script-free pages */
     readonly sendPage: (response: ServerResponse, html: string, status?: number) => void;
     readonly redirect: (response: ServerResponse, location: string) => void;
+    /** The models the server offers, which an org may narrow */
+    readonly models: () => readonly string[];
 }
+
+/** Said when a domain's TXT record is not there (yet) */
+export const VERIFY_FAILED = 'The TXT record was not found yet. DNS can take a while: try again later.';
 
 const UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const LIST = /^\/settings\/orgs$/;
@@ -43,6 +49,24 @@ const text = (form: URLSearchParams, name: string): string => form.get(name) ?? 
  */
 export function orgSettingsRoutes(context: OrgSettingsContext): (request: IncomingMessage, response: ServerResponse, method: string, path: string, query: URLSearchParams) => Promise<boolean> {
     const { orgs, access } = context;
+
+    /** The org's policies, domains, sign-in and this month's spend, for its admins */
+    async function enterpriseOf(userId: string, org: Org, apps: readonly OrgAppView[]): Promise<EnterpriseView> {
+        const members = await orgs.members(userId, org.id);
+        const nameOf = (id: string): string => members.find((member) => member.userId === id)?.name ?? id.slice(0, 8);
+        const appName = (id: string | null): string => (id === null ? '' : (apps.find((app) => app.id === id)?.name ?? id.slice(0, 8)));
+        const settings = await context.sso.get(userId, org.id);
+        return {
+            policy: await context.policies.get(org.id),
+            models: context.models(),
+            domains: await context.domains.list(userId, org.id),
+            sso: { available: context.sso.available, redirectUri: context.ssoRedirectUri(), ...(settings !== undefined && { settings }) },
+            spend: {
+                month: await context.budgets.workspaceSpent(org.workspaceId),
+                rows: (await context.budgets.workspaceSpend(org.workspaceId)).map((row) => ({ person: nameOf(row.userId), app: appName(row.appId), dollars: row.dollars, requests: row.requests }))
+            }
+        };
+    }
 
     /** An org's page as the person sees it now */
     async function render(request: IncomingMessage, response: ServerResponse, user: User, org: Org, extra: { notice?: string; error?: string; invited?: { email: string; link: string } } = {}, status = 200): Promise<void> {
@@ -76,7 +100,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
                 ...(atLeast(role, 'builder') && {
                     ownApps: (await (await context.workspaces.get(user.id)).instanceViews.list()).filter((app) => app.name !== HOME_APP && app.name !== EDITOR_APP && MOVABLE_ID.test(app.id)).map((app) => ({ id: app.id, name: app.name }))
                 }),
-                ...(admin && { audit: await orgs.auditLog(user.id, org.id, 100) }),
+                ...(admin && { audit: await orgs.auditLog(user.id, org.id, 100), enterprise: await enterpriseOf(user.id, org, apps) }),
                 ...extra
             }),
             status
@@ -125,6 +149,31 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
             // The person's own workspace held the app live: closing it ends its views, which reload into the org
             await context.workspaces.reopen(user.id);
             return { go: `/edit/${moved.appId}` };
+        } else if (action === 'policy') {
+            const number = (name: string): number | null => (text(form, name).trim() === '' ? null : Number(text(form, name)));
+            const models = form.getAll('agentModels');
+            await context.policies.set(user.id, org.id, {
+                personalWorkspaces: form.get('personalWorkspaces') === 'on',
+                externalLinks: form.get('externalLinks') === 'on',
+                autoJoin: form.get('autoJoin') === 'on',
+                // Only an owner's form offers it; an admin's leaves it as it is
+                ...(form.get('sso') === '1' && { requireSso: form.get('requireSso') === 'on' }),
+                agentModels: models.length === 0 ? null : models,
+                retentionDays: number('retentionDays'),
+                monthlyBudget: number('monthlyBudget')
+            });
+        } else if (action === 'addDomain') {
+            await context.domains.add(user.id, org.id, text(form, 'domain'));
+        } else if (action === 'verifyDomain') {
+            if (!(await context.domains.verify(user.id, org.id, text(form, 'domain')))) throw new OrgError(409, VERIFY_FAILED);
+        } else if (action === 'removeDomain') {
+            await context.domains.remove(user.id, org.id, text(form, 'domain'));
+        } else if (action === 'sso') {
+            await context.sso.set(user.id, org.id, { issuer: text(form, 'issuer'), clientId: text(form, 'clientId'), clientSecret: text(form, 'clientSecret'), enabled: form.get('enabled') === 'on' });
+        } else if (action === 'deleteOrg') {
+            const deleted = await deleteOrg(context.db, orgs, user.id, org.id, text(form, 'confirm'));
+            await context.orgDeleted(deleted.workspaceId, deleted.members);
+            return { left: true };
         } else if (action === 'open') {
             const appId = text(form, 'appId');
             const open = text(form, 'open') === 'true';

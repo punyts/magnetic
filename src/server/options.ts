@@ -21,6 +21,8 @@ export interface CliOptions {
     mockProvider: boolean;
     /** LinkedIn's client, from the environment only so the secret stays out of the process list */
     linkedIn: { clientId: string; clientSecret: string; pkce: boolean } | undefined;
+    /** The server's secret key, from the environment only: it seals the sign-in secrets orgs keep here */
+    secretKey: string | undefined;
     /** Plays a scripted agent instead of calling the Claude API, to try the editor without a key */
     mockAgent: boolean;
     /** The agent's model, such as claude-opus-5-5 */
@@ -76,6 +78,11 @@ Sign in with LinkedIn (environment only):
   MAGNETIC_LINKEDIN_CLIENT_ID      The client id of the LinkedIn app
   MAGNETIC_LINKEDIN_CLIENT_SECRET  Its primary client secret
   MAGNETIC_LINKEDIN_PKCE           false to send no PKCE challenge (default true)
+
+Orgs' own sign-in (environment only):
+  MAGNETIC_SECRET_KEY              A random secret of 16 or more characters that seals the client secret of each
+                                   org's own OpenID Connect provider. Without it, orgs cannot set one up.
+                                   Their redirect URI is <origin>/auth/sso/callback
 
   --mock-provider        Also run a mock OpenID Connect provider on loopback that signs anyone in
                          as a test person, to try the provider flow (env MAGNETIC_MOCK_PROVIDER=true).
@@ -183,6 +190,8 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let runtimeDir = env['MAGNETIC_RUNTIME_DIR'];
     let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
     const linkedIn = parseLinkedIn(env);
+    const secretKey = env['MAGNETIC_SECRET_KEY']?.trim() || undefined;
+    if (secretKey !== undefined && secretKey.length < 16) throw new UsageError('MAGNETIC_SECRET_KEY must be at least 16 characters');
     let mockProvider = env['MAGNETIC_MOCK_PROVIDER'] === 'true';
     let mockAgent = env['MAGNETIC_MOCK_AGENT'] === 'true';
     let model = env['MAGNETIC_MODEL'] !== undefined ? parseModel(env['MAGNETIC_MODEL']) : 'claude-haiku-5-5';
@@ -281,5 +290,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
         }
     }
     if (databaseUrl !== undefined && !/^postgres(ql)?:\/\//.test(databaseUrl)) throw new UsageError('Invalid database URL: it starts with postgres://');
-    return { command, databaseUrl, migrate, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, help };
+    return { command, databaseUrl, migrate, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, help };
 }

@@ -43,6 +43,13 @@ import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Orgs } from '../orgs/Orgs.js';
 import { AppInstances } from '../orgs/Instances.js';
+import { OrgPolicies } from '../orgs/Policies.js';
+import { OrgDomains } from '../orgs/Domains.js';
+import type { TxtResolver } from '../orgs/Domains.js';
+import { OrgSso, ssoIdentityProvider } from '../orgs/Sso.js';
+import { SignInRules } from '../orgs/SignInRules.js';
+import { SecretBox } from '../auth/secrets.js';
+import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
 import { orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
 import { assertMigrated, EmbeddingIndex, PART_SOURCE, partSource, pgWorkspaceStorage } from '@punyts/stateui-pg';
@@ -89,6 +96,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** A random (version 4) UUID: the id of an app made in a workspace, which no other workspace has */
 const RANDOM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const APP_PATH = /^\/apps\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
+/** Said when an org's monthly agent budget is spent: turns in its apps wait for next month */
+export const ORG_BUDGET_SPENT = "Your org has used this month's agent budget. Everything else still works, and the agent will be back next month.";
+/** Said to a member of an org that keeps its apps in the org, who tries to make one of their own */
+/** Said when no org has its own sign-in for the domain of the work email typed */
+export const NO_ORG_SIGN_IN = "No organisation signs in here with that email's domain. Sign in another way.";
+export const NO_PERSONAL_APPS ='Your org keeps apps in the org, not in your own workspace: make this app in the org instead (Orgs on Your apps).';
 /** What a person sees, and their browser is told, when an app shared with them is taken back */
 export const REVOKED_MESSAGE = 'This app is no longer shared with you.';
 
@@ -154,6 +167,13 @@ export interface MagneticOptions {
     /** Allows providers over plain HTTP, for a mock provider in tests. Loopback hosts only */
     readonly allowHttpProviders?: boolean;
     readonly agent?: MagneticAgentOptions;
+    /**
+     * The server's secret key, which seals the secrets it keeps for others (an org's own sign-in client secret); at least
+     * 16 characters. Without it, orgs cannot set up their own sign-in
+     */
+    readonly secretKey?: string;
+    /** Replaces the DNS lookup that verifies an org's domain, for tests */
+    readonly resolveTxt?: TxtResolver;
 }
 
 export interface RunningMagnetic {
@@ -166,6 +186,9 @@ export interface RunningMagnetic {
     readonly sessions: Sessions;
     readonly orgs: Orgs;
     readonly access: AppAccess;
+    readonly policies: OrgPolicies;
+    readonly domains: OrgDomains;
+    readonly sso: OrgSso;
     /** The embedding index, when the server has an embedder */
     readonly index?: EmbeddingIndex;
     readonly workspaces: Workspaces;
@@ -277,6 +300,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const orgs = new Orgs(db);
     const access = new AppAccess(db);
     const instances = new AppInstances(db, access);
+    const policies: OrgPolicies = new OrgPolicies(db, (): readonly string[] => turns.models);
+    const domains = new OrgDomains(db, orgs, options.resolveTxt);
+    const sso = new OrgSso(db, orgs, options.secretKey === undefined ? undefined : new SecretBox(options.secretKey));
+    const rules = new SignInRules(db, domains, policies);
     const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource }, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
     index?.start(options.embedEveryMs);
@@ -297,7 +324,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             app: await pageApps.document(PAGE_APPS.signIn),
             data: { '$.data.signin': { error: error ?? '', noError: error === undefined, labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name })])) } },
-            actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } } }
+            actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
     };
     /** A share link's page, a StateUI app: why the link does not open an app, or the offer to remix it */
@@ -365,7 +392,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     };
     const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, stamps);
     /** Magnetic's own pages before a person's workspace (sign in, share links), as StateUI apps */
-    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers });
+    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers, sso: sso.available });
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
@@ -378,6 +405,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
+        // An org's monthly budget, which every turn in its workspace spends
+        workspaceRefusal: async (workspaceId: string): Promise<string | undefined> => {
+            const org = await orgs.byWorkspace(workspaceId);
+            const limit = org === undefined ? undefined : (await policies.get(org.id)).monthlyBudget;
+            if (limit === undefined) return undefined;
+            return (await budgets.workspaceSpent(workspaceId)) >= limit ? ORG_BUDGET_SPENT : undefined;
+        },
         chats: new Chats(db, { embed: index !== undefined }),
         ...(options.agent?.limits !== undefined && { limits: options.agent.limits }),
         report: options.report,
@@ -456,6 +490,25 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     }
 
+    /** Whether a share link to an app of this workspace opens for the person: an org's reach only its members, unless it allows outside people */
+    async function linkAllowed(workspaceId: string, userId: string): Promise<boolean> {
+        const org = await orgs.byWorkspace(workspaceId);
+        if (org === undefined) return true;
+        return (await policies.get(org.id)).externalLinks || (await orgs.role(org.id, userId)) !== undefined;
+    }
+
+    /** Why the person may not make apps of their own, or `undefined`: an org of theirs keeps its apps in the org */
+    async function personalRefusal(userId: string): Promise<string | undefined> {
+        for (const policy of (await policies.ofMember(userId)).values()) if (!policy.personalWorkspaces) return NO_PERSONAL_APPS;
+        return undefined;
+    }
+
+    /** The models a person may pick for an app: the server's, narrowed by the org's policy for an app of an org */
+    async function modelsFor(orgId: string | undefined): Promise<readonly string[]> {
+        const allowed = orgId === undefined ? undefined : (await policies.get(orgId)).agentModels;
+        return allowed === undefined ? turns.models : turns.models.filter((model) => allowed.includes(model));
+    }
+
     const orgContext = {
         db,
         orgs,
@@ -468,10 +521,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sendJson,
         origin: () => publicOrigin ?? origin,
         closeOrgViews,
-        appNameOf
+        appNameOf,
+        policies,
+        domains,
+        sso,
+        budgets,
+        ssoRedirectUri: () => signIn.redirectUri(CUSTOM_PROVIDER),
+        orgDeleted: async (workspaceId: string, members: readonly string[]) => {
+            for (const userId of members) closeOrgViews(userId, 'all', 'The org was deleted');
+            await workspaces.reopen(workspaceId);
+        }
     };
     const handleOrgRoute = orgRoutes(orgContext);
-    const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location) });
+    const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location), models: () => turns.models });
 
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
@@ -513,7 +575,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 const persona = grant.right === 'use' ? who.user.id : DEFAULT_PERSONA;
                 return { revoked: { message: REVOKED_MESSAGE, namespace: appNamespace({ persona, ownerId: grant.ownerId, appId }), name: grant.appName } };
             }
-            if (shared !== undefined) return { tenant: await sharedTenant(shared.live, who.user.id, key) };
+            if (shared !== undefined) {
+                // An org that keeps its links to members: someone who left it, or never joined, no longer reaches its apps
+                if (!(await linkAllowed(shared.live.ownerId, who.user.id))) return { refuse: 404 };
+                return { tenant: await sharedTenant(shared.live, who.user.id, key) };
+            }
         }
         const answer: HttpTenant = {
             useCases: services.useCases,
@@ -655,6 +721,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, `/edit/${encodeURIComponent(grant.appId)}`);
             return;
         }
+        if (!(await linkAllowed(grant.ownerId, who.user.id))) {
+            sendAppPage(request, response, await linkPageOf(request, look, grant.appName, t['link.membersOnly']), 403);
+            return;
+        }
         if (method === 'GET') {
             await grants.join(grant.id, who.user.id);
             if (grant.right === 'remix') {
@@ -664,6 +734,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return;
         }
         if (!remix || grant.right !== 'remix') throw new HttpError(405, 'Not allowed', 'method_not_allowed');
+        if ((await personalRefusal(who.user.id)) !== undefined) {
+            sendAppPage(request, response, await linkPageOf(request, look, fill(t['link.remixTitle'], { name: app.name }), t['link.noPersonal']), 403);
+            return;
+        }
         const mine = await workspaces.get(who.user.id);
         const copied = await copyAppParts(owner.parts, mine.parts, grant.appId);
         if (copied.kind !== 'copied') {
@@ -701,13 +775,36 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const name = form.get('user');
             if (name === null || !devUsers.includes(name)) throw new HttpError(403, 'Not a development user of this server', 'forbidden');
             const user = await accounts.signIn({ provider: 'dev', subject: name }, { name });
+            await rules.signedIn({ id: user.id, emailVerified: false }, { provider: 'dev', ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
             redirect(response, safeNext(form.get('next')), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
             return true;
         }
+        const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure, path: '/auth' });
+        if (method === 'GET' && path === '/signin/sso') {
+            // "Sign in with your work email": the org that verified the email's domain, through its own provider
+            const next = safeNext(url.searchParams.get('next'));
+            const email = (url.searchParams.get('email') ?? '').trim().slice(0, 320);
+            const orgId = await domains.orgOfEmail(email);
+            const provider = orgId === undefined ? undefined : await sso.provider(orgId);
+            if (orgId === undefined || provider === undefined) {
+                sendAppPage(request, response, await signInPageOf(request, next, NO_ORG_SIGN_IN), 404);
+                return true;
+            }
+            let started;
+            try {
+                started = await signIn.startWith(provider, next, orgId);
+            } catch (error) {
+                options.report.info('Org sign-in could not start', { orgId, error: error instanceof Error ? error.message : String(error) });
+                sendAppPage(request, response, await signInPageOf(request, next, 'Your organisation\'s sign-in could not be reached. Please try again in a moment.'), 502);
+                return true;
+            }
+            redirect(response, started.url, pendingCookie(started.key, 10 * 60));
+            return true;
+        }
         const auth = /^\/auth\/([a-z][a-z0-9-]{0,31})(\/callback)?$/.exec(path);
-        if (method === 'GET' && auth !== null && signIn.has(auth[1] as string)) {
+        // An org's own provider comes back at /auth/sso/callback; its sign-in starts at /signin/sso
+        if (method === 'GET' && auth !== null && (signIn.has(auth[1] as string) || (auth[1] === CUSTOM_PROVIDER && auth[2] !== undefined))) {
             const name = auth[1] as string;
-            const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure, path: '/auth' });
             if (auth[2] === undefined) {
                 let started;
                 try {
@@ -722,7 +819,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             }
             try {
                 const done = await signIn.finish(name, readCookie(request, SIGN_IN_COOKIE), url.search);
-                const user = await accounts.signIn(done.identity, done.profile);
+                // Through an org's own provider: its identities are the org's, and it vouches only for emails at its own verified domains
+                const orgId = name === CUSTOM_PROVIDER ? done.tag : undefined;
+                const identity = orgId === undefined ? done.identity : { provider: ssoIdentityProvider(orgId), subject: done.identity.subject };
+                const profile = orgId === undefined ? done.profile : { ...done.profile, emailVerified: await rules.vouches(orgId, done.profile.email) };
+                const refusal = await rules.refusal(profile.email, orgId);
+                if (refusal !== undefined) throw new SignInError(refusal);
+                const user = await accounts.signIn(identity, profile, orgId);
+                await rules.signedIn({ id: user.id, ...(profile.email !== undefined && { email: profile.email }), emailVerified: profile.emailVerified === true }, { provider: identity.provider, ...(orgId !== undefined && { orgId }), ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
                 redirect(response, done.next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
             } catch (error) {
                 if (!(error instanceof SignInError)) throw error;
@@ -821,6 +925,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
             const json = (request.headers.accept ?? '').includes('application/json');
+            const noPersonal = await personalRefusal(who.user.id);
+            if (noPersonal !== undefined) {
+                if (json) sendJson(response, 403, { message: noPersonal });
+                else redirect(response, '/settings/orgs');
+                return true;
+            }
             const services = await workspaces.get(who.user.id);
             const name = appNameOf((await readForm(request)).get('name') ?? '');
             const create = toolsOf(services).find((tool) => tool.name === 'ui_app_create');
@@ -862,7 +972,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     /** The page of an app, with the editor hidden (`editing` false) or shown */
-    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean, look: PageLook, persona?: string): string {
+    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean, look: PageLook, persona?: string, models: readonly string[] = turns.models): string {
         return shellPage({
             look,
             appId: app.id,
@@ -870,7 +980,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
             namespace: services.instanceViews.namespace(app, persona),
-            models: turns.models.map(modelChoice),
+            models: models.map(modelChoice),
             editing,
             blank: isBlank(app.body)
         });
@@ -888,7 +998,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id));
+        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId)));
         return true;
     }
 
@@ -918,7 +1028,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona));
+            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId)));
             return;
         }
         if (what === '/events' && method === 'GET') {
@@ -957,7 +1067,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 sendJson(response, 400, { message: 'Choose one of the models offered.' });
                 return;
             }
-            const started = await turns.start(userId, { id: appId, name: app.name, workspaceId }, text, context, typeof fields.model === 'string' ? fields.model : undefined, focus);
+            // An org may narrow the models its people pick; a turn that names none takes the first it allows
+            const allowed = await modelsFor(place.orgId);
+            const model = typeof fields.model === 'string' ? fields.model : allowed.includes(turns.models[0] as string) ? undefined : allowed[0];
+            if ((model !== undefined && !allowed.includes(model)) || allowed.length === 0) {
+                sendJson(response, 409, { message: `Your org does not allow this model. Choose one of: ${allowed.join(', ')}.` });
+                return;
+            }
+            const started = await turns.start(userId, { id: appId, name: app.name, workspaceId }, text, context, model, focus);
             if ('refused' in started) sendJson(response, 409, { message: started.refused });
             else sendJson(response, 202, { ok: true });
             return;
@@ -1088,6 +1205,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     origin = http.origin.replace('//0.0.0.0', '//127.0.0.1').replace('//[::]', '//[::1]');
     const sweep = setInterval(() => void workspaces.sweep(), 60_000);
     sweep.unref();
+    // Each org's retentionDays: its old chats, and the state of people no longer in it, go once an hour
+    const retention = setInterval(() => void policies.applyRetention().catch((error: unknown) => options.report.info('Retention sweep failed', { error: error instanceof Error ? error.message : String(error) })), 3_600_000);
+    retention.unref();
     options.report.info('Magnetic started', { origin, devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
 
     let stopped = false;
@@ -1100,6 +1220,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sessions,
         orgs,
         access,
+        policies,
+        domains,
+        sso,
         ...(index !== undefined && { index }),
         workspaces,
         signIn,
@@ -1111,6 +1234,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             if (stopped) return;
             stopped = true;
             clearInterval(sweep);
+            clearInterval(retention);
             await turns.stopAll();
             await index?.stop();
             await http.close();

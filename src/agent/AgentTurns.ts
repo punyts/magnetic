@@ -55,6 +55,8 @@ export interface AgentTurnsOptions {
     /** The workspace a turn works in: the user's own, or an org's for an app of the org */
     readonly workspace: (userId: string, workspaceId: string) => Promise<TurnWorkspace>;
     readonly budgets: Budgets;
+    /** Why a turn in a workspace other than the person's own (an org's) may not run now, such as its spent monthly budget */
+    readonly workspaceRefusal?: (workspaceId: string) => Promise<string | undefined>;
     readonly chats: Chats;
     readonly limits?: TurnLimits;
     readonly report: { info(message: string, details?: Record<string, unknown>): void };
@@ -215,7 +217,7 @@ export class AgentTurns {
             this.running.has(userId) ? { refused: 'The agent is still working on your last request.' } : this.busy.has(place) ? { refused: APP_BUSY } : undefined;
         const before = taken();
         if (before !== undefined) return before;
-        const refusal = await this.options.budgets.check(userId);
+        const refusal = (await this.options.budgets.check(userId)) ?? (await this.workspaceRefusal(userId, app));
         if (refusal !== undefined) return { refused: refusal };
         // Again after the await: another turn may have taken the person or the app meanwhile
         const after = taken();
@@ -243,6 +245,12 @@ export class AgentTurns {
         this.finishing.add(finished);
         void finished.then(() => this.finishing.delete(finished));
         return { finished };
+    }
+
+    /** Why the app's workspace refuses a turn now, when it is not the person's own */
+    private async workspaceRefusal(userId: string, app: TurnApp): Promise<string | undefined> {
+        if (app.workspaceId === undefined || app.workspaceId === userId || this.options.workspaceRefusal === undefined) return undefined;
+        return this.options.workspaceRefusal(app.workspaceId);
     }
 
     /** The model ids a turn may name, the default first */
@@ -314,7 +322,7 @@ export class AgentTurns {
                 await budgets.charge(userId, spent, { workspaceId: app.workspaceId ?? userId, appId: app.id, model: response.model, usage: response.usage });
                 if (spoken !== '') said.push(spoken);
                 // A spent budget ends the turn at once, so a hard limit is passed by one request at most
-                const spentOut = await budgets.check(userId);
+                const spentOut = (await budgets.check(userId)) ?? (await this.workspaceRefusal(userId, app));
                 if (spentOut !== undefined) {
                     outcome = 'limit';
                     message = spentOut;

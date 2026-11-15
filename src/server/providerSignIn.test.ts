@@ -260,4 +260,9 @@ describe('profileOf', () => {
     it('should join the given and family names when there is no name, and drop an unverified email and a plain HTTP picture', () => {
         expect(profileOf({ given_name: 'Ada', family_name: 'Lovelace', email: 'ada@example.com', email_verified: false, picture: 'http://pictures.example/a.jpg' })).toEqual({ name: 'Ada Lovelace' });
     });
+
+    it('should mark an email verified only when the provider says it checked it', () => {
+        expect(profileOf({ name: 'Ada', email: 'ada@example.com', email_verified: true })).toEqual({ name: 'Ada', email: 'ada@example.com', emailVerified: true });
+        expect(profileOf({ name: 'Ada', email: 'ada@example.com' })).toEqual({ name: 'Ada', email: 'ada@example.com' });
+    });
 });

@@ -5,6 +5,11 @@ import type { User } from '../accounts/Accounts.js';
 import { AppAccess, isAppPermission, moveAppToOrg } from '../orgs/AppAccess.js';
 import type { AppInstances } from '../orgs/Instances.js';
 import { isOrgRole, OrgError, Orgs } from '../orgs/Orgs.js';
+import type { Budgets } from '../agent/Budgets.js';
+import type { OrgDomains } from '../orgs/Domains.js';
+import { deleteOrg, exportOrg } from '../orgs/Lifecycle.js';
+import type { OrgPolicies, PolicyChange } from '../orgs/Policies.js';
+import type { OrgSso } from '../orgs/Sso.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
 
 /** What the org routes work with, from the server */
@@ -25,6 +30,14 @@ export interface OrgRouteContext {
     readonly closeOrgViews: (userId: string, appIds: readonly string[] | 'all', reason: string) => void;
     /** An app name from what a person typed */
     readonly appNameOf: (typed: string) => string | undefined;
+    readonly policies: OrgPolicies;
+    readonly domains: OrgDomains;
+    readonly sso: OrgSso;
+    readonly budgets: Budgets;
+    /** The redirect URI an org registers with its own provider */
+    readonly ssoRedirectUri: () => string;
+    /** After an org is deleted: closes its members' views and its workspace */
+    readonly orgDeleted: (workspaceId: string, members: readonly string[]) => Promise<void>;
 }
 
 const UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -42,8 +55,21 @@ const ROUTES = {
     appOpen: new RegExp(`^/orgs/${UUID}/apps/${UUID}/open$`),
     appInstances: new RegExp(`^/orgs/${UUID}/apps/${UUID}/instances$`),
     appInstance: new RegExp(`^/orgs/${UUID}/apps/${UUID}/instances/${UUID}$`),
-    move: new RegExp(`^/apps/${UUID}/move$`)
+    move: new RegExp(`^/apps/${UUID}/move$`),
+    org: new RegExp(`^/orgs/${UUID}$`),
+    policy: new RegExp(`^/orgs/${UUID}/policy$`),
+    domains: new RegExp(`^/orgs/${UUID}/domains$`),
+    domain: new RegExp(`^/orgs/${UUID}/domains/([a-z0-9.-]{3,253})$`),
+    domainVerify: new RegExp(`^/orgs/${UUID}/domains/([a-z0-9.-]{3,253})/verify$`),
+    sso: new RegExp(`^/orgs/${UUID}/sso$`),
+    spend: new RegExp(`^/orgs/${UUID}/spend$`),
+    export: new RegExp(`^/orgs/${UUID}/export$`)
 };
+
+/** A policy change from a JSON body: only the policies it names */
+function policyChangeOf(body: unknown): PolicyChange {
+    return typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as PolicyChange) : {};
+}
 
 /** Said to a person whose open view of an org app closes because they lost it */
 export const ACCESS_CHANGED = 'Your access to this app changed';
@@ -222,6 +248,62 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
         if ((match = ROUTES.appInstance.exec(path)) !== null && method === 'GET') {
             const [orgId, appId, userId] = [match[1] as string, match[2] as string, match[3] as string];
             sendJson(response, 200, await context.instances.view(user.id, orgId, await orgWorkspace(orgId), appId, userId));
+            return true;
+        }
+        if ((match = ROUTES.org.exec(path)) !== null && method === 'DELETE') {
+            const deleted = await deleteOrg(context.db, orgs, user.id, match[1] as string, text(await context.readJson(request), 'confirm'));
+            await context.orgDeleted(deleted.workspaceId, deleted.members);
+            sendJson(response, 200, { deleted: true });
+            return true;
+        }
+        if ((match = ROUTES.policy.exec(path)) !== null) {
+            const orgId = match[1] as string;
+            if (method === 'GET') {
+                await orgs.require(orgId, user.id, 'member');
+                sendJson(response, 200, await context.policies.get(orgId));
+            } else if (method === 'POST') sendJson(response, 200, await context.policies.set(user.id, orgId, policyChangeOf(await context.readJson(request))));
+            else return false;
+            return true;
+        }
+        if ((match = ROUTES.domains.exec(path)) !== null) {
+            const orgId = match[1] as string;
+            if (method === 'GET') sendJson(response, 200, { domains: await context.domains.list(user.id, orgId) });
+            else if (method === 'POST') sendJson(response, 201, await context.domains.add(user.id, orgId, text(await context.readJson(request), 'domain')));
+            else return false;
+            return true;
+        }
+        if ((match = ROUTES.domainVerify.exec(path)) !== null && method === 'POST') {
+            sendJson(response, 200, { verified: await context.domains.verify(user.id, match[1] as string, match[2] as string) });
+            return true;
+        }
+        if ((match = ROUTES.domain.exec(path)) !== null && method === 'DELETE') {
+            await context.domains.remove(user.id, match[1] as string, match[2] as string);
+            sendJson(response, 200, { ok: true });
+            return true;
+        }
+        if ((match = ROUTES.sso.exec(path)) !== null) {
+            const orgId = match[1] as string;
+            if (method === 'GET') {
+                sendJson(response, 200, { available: context.sso.available, redirectUri: context.ssoRedirectUri(), provider: (await context.sso.get(user.id, orgId)) ?? null });
+            } else if (method === 'POST') {
+                const body = await context.readJson(request);
+                await context.sso.set(user.id, orgId, { issuer: text(body, 'issuer'), clientId: text(body, 'clientId'), clientSecret: text(body, 'clientSecret'), enabled: field(body, 'enabled') === true });
+                sendJson(response, 200, { ok: true });
+            } else return false;
+            return true;
+        }
+        if ((match = ROUTES.spend.exec(path)) !== null && method === 'GET') {
+            const orgId = match[1] as string;
+            await orgs.require(orgId, user.id, 'admin');
+            const workspaceId = await orgWorkspace(orgId);
+            sendJson(response, 200, { month: await context.budgets.workspaceSpent(workspaceId), budget: (await context.policies.get(orgId)).monthlyBudget ?? null, byPersonAndApp: await context.budgets.workspaceSpend(workspaceId) });
+            return true;
+        }
+        if ((match = ROUTES.export.exec(path)) !== null && method === 'GET') {
+            const org = await orgs.get(match[1] as string);
+            const exported = await exportOrg(context.db, orgs, user.id, match[1] as string);
+            response.setHeader('Content-Disposition', `attachment; filename="${org?.slug ?? 'org'}-export.json"`);
+            sendJson(response, 200, exported);
             return true;
         }
         if ((match = ROUTES.move.exec(path)) !== null && method === 'POST') {

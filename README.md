@@ -260,6 +260,31 @@ The same is there as JSON routes:
 | `GET /orgs/<id>/apps/<appId>/instances` | Who uses the app, last used first (people who manage it) |
 | `GET /orgs/<id>/apps/<appId>/instances/<userId>` | A member's state as last saved, read only (admins; audited) |
 | `POST /apps/<id>/move` | Move an app of your own into an org (`{ orgId }`) |
+| `GET`, `POST /orgs/<id>/policy` | The org's policies; change some (`{ externalLinks: true, retentionDays: null, … }`, admins; `requireSso` owners) |
+| `GET`, `POST /orgs/<id>/domains` | The org's domains with their TXT records (admins); claim one (`{ domain }`, owners) |
+| `POST /orgs/<id>/domains/<domain>/verify`, `DELETE /orgs/<id>/domains/<domain>` | Look the TXT record up; give the domain up (owners) |
+| `GET`, `POST /orgs/<id>/sso` | The org's own provider and its redirect URI (admins); set it (`{ issuer, clientId, clientSecret, enabled }`, owners) |
+| `GET /orgs/<id>/spend` | This month's agent spend in the org's apps, by person and app (admins) |
+| `GET /orgs/<id>/export` | Everything the org holds, as a JSON download (owners) |
+| `DELETE /orgs/<id>` | Delete the org and its workspace (`{ confirm: <slug> }`, owners) |
+
+### Enterprise controls
+
+- **Verified domains.** An owner claims an email domain and publishes the TXT record it is given at
+  `_magnetic-challenge.<domain>`; only a verified domain routes sign-in to the org or lets people join by it.
+- **The org's own sign-in.** An owner sets the org's OpenID Connect provider (Okta, Entra ID, Google Workspace) with
+  the redirect URI `<origin>/auth/sso/callback`. People type their work email on the sign-in page and go to their org's
+  provider. Its client secret is sealed with `MAGNETIC_SECRET_KEY`; a server without one offers no org sign-in. An org's
+  provider vouches only for emails at that org's verified domains.
+- **Policies.** `requireSso` (people at the org's domains sign in only through its provider), `autoJoin` (people at its
+  domains with a verified email, or signed in through its provider, join as members), `externalLinks` (share links to
+  its apps open for people outside it; off by default), `personalWorkspaces` (off: its members cannot make apps of
+  their own), `agentModels` (the models its apps' turns may use), `retentionDays` (old chats, and the state of people
+  who left, are deleted hourly), and `monthlyBudget` (dollars per month for the agent in its apps).
+- **The audit log** records sign-ins, membership, roles, groups, invites, access, links, policies, domains, sign-in
+  settings, apps and support views. It is append only: the database refuses to change or delete an event.
+- **Export and deletion.** An owner downloads everything the org holds as JSON, and deletes the org by typing its short
+  name.
 
 ## Semantic search
 

@@ -84,18 +84,21 @@ export interface AuditEntry {
     readonly targetKind?: string;
     readonly targetId?: string;
     readonly detail?: Record<string, unknown>;
+    /** The address the request came from */
+    readonly ip?: string;
 }
 
 /** Writes one audit event, in the transaction given */
 export async function audit(tx: Queryable, entry: AuditEntry): Promise<void> {
-    await tx.query('INSERT INTO audit_event (org_id, workspace_id, actor_id, action, target_kind, target_id, detail) VALUES ($1, $2, $3, $4, $5, $6, $7)', [
+    await tx.query('INSERT INTO audit_event (org_id, workspace_id, actor_id, action, target_kind, target_id, detail, ip) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [
         entry.orgId ?? null,
         entry.workspaceId ?? null,
         entry.actorId ?? null,
         entry.action,
         entry.targetKind ?? null,
         entry.targetId ?? null,
-        JSON.stringify(entry.detail ?? {})
+        JSON.stringify(entry.detail ?? {}),
+        entry.ip ?? null
     ]);
 }
 

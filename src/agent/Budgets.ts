@@ -93,6 +93,24 @@ export class Budgets {
         return undefined;
     }
 
+    /** What the agent has spent in a workspace (an org's) this UTC month */
+    async workspaceSpent(workspaceId: string): Promise<number> {
+        const { month } = this.bounds();
+        return (await this.db.query<{ spent: number | null }>('SELECT sum(dollars) AS spent FROM agent_request WHERE workspace_id = $1 AND at >= $2', [workspaceId, month])).rows[0]?.spent ?? 0;
+    }
+
+    /** What the agent has spent in a workspace this UTC month, by person and app, the most first */
+    async workspaceSpend(workspaceId: string): Promise<Array<{ readonly userId: string; readonly appId: string | null; readonly dollars: number; readonly requests: number }>> {
+        const { month } = this.bounds();
+        const rows = (
+            await this.db.query<{ user_id: string; app_id: string | null; dollars: number; requests: number }>(
+                'SELECT user_id, app_id, sum(dollars) AS dollars, count(*)::int AS requests FROM agent_request WHERE workspace_id = $1 AND at >= $2 GROUP BY user_id, app_id ORDER BY sum(dollars) DESC',
+                [workspaceId, month]
+            )
+        ).rows;
+        return rows.map((row) => ({ userId: row.user_id, appId: row.app_id, dollars: Number(row.dollars), requests: row.requests }));
+    }
+
     /** Adds what a request cost */
     async charge(userId: string, dollars: number, detail: ChargeDetail = {}): Promise<void> {
         const usage = detail.usage;

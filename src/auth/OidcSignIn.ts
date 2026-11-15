@@ -45,6 +45,8 @@ export interface OidcSignInOptions {
 /** A sign-in that went to a provider and has not come back */
 interface Pending {
     readonly provider: string;
+    /** A provider not configured on the server, such as an org's own, with what the caller tagged the sign-in with */
+    readonly custom?: { readonly provider: OidcProvider; readonly tag: string };
     readonly state: string;
     readonly nonce: string;
     readonly verifier: string | undefined;
@@ -60,7 +62,12 @@ export interface SignedIn {
     readonly profile: Profile;
     /** Where to send the person now: the path they set out for */
     readonly next: string;
+    /** What a sign-in with a provider of the caller's own (`startWith`) was tagged with, such as the org's id */
+    readonly tag?: string;
 }
+
+/** The name of the providers given per sign-in (`startWith`), such as each org's own; no configured provider has it */
+export const CUSTOM_PROVIDER = 'sso';
 
 const NAME = /^[a-z][a-z0-9-]{0,31}$/;
 const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
@@ -83,7 +90,7 @@ export class OidcSignIn {
     ) {
         const byName = new Map<string, OidcProvider>();
         for (const provider of providers) {
-            if (!NAME.test(provider.name) || provider.name === 'dev') throw new Error(`Invalid provider name: ${provider.name}`);
+            if (!NAME.test(provider.name) || provider.name === 'dev' || provider.name === CUSTOM_PROVIDER) throw new Error(`Invalid provider name: ${provider.name}`);
             if (byName.has(provider.name)) throw new Error(`Two providers are named ${provider.name}`);
             byName.set(provider.name, provider);
         }
@@ -99,15 +106,19 @@ export class OidcSignIn {
         return `${this.options.publicOrigin()}/auth/${name}/callback`;
     }
 
-    /** The provider's configuration, discovered once; a failed discovery is tried again next time */
+    /**
+     * The provider's configuration, discovered once per issuer, client and secret (an org may change its own); a failed
+     * discovery is tried again next time
+     */
     private configuration(provider: OidcProvider): Promise<client.Configuration> {
-        let found = this.configurations.get(provider.name);
+        const cacheKey = [provider.name, provider.issuer, provider.clientId, provider.clientSecret].join('\n');
+        let found = this.configurations.get(cacheKey);
         if (found === undefined) {
             found = client.discovery(new URL(provider.issuer), provider.clientId, undefined, client.ClientSecretPost(provider.clientSecret), {
                 execute: [client.enableNonRepudiationChecks, ...(this.options.allowHttp === true ? [client.allowInsecureRequests] : [])]
             });
-            found.catch(() => this.configurations.delete(provider.name));
-            this.configurations.set(provider.name, found);
+            found.catch(() => this.configurations.delete(cacheKey));
+            this.configurations.set(cacheKey, found);
         }
         return found;
     }
@@ -119,6 +130,19 @@ export class OidcSignIn {
     async start(name: string, next: string): Promise<{ url: string; key: string }> {
         const provider = this.byName.get(name);
         if (provider === undefined) throw new SignInError('No such provider');
+        return this.begin(provider, next);
+    }
+
+    /**
+     * Starts a sign-in with a provider of the caller's own, such as an org's: it comes back at
+     * `/auth/sso/callback`, and `finish` answers the tag given here
+     */
+    startWith(provider: Omit<OidcProvider, 'name'>, next: string, tag: string): Promise<{ url: string; key: string }> {
+        return this.begin({ ...provider, name: CUSTOM_PROVIDER }, next, tag);
+    }
+
+    private async begin(provider: OidcProvider, next: string, tag?: string): Promise<{ url: string; key: string }> {
+        const name = provider.name;
         const configuration = await this.configuration(provider);
         this.sweep();
         const state = client.randomState();
@@ -134,7 +158,7 @@ export class OidcSignIn {
         const key = randomBytes(32).toString('base64url');
         const maxPending = this.options.maxPending ?? 10_000;
         while (this.pending.size >= maxPending) this.pending.delete(this.pending.keys().next().value as string);
-        this.pending.set(key, { provider: name, state, nonce, verifier, next: safeNext(next), expires: Date.now() + (this.options.pendingMs ?? 10 * 60_000) });
+        this.pending.set(key, { provider: name, ...(tag !== undefined && { custom: { provider, tag } }), state, nonce, verifier, next: safeNext(next), expires: Date.now() + (this.options.pendingMs ?? 10 * 60_000) });
         return { url: client.buildAuthorizationUrl(configuration, parameters).href, key };
     }
 
@@ -147,7 +171,7 @@ export class OidcSignIn {
         const pending = key === undefined ? undefined : this.pending.get(key);
         if (key !== undefined) this.pending.delete(key);
         if (pending === undefined || pending.provider !== name || pending.expires < Date.now()) throw new SignInError('This sign-in has expired or was started in another browser. Please try again.');
-        const provider = this.byName.get(name) as OidcProvider;
+        const provider = pending.custom?.provider ?? (this.byName.get(name) as OidcProvider);
         const configuration = await this.configuration(provider);
         const callback = new URL(this.redirectUri(name));
         callback.search = search;
@@ -173,7 +197,7 @@ export class OidcSignIn {
                 // The ID token's claims are enough to sign in
             }
         }
-        return { identity: { provider: name, subject: claims.sub }, profile: profileOf({ ...claims, ...info }), next: pending.next };
+        return { identity: { provider: name, subject: claims.sub }, profile: profileOf({ ...claims, ...info }), next: pending.next, ...(pending.custom !== undefined && { tag: pending.custom.tag }) };
     }
 
     /** Drops the sign-ins that took too long */
@@ -193,6 +217,8 @@ export function profileOf(claims: Record<string, unknown>): Profile {
     return {
         name: (text(claims['name']) ?? (given !== '' ? given : undefined) ?? email ?? 'Someone').slice(0, 200),
         ...(email !== undefined && { email: email.slice(0, 320) }),
+        // Only an email the provider says it checked may accept an invite or join an org by its domain
+        ...(email !== undefined && (claims['email_verified'] === true || claims['email_verified'] === 'true') && { emailVerified: true }),
         ...(picture !== undefined && picture.startsWith('https://') && picture.length <= 2048 && { picture })
     };
 }

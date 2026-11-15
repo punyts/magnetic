@@ -115,6 +115,7 @@ async function main(): Promise<void> {
         ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
         providers,
         allowHttpProviders: mock !== undefined,
+        ...(options.secretKey !== undefined && { secretKey: options.secretKey }),
         agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);

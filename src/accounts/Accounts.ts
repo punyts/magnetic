@@ -65,9 +65,10 @@ export class Accounts {
 
     /**
      * The user an identity signs in as. The first sign-in makes the user from the profile; a later one refreshes the
-     * name, email and picture the provider gives. Two first sign-ins of one identity at once make one user
+     * name, email and picture the provider gives. Two first sign-ins of one identity at once make one user. `orgId` marks
+     * an identity of an org's own provider
      */
-    async signIn(identity: Identity, profile: Profile): Promise<User> {
+    async signIn(identity: Identity, profile: Profile, orgId?: string): Promise<User> {
         const name = profile.name.slice(0, 200);
         const email = profile.email?.slice(0, 320) ?? null;
         const picture = profile.picture?.slice(0, 2000) ?? null;
@@ -85,18 +86,18 @@ export class Accounts {
                 ).rows[0];
                 if (row !== undefined) return userOf(row);
             }
-            return this.create(tx, identity, { name, email, verified, picture });
+            return this.create(tx, identity, { name, email, verified, picture }, orgId);
         });
     }
 
-    private async create(tx: Queryable, identity: Identity, profile: { name: string; email: string | null; verified: boolean; picture: string | null }): Promise<User> {
+    private async create(tx: Queryable, identity: Identity, profile: { name: string; email: string | null; verified: boolean; picture: string | null }, orgId?: string): Promise<User> {
         const row = (
             await tx.query<UserRow>(
                 'INSERT INTO app_user (id, name, email, email_verified, picture) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, picture, created_at',
                 [randomUUID(), profile.name, profile.email, profile.verified, profile.picture]
             )
         ).rows[0] as UserRow;
-        await tx.query('INSERT INTO identity (provider, subject, user_id) VALUES ($1, $2, $3) ON CONFLICT (provider, subject) DO UPDATE SET user_id = EXCLUDED.user_id', [identity.provider, identity.subject, row.id]);
+        await tx.query('INSERT INTO identity (provider, subject, user_id, org_id) VALUES ($1, $2, $3, $4) ON CONFLICT (provider, subject) DO UPDATE SET user_id = EXCLUDED.user_id', [identity.provider, identity.subject, row.id, orgId ?? null]);
         return userOf(row);
     }
 }

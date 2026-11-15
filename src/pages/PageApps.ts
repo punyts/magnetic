@@ -19,6 +19,8 @@ export interface PageAppDocument {
 export interface PageAppContext {
     readonly providers: readonly { readonly name: string; readonly label: string }[];
     readonly devUsers: readonly string[];
+    /** Whether orgs may sign their people in through their own provider ("Sign in with your work email") */
+    readonly sso?: boolean;
 }
 
 /** One of Magnetic's own pages as a StateUI app: its name, the models of its data, and its definition in English */
@@ -44,6 +46,9 @@ function brand(): Record<string, unknown> {
     };
 }
 
+/** Where the sign-in page keeps the work email typed */
+const WORK_EMAIL = '$.screens.home.children.page.children.work.children.email.value';
+
 const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
@@ -58,7 +63,7 @@ function centred(children: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * Sign in: Magnetic and what it does, why the last sign-in failed, a button per provider (`provider`, with its name)
+ * Sign in: Magnetic and what it does, why the last sign-in failed, a button per provider (`provider`, with its name), the work email of an org with its own sign-in (`sso`)
  * and, on a development server, a button per test user (`dev`, with the name). The buttons are the server's, so the app
  * is made for them; the labels of the development users are data, in the visitor's language
  */
@@ -80,6 +85,17 @@ const SIGN_IN: PageAppSpec = {
                 tagline: { component: 'text', _text: t['signin.tagline'] },
                 error: { component: 'alert', tone: 'danger', '<-_title': '$.data.signin.error', '<-hidden': '$.data.signin.noError' },
                 ...(context.providers.length > 0 && { providers: stack(providers) }),
+                ...(context.sso === true && {
+                    work: {
+                        component: 'panel',
+                        padding: 'none',
+                        layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
+                        children: {
+                            email: { component: 'textField', placement: { grow: 1 }, _label: t['signin.workTitle'], _placeholder: t['signin.workEmail'], value: '' },
+                            go: { component: 'button', variant: 'soft', _title: t['signin.workGo'], on: { press: emit('sso', WORK_EMAIL) } }
+                        }
+                    }
+                }),
                 ...(context.devUsers.length > 0 && {
                     dev: {
                         component: 'panel',
@@ -92,7 +108,7 @@ const SIGN_IN: PageAppSpec = {
                         }
                     }
                 }),
-                ...(context.providers.length === 0 && context.devUsers.length === 0 && { none: { component: 'text', textRole: 'caption', _text: t['signin.none'] } })
+                ...(context.providers.length === 0 && context.devUsers.length === 0 && context.sso !== true && { none: { component: 'text', textRole: 'caption', _text: t['signin.none'] } })
             })
         };
     }

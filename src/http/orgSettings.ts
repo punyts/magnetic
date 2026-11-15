@@ -7,6 +7,9 @@ import { atLeast, ORG_ROLES } from '../orgs/Orgs.js';
 import { fill } from './text.js';
 import { orgTextsOf } from './orgText.js';
 import type { OrgTexts } from './orgText.js';
+import type { OrgDomain } from '../orgs/Domains.js';
+import type { OrgPolicy } from '../orgs/Policies.js';
+import type { OrgSsoSettings } from '../orgs/Sso.js';
 import { htmlOpen } from './pages.js';
 import type { PageLook } from './pages.js';
 
@@ -42,6 +45,18 @@ export interface OrgPageView {
     readonly error?: string;
     /** An invite just made: its link is shown once */
     readonly invited?: { readonly email: string; readonly link: string };
+    /** The org's enterprise controls, for admins and owners */
+    readonly enterprise?: EnterpriseView;
+}
+
+/** What the org's admins see of its policies, domains, sign-in and spend */
+export interface EnterpriseView {
+    readonly policy: OrgPolicy;
+    /** The models the server offers */
+    readonly models: readonly string[];
+    readonly domains: readonly OrgDomain[];
+    readonly sso: { readonly available: boolean; readonly redirectUri: string; readonly settings?: OrgSsoSettings };
+    readonly spend: { readonly month: number; readonly rows: ReadonlyArray<{ readonly person: string; readonly app: string; readonly dollars: number; readonly requests: number }> };
 }
 
 const e = (value: unknown): string => escapeHtml(String(value));
@@ -198,8 +213,88 @@ ${view.ownApps.length === 0 ? '' : form(org.id, 'moveIn', {}, `<label>${e(t['org
     const body = `${top(t, org.name, [
         ['/settings/orgs', t['orgs.all']],
         ['/', t['orgs.back']]
-    ])}<p class="muted">${e(fill(t['orgs.yourRole'], { role: t[`orgs.role.${role}`] }))}</p>${messages(view)}${membersSection}${groupsSection}${invitesSection}${appsSection}${auditSection}`;
+    ])}<p class="muted">${e(fill(t['orgs.yourRole'], { role: t[`orgs.role.${role}`] }))}</p>${messages(view)}${membersSection}${groupsSection}${invitesSection}${appsSection}${view.enterprise === undefined ? '' : enterpriseSections(t, view, view.enterprise)}${auditSection}`;
     return page(view.look, `${org.name} · ${t['orgs.pageTitle']}`, body);
+}
+
+const dollars = (amount: number): string => `$${amount.toFixed(2)}`;
+
+/** Policies, domains, sign-in, spend, and export and deletion: admins see them, owners change sign-in, domains and the org itself */
+function enterpriseSections(t: OrgTexts, view: OrgPageView, enterprise: EnterpriseView): string {
+    const { org, role } = view;
+    const owner = role === 'owner';
+    const { policy } = enterprise;
+    const check = (name: string, on: boolean, label: string, disabled = false): string =>
+        `<label class="check"><input type="checkbox" name="${e(name)}" value="on"${on ? ' checked' : ''}${disabled ? ' disabled' : ''}> ${e(label)}</label>`;
+    const models = enterprise.models.map((model) => check('agentModels', policy.agentModels?.includes(model) === true, model)).join('');
+    const policies = `<h2>${e(t['orgs.policyTitle'])}</h2>
+${form(
+    org.id,
+    'policy',
+    owner ? { sso: '1' } : {},
+    `${check('personalWorkspaces', policy.personalWorkspaces, t['orgs.policy.personalWorkspaces'])}
+${check('externalLinks', policy.externalLinks, t['orgs.policy.externalLinks'])}
+${check('autoJoin', policy.autoJoin, t['orgs.policy.autoJoin'])}
+${check('requireSso', policy.requireSso, t['orgs.policy.requireSso'], !owner)}
+<fieldset><legend>${e(t['orgs.policy.models'])}</legend>${models}</fieldset>
+<label>${e(t['orgs.policy.retention'])} <input type="number" name="retentionDays" min="1" max="3650" value="${e(policy.retentionDays ?? '')}"></label>
+<label>${e(t['orgs.policy.budget'])} <input type="number" name="monthlyBudget" min="0" step="0.01" value="${e(policy.monthlyBudget ?? '')}"></label>
+<button class="primary">${e(t['orgs.save'])}</button>`,
+    'stack wide'
+)}`;
+
+    const domainRows = enterprise.domains
+        .map((domain) => {
+            const status =
+                domain.verifiedAt !== undefined
+                    ? `<span class="chip">${e(t['orgs.verified'])}</span>`
+                    : `<span class="muted">${e(t['orgs.notVerified'])}</span><br><code class="link">${e(domain.recordName)}</code> TXT <code class="link">${e(domain.recordValue)}</code>${owner ? ` ${form(org.id, 'verifyDomain', { domain: domain.domain }, `<button>${e(t['orgs.verify'])}</button>`)}` : ''}`;
+            return `<li><div><strong>${e(domain.domain)}</strong><div>${status}</div></div><div>${owner ? form(org.id, 'removeDomain', { domain: domain.domain }, `<button class="danger">${e(t['orgs.remove'])}</button>`) : ''}</div></li>`;
+        })
+        .join('');
+    const domains = `<h2>${e(t['orgs.domainsTitle'])}</h2><p class="muted">${e(t['orgs.domainsText'])}</p>
+${enterprise.domains.length === 0 ? `<p class="muted">${e(t['orgs.noDomains'])}</p>` : `<ul class="list">${domainRows}</ul>`}
+${owner ? form(org.id, 'addDomain', {}, `<label>${e(t['orgs.domain'])} <input name="domain" required maxlength="253" placeholder="example.com"></label> <button>${e(t['orgs.addDomain'])}</button>`, 'row') : ''}`;
+
+    const settings = enterprise.sso.settings;
+    const ssoForm = !enterprise.sso.available
+        ? `<p class="muted">${e(t['orgs.ssoUnavailable'])}</p>`
+        : `<p class="muted">${e(t['orgs.ssoText'])}<br><code class="link">${e(enterprise.sso.redirectUri)}</code></p>
+<p>${e(settings?.enabled === true ? t['orgs.ssoOn'] : t['orgs.ssoOff'])}</p>
+${
+    owner
+        ? form(
+              org.id,
+              'sso',
+              {},
+              `<label>${e(t['orgs.issuer'])} <input type="url" name="issuer" required value="${e(settings?.issuer ?? '')}" placeholder="https://"></label>
+<label>${e(t['orgs.clientId'])} <input name="clientId" required value="${e(settings?.clientId ?? '')}"></label>
+<label>${e(t['orgs.clientSecret'])} <input type="password" name="clientSecret" autocomplete="off"></label>
+${check('enabled', settings?.enabled === true, t['orgs.ssoEnabled'])}
+<button class="primary">${e(t['orgs.save'])}</button>`,
+              'stack wide'
+          )
+        : settings === undefined
+          ? ''
+          : `<p class="muted">${e(t['orgs.issuer'])}: ${e(settings.issuer)}</p>`
+}`;
+    const sso = `<h2>${e(t['orgs.ssoTitle'])}</h2>${ssoForm}`;
+
+    const total = policy.monthlyBudget === undefined ? fill(t['orgs.spendNoBudget'], { spent: dollars(enterprise.spend.month) }) : fill(t['orgs.spendTotal'], { spent: dollars(enterprise.spend.month), budget: dollars(policy.monthlyBudget) });
+    const spend = `<h2>${e(t['orgs.spendTitle'])}</h2><p>${e(total)}</p>${
+        enterprise.spend.rows.length === 0
+            ? ''
+            : `<div class="table"><table><thead><tr><th>${e(t['orgs.person'])}</th><th>${e(t['orgs.app'])}</th><th>${e(t['orgs.dollars'])}</th><th>${e(t['orgs.requests'])}</th></tr></thead><tbody>${enterprise.spend.rows
+                  .map((row) => `<tr><td>${e(row.person)}</td><td>${e(row.app)}</td><td>${e(dollars(row.dollars))}</td><td>${e(row.requests)}</td></tr>`)
+                  .join('')}</tbody></table></div>`
+    }`;
+
+    const danger = !owner
+        ? ''
+        : `<h2>${e(t['orgs.dangerTitle'])}</h2><p><a class="button" href="/orgs/${e(org.id)}/export">${e(t['orgs.export'])}</a></p>
+<p class="muted">${e(t['orgs.deleteText'])}</p>
+${form(org.id, 'deleteOrg', {}, `<label>${e(t['orgs.confirm'])} <input name="confirm" required autocomplete="off" placeholder="${e(org.slug)}"></label> <button class="danger">${e(t['orgs.delete'])}</button>`, 'row')}`;
+    return `${policies}${domains}${sso}${spend}${danger}`;
 }
 
 /** `GET /invites/<token>`: what the invite is for, and a button that joins; or why it does not work */
