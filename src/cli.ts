@@ -149,6 +149,7 @@ async function main(): Promise<void> {
         ...(options.runtimeDir !== undefined && { runtimeDir: options.runtimeDir }),
         ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
         ...(options.runtimeOrigin !== undefined && { runtimeOrigin: options.runtimeOrigin }),
+        ...(options.privacy !== undefined && { privacy: options.privacy }),
         providers,
         allowHttpProviders: mock !== undefined,
         ...(options.secretKey !== undefined && { secretKey: options.secretKey }),

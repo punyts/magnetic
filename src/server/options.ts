@@ -21,6 +21,8 @@ export interface CliOptions {
     publicOrigin: string | undefined;
     /** The runtime frame's origin behind a proxy, such as https://run.magnetic.example */
     runtimeOrigin: string | undefined;
+    /** Who runs the server and where privacy requests go, for /privacy */
+    privacy: { operator: string; email: string } | undefined;
     /** Runs a mock OpenID Connect provider beside the server, to try the provider sign-in without LinkedIn */
     mockProvider: boolean;
     /** LinkedIn's client, from the environment only so the secret stays out of the process list */
@@ -219,6 +221,11 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let runtimeDir = env['MAGNETIC_RUNTIME_DIR'];
     let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
     let runtimeOrigin = env['MAGNETIC_RUNTIME_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_RUNTIME_ORIGIN']) : undefined;
+    const operator = env['MAGNETIC_OPERATOR']?.trim() || undefined;
+    const contactEmail = env['MAGNETIC_CONTACT_EMAIL']?.trim() || undefined;
+    if ((operator === undefined) !== (contactEmail === undefined)) throw new UsageError('MAGNETIC_OPERATOR and MAGNETIC_CONTACT_EMAIL go together, for the privacy page');
+    if (contactEmail !== undefined && !/^[^s@<>"]+@[^s@<>"]+.[^s@<>"]+$/.test(contactEmail)) throw new UsageError('MAGNETIC_CONTACT_EMAIL is not an email address');
+    const privacy = operator !== undefined && contactEmail !== undefined ? { operator, email: contactEmail } : undefined;
     const linkedIn = parseLinkedIn(env);
     const secretKey = env['MAGNETIC_SECRET_KEY']?.trim() || undefined;
     if (secretKey !== undefined && secretKey.length < 16) throw new UsageError('MAGNETIC_SECRET_KEY must be at least 16 characters');
@@ -354,5 +361,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, monthlyBudget, statenet, nodeId, out, help };
 }

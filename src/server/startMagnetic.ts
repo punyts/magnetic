@@ -15,6 +15,8 @@ import { Chats } from '../agent/Chats.js';
 import { agentSystemPrompt } from '../agent/instructions.js';
 import { AGENT_MODELS, modelChoice } from '../agent/models.js';
 import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
+import { privacyPage } from '../http/privacy.js';
+import type { PrivacyContact } from '../http/privacy.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
@@ -176,6 +178,8 @@ export interface MagneticOptions {
      * Absent: `http://<Host>:<runtime port>`
      */
     readonly runtimeOrigin?: string;
+    /** Who runs this server and where privacy requests go: with them, `/privacy` says what Magnetic keeps. Absent: no such page */
+    readonly privacy?: PrivacyContact;
     /** Allows providers over plain HTTP, for a mock provider in tests. Loopback hosts only */
     readonly allowHttpProviders?: boolean;
     readonly agent?: MagneticAgentOptions;
@@ -821,6 +825,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (method === 'GET' && path === '/assets/magnetic.css') {
             response.writeHead(200, { ...COMMON_HEADERS, 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
             response.end(MAGNETIC_CSS);
+            return true;
+        }
+        if (method === 'GET' && path === '/privacy' && options.privacy !== undefined) {
+            sendPage(response, privacyPage(options.privacy));
             return true;
         }
         if (method === 'GET' && path === '/signin') {

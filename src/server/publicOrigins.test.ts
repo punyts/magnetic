@@ -57,7 +57,8 @@ describe('A server behind a proxy, at two public origins', () => {
             starter: 'none',
             browser: noBrowser,
             publicOrigin: 'https://magnetic.example',
-            runtimeOrigin: 'https://run.magnetic.example'
+            runtimeOrigin: 'https://run.magnetic.example',
+            privacy: { operator: 'Example Operator', email: 'privacy@magnetic.example' }
         });
         port = magnetic.port;
     });
@@ -98,6 +99,18 @@ describe('A server behind a proxy, at two public origins', () => {
         // Assert
         expect(page.status).toBe(403);
         expect(runtime.status).toBe(403);
+    });
+
+    it('should show who runs it and where privacy requests go, without a sign-in', async () => {
+        // Act
+        const page = await getAs('magnetic.example', port, '/privacy');
+
+        // Assert
+        expect(page.status).toBe(200);
+        expect(page.headers['content-type']).toContain('text/html');
+        expect(page.body).toContain('Magnetic is run by Example Operator');
+        expect(page.body).toContain('href="mailto:privacy@magnetic.example"');
+        expect(page.body).toContain('Anthropic');
     });
 
     it('should still answer a health check on loopback', async () => {

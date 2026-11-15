@@ -51,6 +51,13 @@ describe('parseOptions', () => {
         expect(parseOptions([], {}).runtimeOrigin).toBeUndefined();
     });
 
+    it('should take who runs the server for the privacy page, both or neither', () => {
+        expect(parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator', MAGNETIC_CONTACT_EMAIL: 'privacy@magnetic.example' }).privacy).toEqual({ operator: 'Example Operator', email: 'privacy@magnetic.example' });
+        expect(parseOptions([], {}).privacy).toBeUndefined();
+        expect(() => parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator' })).toThrow(UsageError);
+        expect(() => parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator', MAGNETIC_CONTACT_EMAIL: 'not an email' })).toThrow(UsageError);
+    });
+
     it('should run the agent on Haiku 5.5 at high effort with $1 a day and $100 a month by default', () => {
         expect(parseOptions([], {})).toMatchObject({ model: 'claude-haiku-5-5', models: undefined, effort: 'high', dailyBudget: 1, monthlyBudget: 100 });
     });
