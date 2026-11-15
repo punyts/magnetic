@@ -130,4 +130,23 @@ describe('Semantic search', () => {
         expect(parts.parts[0]?.name).toBe('weather-station');
         expect(recalled.entries).toEqual([expect.objectContaining({ app: 'weather-station', text: 'Show the rainfall for the last week as a bar chart' })]);
     });
+
+    it('should rank the component library by meaning when the keywords answer weakly, embedding it once for every workspace', async () => {
+        // Arrange
+        const aliceSearch = (await magnetic.workspaces.get(aliceId)).useCases.searchComponents;
+        const bobSearch = (await magnetic.workspaces.get(bobId)).useCases.searchComponents;
+
+        // Act
+        const weak = await aliceSearch.execute({ need: 'holiday from and to' });
+        const stored = await magnetic.database.query<{ count: string | number }>("SELECT count(*) AS count FROM catalog_embedding WHERE entry_kind = 'component'");
+        await bobSearch.execute({ need: 'holiday from and to' });
+        const again = await magnetic.database.query<{ count: string | number }>("SELECT count(*) AS count FROM catalog_embedding WHERE entry_kind = 'component'");
+        const strong = await aliceSearch.execute({ need: 'pick a date range' });
+
+        // Assert
+        expect(weak.kind === 'found' && weak.result.results.some((hit) => hit.byMeaning === true)).toBe(true);
+        expect(Number(stored.rows[0]?.count)).toBeGreaterThan(50);
+        expect(Number(again.rows[0]?.count)).toBe(Number(stored.rows[0]?.count));
+        expect(strong.kind === 'found' && strong.result.results.every((hit) => hit.byMeaning === undefined)).toBe(true);
+    });
 });

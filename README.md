@@ -296,6 +296,10 @@ that made it, and a search compares only that model's vectors, through the model
 - `GET /search?q=...` finds the apps a person may open, in their own workspace and their orgs', best first.
 - The agent gets `parts_search` (the parts of the workspace closest to a need, to reuse one) and `chat_recall` (the
   person's own earlier chats in the workspace, about any app).
+- `ui_components_search` and `ui_patterns_search` rank the component library by meaning when their keywords come back
+  weak, and merge the two lists by reciprocal rank; a hit found that way says `byMeaning: true`, and the result is weak
+  only when the closest meaning is not close. The library is embedded once per catalog version and model
+  (`catalog_embedding`), for every workspace and every server on the database.
 
 `--embedding local` (the default) runs all-MiniLM-L6-v2 on the CPU through ONNX Runtime: no key, and no text leaves
 the server. It needs `@huggingface/transformers` (`npm install @huggingface/transformers -w @punyts/magnetic`); the

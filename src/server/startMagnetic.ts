@@ -52,7 +52,7 @@ import { SecretBox } from '../auth/secrets.js';
 import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
 import { orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
-import { assertMigrated, EmbeddingIndex, PART_SOURCE, partSource, pgWorkspaceStorage } from '@punyts/stateui-pg';
+import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, PART_SOURCE, partSource, pgWorkspaceStorage } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
 import { chatSource, Search } from '../search/Search.js';
@@ -306,6 +306,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const rules = new SignInRules(db, domains, policies);
     const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource }, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
+    /** The library by meaning, for the catalog searches the keywords answer weakly; shared by every workspace */
+    const catalogMeanings = options.embedder === undefined ? undefined : new CatalogEmbeddings(db, options.embedder);
     index?.start(options.embedEveryMs);
     let origin = '';
     let runtimePort = 0;
@@ -352,6 +354,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     origin: () => origin,
                     agentAnswers: false,
                     logicLimits: options.logicLimits ?? DEFAULT_LOGIC_LIMITS,
+                    ...(catalogMeanings !== undefined && { catalogMeanings }),
                     ...(options.browser !== undefined && { browser: options.browser })
                 });
                 await services.recoverParts();
