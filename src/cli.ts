@@ -3,10 +3,10 @@ import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
 import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
-import { createDatabase, EmbeddingIndex, hashEmbedder, localEmbedder, migrate, PART_SOURCE, partSource } from '@punyts/stateui-pg';
+import { createDatabase, EmbeddingIndex, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from './agent/Chats.js';
-import { chatSource } from './search/Search.js';
+import { EMBEDDING_SOURCES } from './search/Search.js';
 import { ALL_MIGRATIONS } from './storage/db.js';
 import { importPeople } from './storage/importFiles.js';
 import type { OidcProvider } from './auth/OidcSignIn.js';
@@ -76,10 +76,11 @@ async function main(): Promise<void> {
         try {
             if (embedder === undefined) throw new Error('reindex needs an embedder: --embedding local or hash');
             await migrate(database, ALL_MIGRATIONS);
-            // Every part and chat entry of every workspace: the migration owner role sees past row-level security
+            // Every part, chat entry and embedded record field of every workspace: the migration owner role sees past row-level security
             await database.query("INSERT INTO embedding_job (workspace_id, source_kind, source_id) SELECT workspace_id, $1, kind || '/' || id FROM part", [PART_SOURCE]);
             await database.query('INSERT INTO embedding_job (workspace_id, source_kind, source_id) SELECT workspace_id, $1, id::text FROM chat_entry', [CHAT_SOURCE]);
-            const index = new EmbeddingIndex(database, embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource });
+            await queueAllRecords(database);
+            const index = new EmbeddingIndex(database, embedder, EMBEDDING_SOURCES);
             await index.drain();
             process.stdout.write(`magnetic: everything is embedded with ${embedder.model}\n`);
         } finally {

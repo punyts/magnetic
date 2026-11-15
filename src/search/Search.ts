@@ -1,5 +1,5 @@
 import type { UiToolDefinition } from '@punyts/stateui-mcp';
-import { PART_SOURCE } from '@punyts/stateui-pg';
+import { PART_SOURCE, partSource, PERSONA_RECORD_SOURCE, personaRecordSource, RECORD_SOURCE, recordSource } from '@punyts/stateui-pg';
 import type { Database, EmbeddingIndex, EmbeddingSource } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
 import type { AppAccess } from '../orgs/AppAccess.js';
@@ -9,6 +9,14 @@ export const chatSource: EmbeddingSource = async (tx, job) => {
     if (!/^\d{1,18}$/.test(job.sourceId)) return undefined;
     const row = (await tx.query<{ text: string; user_id: string }>('SELECT text, user_id FROM chat_entry WHERE workspace_id = $1 AND id = $2', [job.workspaceId, job.sourceId])).rows[0];
     return row === undefined ? undefined : { text: row.text, owner: row.user_id };
+};
+
+/** Every kind of source Magnetic embeds, for the worker and `magnetic reindex`: parts, chat entries and record fields */
+export const EMBEDDING_SOURCES: Readonly<Record<string, EmbeddingSource>> = {
+    [PART_SOURCE]: partSource,
+    [CHAT_SOURCE]: chatSource,
+    [RECORD_SOURCE]: recordSource,
+    [PERSONA_RECORD_SOURCE]: personaRecordSource
 };
 
 /** An app found by a search, as the home page shows it */

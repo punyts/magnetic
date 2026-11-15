@@ -300,6 +300,11 @@ that made it, and a search compares only that model's vectors, through the model
   weak, and merge the two lists by reciprocal rank; a hit found that way says `byMeaning: true`, and the result is weak
   only when the closest meaning is not close. The library is embedded once per catalog version and model
   (`catalog_embedding`), for every workspace and every server on the database.
+- A model's string field marked `embed: true` makes that field of every record searchable, in datasets and persona
+  bindings; a record edit queues only that record and field, and a model that starts or stops embedding a field queues
+  its records. An app's logic asks with `call` (target `similar`, value `{ binding, field, text, limit? }`) and gets
+  `{ results: [{ key, score }] }`; over a persona binding, only the records of the person whose instance asks. The
+  agent gets `data_similar` for the same search.
 
 `--embedding local` (the default) runs all-MiniLM-L6-v2 on the CPU through ONNX Runtime: no key, and no text leaves
 the server. It needs `@huggingface/transformers` (`npm install @huggingface/transformers -w @punyts/magnetic`); the

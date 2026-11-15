@@ -1,10 +1,12 @@
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { MagneticOptions, RunningMagnetic } from '../server/startMagnetic.js';
 import { hashEmbedder } from '@punyts/stateui-pg';
 import { Chats } from '../agent/Chats.js';
 import { Search } from './Search.js';
+import { similarTool } from './similar.js';
+import type { RecordSimilarity } from '@punyts/stateui-pg';
 import type { Database } from '@punyts/stateui-pg';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { magneticTestDatabase } from '../testing/testDb.js';
@@ -129,6 +131,58 @@ describe('Semantic search', () => {
         // Assert
         expect(parts.parts[0]?.name).toBe('weather-station');
         expect(recalled.entries).toEqual([expect.objectContaining({ app: 'weather-station', text: 'Show the rainfall for the last week as a bar chart' })]);
+    });
+
+    it("should answer an app's similar call, and the agent's data_similar, with the keys of the closest records", async () => {
+        // Arrange
+        const services = await magnetic.workspaces.get(aliceId);
+        await services.parts.create({ kind: 'models', name: 'ticket', body: { fields: { title: { type: 'string', embed: true } } } as never });
+        await services.parts.create({ kind: 'models', name: 'ask', body: { fields: { question: { type: 'string' }, phase: { type: 'string' }, answer: { type: 'string' } } } as never });
+        await services.parts.create({
+            kind: 'data',
+            name: 'tickets',
+            body: { model: 'ticket', records: { t1: { title: 'Printer jams on every page' }, t2: { title: 'Password reset email never arrives' }, t3: { title: 'Laptop battery drains overnight' } } } as never
+        });
+        await services.parts.create({
+            kind: 'apps',
+            name: 'helpdesk',
+            body: {
+                uses: { data: { tickets: { dataset: 'tickets' }, ask: { model: 'ask', scope: 'persona' } } },
+                start: 'home',
+                app: { component: 'app' },
+                screens: { home: { root: { component: 'form', children: { question: { component: 'textField', _label: 'Question' } } } } },
+                logic: {
+                    machines: {
+                        find: {
+                            state: '$.data.ask.phase',
+                            initial: 'idle',
+                            transitions: [
+                                { from: 'idle', when: { path: '$.data.ask.question' }, do: [{ command: 'call', target: 'similar', value: { binding: 'tickets', field: 'title', text: '$trigger', limit: 2 }, as: 'found' }], to: 'waiting' },
+                                { from: 'waiting', when: { result: 'found', is: 'accepted' }, do: [{ command: 'set', target: '$.data.ask.answer', value: '$result.value.results.0.key' }], to: 'idle' }
+                            ]
+                        }
+                    }
+                }
+            } as never
+        });
+        await magnetic.index?.drain();
+        const tool = similarTool(magnetic.similarity as RecordSimilarity, aliceId, aliceId, services.parts);
+
+        // Act
+        const written = await services.useCases.setPartState.execute('helpdesk', { path: '$.data.ask.question', value: 'the printer keeps jamming pages' });
+        const part = await services.parts.findByName('apps', 'helpdesk');
+        const found = await vi.waitFor(async () => {
+            const state = JSON.stringify(await services.useCases.getPartState.execute(part as never));
+            expect(state).toContain('"answer"');
+            return state;
+        });
+        const byTool = (await tool?.run({ app: 'helpdesk', binding: 'tickets', field: 'title', text: 'battery drains' })) as { isError: boolean; body: { results: Array<{ key: string }> } };
+
+        // Assert
+        expect(written).toMatchObject({ kind: expect.not.stringMatching(/invalid|not-found/) });
+        expect(found).toContain('"answer":"t1"');
+        expect(byTool.isError).toBe(false);
+        expect(byTool.body.results[0]?.key).toBe('t3');
     });
 
     it('should rank the component library by meaning when the keywords answer weakly, embedding it once for every workspace', async () => {

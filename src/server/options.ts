@@ -48,7 +48,7 @@ Commands:
   migrate                Apply the database migrations, then exit
   import                 Copy a file data folder of an earlier Magnetic (--data-dir) into the
                          database, then exit. A workspace already in the database is skipped
-  reindex                Queue every part and chat to be embedded again with the current model, embed
+  reindex                Queue every part, chat and embedded record field to be embedded again with the current model, embed
                          them, then exit (after changing --embedding)
 
 Options:

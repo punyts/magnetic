@@ -52,10 +52,11 @@ import { SecretBox } from '../auth/secrets.js';
 import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
 import { orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
-import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, PART_SOURCE, partSource, pgWorkspaceStorage } from '@punyts/stateui-pg';
+import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgWorkspaceStorage, RecordSimilarity } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
-import { chatSource, Search } from '../search/Search.js';
+import { EMBEDDING_SOURCES, Search } from '../search/Search.js';
+import { SIMILAR_PROCEDURE, similarProcedure, similarTool } from '../search/similar.js';
 import { ALL_MIGRATIONS } from '../storage/db.js';
 import type { WorkspacesOptions } from '../workspaces/Workspaces.js';
 
@@ -191,6 +192,8 @@ export interface RunningMagnetic {
     readonly sso: OrgSso;
     /** The embedding index, when the server has an embedder */
     readonly index?: EmbeddingIndex;
+    /** The records of an app's data binding by meaning (the `similar` call and `data_similar`), when the server has an embedder */
+    readonly similarity?: RecordSimilarity;
     readonly workspaces: Workspaces;
     readonly signIn: OidcSignIn;
     readonly turns: AgentTurns;
@@ -304,10 +307,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const domains = new OrgDomains(db, orgs, options.resolveTxt);
     const sso = new OrgSso(db, orgs, options.secretKey === undefined ? undefined : new SecretBox(options.secretKey));
     const rules = new SignInRules(db, domains, policies);
-    const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, { [PART_SOURCE]: partSource, [CHAT_SOURCE]: chatSource }, { report: (message, fields) => options.report.info(message, fields) });
+    const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, EMBEDDING_SOURCES, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
     /** The library by meaning, for the catalog searches the keywords answer weakly; shared by every workspace */
     const catalogMeanings = options.embedder === undefined ? undefined : new CatalogEmbeddings(db, options.embedder);
+    /** The records of an app's data binding by meaning: logic's `similar` call and the agent's `data_similar` */
+    const similarity = index === undefined ? undefined : new RecordSimilarity(index);
     index?.start(options.embedEveryMs);
     let origin = '';
     let runtimePort = 0;
@@ -342,7 +347,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
-                const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined });
+                const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined, embedRecords: index !== undefined });
                 // A person's own workspace starts with the showcase; an org's starts empty
                 if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
@@ -355,6 +360,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     agentAnswers: false,
                     logicLimits: options.logicLimits ?? DEFAULT_LOGIC_LIMITS,
                     ...(catalogMeanings !== undefined && { catalogMeanings }),
+                    ...(similarity !== undefined && { procedures: { [SIMILAR_PROCEDURE]: similarProcedure(similarity, workspaceId, () => storage.parts) } }),
                     ...(options.browser !== undefined && { browser: options.browser })
                 });
                 await services.recoverParts();
@@ -423,7 +429,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             try {
                 const services = await workspaces.get(workspaceId);
                 system ??= agentSystemPrompt(services);
-                return { tools: [...toolsOf(services), ...(search?.tools(userId, workspaceId) ?? [])], system, release };
+                return { tools: [...toolsOf(services), ...(search?.tools(userId, workspaceId) ?? []), ...(similarity === undefined ? [] : [similarTool(similarity, userId, workspaceId, services.parts)])], system, release };
             } catch (error) {
                 release();
                 throw error;
@@ -1227,6 +1233,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         domains,
         sso,
         ...(index !== undefined && { index }),
+        ...(similarity !== undefined && { similarity }),
         workspaces,
         signIn,
         turns,
