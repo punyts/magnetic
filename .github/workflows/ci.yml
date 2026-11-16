@@ -1,0 +1,97 @@
+# Magnetic's checks on GitHub: the typecheck, the unit tests and the Playwright suite (docs/design/magnetic-m8.md).
+# Magnetic builds inside the workspace (punyts/workspace) with the other libraries beside it, as the production image
+# does: this job checks out the workspace, puts this repo at magnetic/, and clones each other library's develop.
+# Every repo is public, so no token is needed. A nightly run catches a change in a library Magnetic builds on.
+name: CI
+
+on:
+    push:
+        branches: [develop, main]
+    pull_request:
+        branches: [develop, main]
+    schedule:
+        - cron: '17 4 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    test:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        services:
+            # The database `npm run magnetic:db` starts locally: Postgres 16 with pgvector, on port 5433
+            postgres:
+                image: pgvector/pgvector:pg16
+                env:
+                    POSTGRES_USER: magnetic
+                    POSTGRES_PASSWORD: magnetic
+                    POSTGRES_DB: magnetic
+                ports:
+                    - 5433:5432
+                options: >-
+                    --health-cmd "pg_isready -U magnetic"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 20
+        env:
+            PUNYTS_TEST_DATABASE_URL: postgres://magnetic:magnetic@127.0.0.1:5433/magnetic
+            CI: 'true'
+        steps:
+            - name: Check out the workspace
+              uses: actions/checkout@v4
+              with:
+                  repository: punyts/workspace
+                  ref: develop
+
+            - name: Check out Magnetic into it
+              uses: actions/checkout@v4
+              with:
+                  path: magnetic
+
+            - name: Clone the other libraries (develop)
+              run: node bin/workspace.mjs clone develop
+
+            - uses: actions/setup-node@v4
+              with:
+                  # The production image's Node (docker/Dockerfile)
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: package-lock.json
+
+            - name: Install
+              run: npm ci --no-audit --no-fund
+
+            - name: Build
+              run: |
+                  node bin/workspace.mjs run build core expression state state-sync statenet stateui stateui-3d stateui-app stateui-components stateui-mcp stateui-pg magnetic
+                  npm run build:runtime-bundle -w @punyts/stateui-app
+
+            - name: Install Chromium
+              run: npx playwright install --with-deps chromium chromium-headless-shell
+
+            - name: Typecheck
+              run: npm run typecheck -w @punyts/magnetic
+
+            - name: Unit tests
+              run: npm test -w @punyts/magnetic
+
+            - name: Playwright suite
+              working-directory: magnetic
+              run: npx playwright test
+
+            - name: Keep the Playwright report and failures
+              if: ${{ !cancelled() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-${{ github.run_id }}
+                  path: |
+                      magnetic/e2e-report
+                      magnetic/e2e-results
+                  retention-days: 14
+                  if-no-files-found: ignore

@@ -410,6 +410,8 @@ npm run e2e     # builds, then the Playwright suite: the whole UI as a person us
 npm run e2e:report   # the last run's report, with a trace and a screenshot of each failure
 ```
 
+**On GitHub** (`.github/workflows/ci.yml`) the typecheck, the unit tests and the Playwright suite run on every push and pull request to `develop` and `main`, and nightly. The job checks out the workspace, puts this repo at `magnetic/`, clones the other libraries' `develop`, builds as the production image does (Node 22), and runs against a pgvector Postgres service on port 5433. Each run keeps the Playwright report and any failures' traces for 14 days.
+
 **The Playwright suite** (`e2e/`, `playwright.config.ts`) starts its own server, `e2e/server.mjs`:
 - Magnetic from `dist` on a fresh schema of the test database, dropped when the run ends;
 - the dev users alice, bob, carol and dan, the mock OIDC provider, and the scripted agent, so no test needs an API
