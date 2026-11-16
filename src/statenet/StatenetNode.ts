@@ -184,10 +184,25 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         }
     };
 
+    /**
+     * Takes a namespace, waiting while it is refused: just after the servers restart, its owner of record may not be
+     * linked yet, or no longer host it, and its lease holds it until it runs out. So the claim is tried again, with the
+     * directory read afresh, until a little past one lease
+     */
+    const claimWaiting = async (address: string): Promise<boolean> => {
+        const until = Date.now() + (options.leaseMs ?? 10_000) + 2_000;
+        for (let wait = 200; ; wait = Math.min(wait * 2, 1_000)) {
+            if (await placed(() => running.node.claim(address))) return true;
+            if (Date.now() + wait > until) return false;
+            await new Promise((resolve) => setTimeout(resolve, wait));
+            await readDirectory();
+        }
+    };
+
     const placement: InstancePlacement = {
         claim: async (address, workspaceId) => {
             await record(address, workspaceId);
-            return placed(() => running.node.claim(address));
+            return claimWaiting(address);
         },
         epochOf: (address) => running.node.epochOf(address),
         connect: async (address, workspaceId, connection, access, here) => {

@@ -179,6 +179,24 @@ describe('several Magnetic servers on one database', () => {
         again.ws.close();
     });
 
+    it('should wait out the lease of a server that went away without letting go, as after a deploy, instead of failing', async () => {
+        // Arrange: the instance is held, for a while yet, by a server that is no longer there
+        const app = await newApp(two, 'accounts');
+        const address = `${aliceId}/${app.id}/user`;
+        await two.database.query(
+            "INSERT INTO namespace_owner (address, node, epoch, lease_until) VALUES ($1, 'gone-in-the-deploy', 7, now() + interval '1 second') ON CONFLICT (address) DO UPDATE SET node = EXCLUDED.node, epoch = EXCLUDED.epoch, lease_until = EXCLUDED.lease_until",
+            [address]
+        );
+
+        // Act: what Your apps does, as the first request after the restart
+        const authority = await (await two.workspaces.get(aliceId)).instanceViews.authority(app);
+        authority.write({ op: 'set', path: '$.app.after', value: 'the deploy' });
+
+        // Assert
+        expect(two.statenet?.mesh.node.owned()).toContain(address);
+        expect(authority.get('$.app.after')).toBe('the deploy');
+    });
+
     it('should let another server take over the instances of a server that stops, at once', async () => {
         // Arrange
         const app = await newApp(one, 'diary');

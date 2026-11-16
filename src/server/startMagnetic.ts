@@ -38,6 +38,7 @@ import { Feedback, FEEDBACK_KINDS, FEEDBACK_PER_HOUR, MAX_FEEDBACK_LENGTH } from
 import { Admin, AdminList } from '../admin/Admin.js';
 import { adminRoutes } from './adminRoutes.js';
 import { betaRoutes } from './betaRoutes.js';
+import { busyPage, isInstanceBusy } from '../http/busyPage.js';
 import { Beta } from '../beta/Beta.js';
 import { Stripe } from '../billing/Stripe.js';
 import type { StripeOptions } from '../billing/Stripe.js';
@@ -1544,7 +1545,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         runtimePort: options.runtimePort ?? (options.port === 0 ? 0 : options.port + 1),
         ...(runtimeOrigin !== undefined && publicOrigin !== undefined && { publicOrigins: { main: publicOrigin, runtime: runtimeOrigin } }),
         tenant,
-        routes,
+        routes: async (request, response) => {
+            try {
+                return await routes(request, response);
+            } catch (error) {
+                // A page asked for while its instance is still on another server (just after a restart): a page that
+                // loads again in a moment, not a bare error
+                if (!isInstanceBusy(error) || response.headersSent || request.method !== 'GET' || !/text\/html/.test(request.headers.accept ?? '')) throw error;
+                options.report.info('A page waited for an instance on another server', { path: request.url?.split('?')[0] });
+                response.setHeader('Retry-After', '3');
+                sendPage(response, busyPage(languageOf(request.headers['accept-language'])), 503);
+                return true;
+            }
+        },
         socketMessagesPerSecond: options.socketMessagesPerSecond ?? DEFAULT_SOCKET_MESSAGES_PER_SECOND,
         runtime,
         ...(chunk3d !== undefined && { chunk3d }),
