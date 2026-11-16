@@ -119,6 +119,7 @@ addEventListener('stateui:emit', (event) => {
     else if (name === 'resetEditor') { if (confirm(T['home.resetConfirm'])) void editor('/editor/reset'); }
     else if (name === 'orgs') location.assign('/settings/orgs');
     else if (name === 'connections') location.assign('/settings/connections');
+    else if (name === 'data') location.assign('/settings/data');
     else if (name === 'openOrg' && typeof payload === 'string' && APP_ID.test(payload)) location.assign('/settings/orgs/' + encodeURIComponent(payload));
     else if ((name === 'inviteJoin' || name === 'inviteDecline') && typeof payload === 'string' && APP_ID.test(payload)) void answerInvite(payload, name === 'inviteJoin');
     else if (name === 'signout') void fetch('/signout', { method: 'POST' }).finally(() => location.assign('/signin'));

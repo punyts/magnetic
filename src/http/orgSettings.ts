@@ -345,7 +345,7 @@ export function sharedPage(view: SharedPageView): string {
         .map((grant) => {
             const appId = grant.address.split('/')[1] ?? '';
             const to = grant.kind === 'org-read' ? t['shared.orgRead'] : (view.names.get(grant.subject) ?? grant.subject);
-            const app = appId === '*' ? t['shared.allApps'] : (view.apps.get(appId) ?? appId);
+            const app = grant.address.endsWith('/data') ? fill(t['shared.dataset'], { name: appId }) : appId === '*' ? t['shared.allApps'] : (view.apps.get(appId) ?? appId);
             const rights = grant.rights.map((right) => t[`shared.${right}`]).join(', ');
             const until = grant.revokedAt !== undefined ? t['shared.revoked'] : grant.expiresAt === undefined ? t['shared.standing'] : date(grant.expiresAt, '');
             const revoke = grant.revokedAt !== undefined ? '' : `<form method="post" action="/settings/shared" class="inline"><input type="hidden" name="id" value="${e(grant.id)}"><button class="danger">${e(t['shared.revoke'])}</button></form>`;

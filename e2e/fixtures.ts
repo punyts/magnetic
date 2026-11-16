@@ -27,6 +27,12 @@ export async function mockPerson(person: { sub: string; name: string; email: str
     expect(response.status).toBe(204);
 }
 
+/** Gives a dev user who signed in a verified email and a dataset of their own, as the agent would make it */
+export async function seedDataset(seed: { user: string; email: string; dataset: string; records: Record<string, Record<string, string>> }): Promise<void> {
+    const response = await fetch(`${CONTROL}/dataset`, { method: 'POST', body: JSON.stringify(seed) });
+    expect(response.status, await response.text()).toBe(204);
+}
+
 /** The invites the test server has "emailed", oldest first */
 export async function mailSent(): Promise<Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>> {
     return (await (await fetch(`${CONTROL}/mail`)).json()) as Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>;

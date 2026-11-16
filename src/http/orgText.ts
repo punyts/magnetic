@@ -145,6 +145,7 @@ const EN = {
     'shared.standing': "while you are a member",
     'shared.orgRead': "Your org, read only (its owners and admins, for support)",
     'shared.allApps': "every app of the org",
+    'shared.dataset': "the dataset {name}",
     'shared.never': "never",
     'shared.back': "Your apps",
     'shared.done': "Revoked, with everything passed on from it."
@@ -293,6 +294,7 @@ const DE: OrgTexts = {
     'shared.standing': "solange du Mitglied bist",
     'shared.orgRead': "Deine Organisation, nur lesend (ihre Inhaber und Admins, für den Support)",
     'shared.allApps': "jede App der Organisation",
+    'shared.dataset': "der Datensatz {name}",
     'shared.never': "nie",
     'shared.back': "Deine Apps",
     'shared.done': "Widerrufen, mit allem, was daraus weitergegeben wurde."
@@ -438,6 +440,7 @@ const FR: OrgTexts = {
     'shared.standing': "tant que vous en êtes membre",
     'shared.orgRead': "Votre organisation, en lecture seule (ses propriétaires et administrateurs, pour l’assistance)",
     'shared.allApps': "toutes les applications de l’organisation",
+    'shared.dataset': "le jeu de données {name}",
     'shared.never': "jamais",
     'shared.back': "Vos applications",
     'shared.done': "Révoquée, avec tout ce qui en a été transmis."
@@ -583,6 +586,7 @@ const ES: OrgTexts = {
     'shared.standing': "mientras seas miembro",
     'shared.orgRead': "Tu organización, solo lectura (sus propietarios y administradores, para soporte)",
     'shared.allApps': "todas las aplicaciones de la organización",
+    'shared.dataset': "el conjunto de datos {name}",
     'shared.never': "nunca",
     'shared.back': "Tus aplicaciones",
     'shared.done': "Revocado, con todo lo que se pasó a partir de él."

@@ -5,6 +5,7 @@
 //                          runtime; +2 the test control; +3 a stand-in outside API with an OAuth provider)
 import { createServer } from 'node:http';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
+import { createStateUiTools } from '@punyts/stateui-mcp';
 import { MockAgentModel, startMagnetic, startMockOidcProvider } from '../dist/index.js';
 import { ALL_MIGRATIONS } from '../dist/storage/db.js';
 import { memoryMailer } from '../dist/mail/Mailer.js';
@@ -33,8 +34,29 @@ const magnetic = await startMagnetic({
     agent: { model: new MockAgentModel(), budgets: { perUserTotal: 5, monthly: 100 } }
 });
 
-// For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims), and
-// the invites emailed so far (GET /mail)
+/** The id of a dev user who signed in */
+const devUserId = async (name) => (await test.db.query("SELECT user_id::text AS id FROM identity WHERE provider = 'dev' AND subject = $1", [name])).rows[0]?.id;
+
+/**
+ * POST /dataset: a dev user who signed in gets a verified email (dev users have none) and a dataset of their own, as the
+ * agent would make it: { user, email, dataset, records } with a model of text fields named after the records' fields
+ */
+async function seedDataset({ user, email, dataset, records }) {
+    const id = await devUserId(user);
+    if (id === undefined) throw new Error(`${user} has not signed in`);
+    await test.db.query('UPDATE app_user SET email = $2, email_verified = true WHERE id = $1', [id, email]);
+    const tools = createStateUiTools(await magnetic.workspaces.get(id));
+    const run = async (name, args) => {
+        const outcome = await tools.find((candidate) => candidate.name === name).run(args);
+        if (outcome.isError) throw new Error(`${name}: ${JSON.stringify(outcome.body)}`);
+    };
+    const fields = [...new Set(Object.values(records).flatMap((record) => Object.keys(record)))];
+    await run('ui_model_write', { model: `${dataset}-item`, operations: fields.map((field) => ({ op: 'set', field, type: 'string' })) });
+    await run('ui_data_write', { dataset, model: `${dataset}-item`, operations: Object.entries(records).map(([path, value]) => ({ op: 'set', path, value })) });
+}
+
+// For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims), the
+// invites emailed so far (GET /mail), and a dev user's dataset (POST /dataset)
 const control = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => (body += chunk));
@@ -44,6 +66,11 @@ const control = createServer((request, response) => {
         } else if (request.method === 'POST' && request.url === '/person') {
             mock.person = JSON.parse(body);
             response.writeHead(204).end();
+        } else if (request.method === 'POST' && request.url === '/dataset') {
+            seedDataset(JSON.parse(body)).then(
+                () => response.writeHead(204).end(),
+                (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+            );
         } else response.writeHead(404).end();
     });
 });

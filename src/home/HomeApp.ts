@@ -118,6 +118,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                             language: menu('language', t['prefs.language'], Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }]))),
                             orgs: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.orgs'], on: { press: { command: 'emit', target: 'orgs' } } },
                             connections: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.connections'], on: { press: { command: 'emit', target: 'connections' } } },
+                            data: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.data'], on: { press: { command: 'emit', target: 'data' } } },
                             signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
                         }
                     },

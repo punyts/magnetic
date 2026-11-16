@@ -2,6 +2,15 @@
 
 ## 0.1.0 (unreleased)
 
+- **Reading another owner's data** (docs/design/magnetic-shared-data.md).
+  - **The Data page,** `/settings/data` (Data on Your apps), tabbed by the workspaces a person manages:
+    - each of the workspace's datasets, with whom it is shared, Stop sharing, and a form to share it read only with a person's verified email or an org's short name;
+    - the datasets other owners shared with this workspace, with the `uses.external` that reads one.
+  - **A share is a standing signed grant** (`StateGrants`), from the workspace to the other workspace, on the address `<workspace>/<dataset>/data`, read only on `$`, until it is stopped. The audit names the person who shared or stopped it. Shared by me lists it, as "the dataset <name>". An org whose policy keeps grants in the org refuses sharing outside it.
+  - **An app reads it** with `uses.external.<alias> = { owner, dataset }` (stateui-app). Its records show at `$.external.<alias>`, live, and the logic runs on their changes; the app can never write them. `SharedData` checks the signed grant as a read opens and on each change, and stopping a share clears the reading apps at once.
+  - **The agent is told** what datasets are shared with the app's workspace, with their fields and how to read each.
+  - Tests: `sharing/sharedData.test.ts` (6), and `e2e/data.spec.ts` (3 at two sizes), with a `/dataset` control route that seeds a dataset and a verified email.
+
 - **M8's gaps filled.**
   - **An org can turn connections off.** A new policy, `connections` (on by default), on the org's settings page. While it is off:
     - every call of the org's apps is refused, with the reason in the effect's status;

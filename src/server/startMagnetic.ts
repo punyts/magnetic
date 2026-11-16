@@ -31,6 +31,7 @@ import { connectionFacts, paramsOf } from '../connections/facts.js';
 import type { GuardOptions } from '../connections/guard.js';
 import { CallLimits, HTTP_EFFECT, httpEffect } from '../connections/httpEffect.js';
 import { connectionRoutes } from './connectionRoutes.js';
+import { dataRoutes } from './dataRoutes.js';
 import type { LogicInstance } from '@punyts/stateui-mcp';
 import { orgTextsOf } from '../http/orgText.js';
 import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
@@ -52,6 +53,8 @@ import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
+import { SharedData } from '../sharing/SharedData.js';
+import { sharedDataFacts } from '../sharing/facts.js';
 import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Orgs } from '../orgs/Orgs.js';
@@ -451,7 +454,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     ...(catalogMeanings !== undefined && { catalogMeanings }),
                     ...(similarity !== undefined && { procedures: { [SIMILAR_PROCEDURE]: similarProcedure(similarity, workspaceId, () => storage.parts) } }),
                     ...(options.browser !== undefined && { browser: options.browser }),
-                    ...(statenet !== undefined && { placement: statenet.placement })
+                    ...(statenet !== undefined && { placement: statenet.placement }),
+                    // Datasets other owners shared with this workspace, read by its apps' `uses.external`
+                    ...(sharedData !== undefined && { sharedData: sharedData.forReader(workspaceId) })
                 });
                 await services.recoverParts();
                 return services;
@@ -464,6 +469,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         options.workspaces
     );
     workspacesRef = workspaces;
+    /** Datasets shared between workspaces, read through signed grants (docs/design/magnetic-shared-data.md) */
+    const sharedData = stateGrants === undefined ? undefined : new SharedData(stateGrants, workspaces, (message, fields) => options.report.info(message, fields as Record<string, string>));
     const tools = new WeakMap<Services, readonly UiToolDefinition[]>();
     const toolsOf = (services: Services): readonly UiToolDefinition[] => {
         let found = tools.get(services);
@@ -505,7 +512,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
-        connectionFacts: async (workspaceId: string) => ((await connectionsAllowed(workspaceId)) ? connectionFacts(connections, workspaceId) : undefined),
+        // What the workspace can reach beyond its own parts: its connections, and the datasets other owners shared with it
+        connectionFacts: async (workspaceId: string) => {
+            const facts = [
+                (await connectionsAllowed(workspaceId)) ? await connectionFacts(connections, workspaceId) : undefined,
+                stateGrants === undefined ? undefined : await sharedDataFacts(stateGrants, db, (id) => workspaces.get(id), workspaceId).catch(() => undefined)
+            ].filter((fact): fact is string => fact !== undefined);
+            return facts.length === 0 ? undefined : facts.join('\n');
+        },
         // An org's monthly budget, which every turn in its workspace spends
         workspaceRefusal: async (workspaceId: string): Promise<string | undefined> => {
             const org = await orgs.byWorkspace(workspaceId);
@@ -641,7 +655,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     };
     const handleOrgRoute = orgRoutes(orgContext);
-    const handleGrants = grantRoutes({ db, grants: stateGrants, keys, orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
+    const handleGrants = grantRoutes({ db, grants: stateGrants, keys, revoked: (revoked) => sharedData?.revoked(revoked), orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
     const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location), models: () => turns.models });
     const handleConnections = connectionRoutes({
         db,
@@ -655,6 +669,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sendPage,
         redirect: (response, location) => redirect(response, location),
         origin: () => publicOrigin ?? origin,
+        report: (message, fields) => options.report.info(message, fields)
+    });
+    const handleData = dataRoutes({
+        db,
+        orgs,
+        ...(stateGrants !== undefined && { grants: stateGrants }),
+        ...(sharedData !== undefined && { sharedData }),
+        workspace: (workspaceId) => workspaces.get(workspaceId),
+        signedIn,
+        readForm,
+        lookOf,
+        sendPage,
+        redirect: (response, location) => redirect(response, location),
         report: (message, fields) => options.report.info(message, fields)
     });
 
@@ -1094,6 +1121,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleOrgRoute(request, response, method, path)) return true;
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleConnections(request, response, method, path)) return true;
+        if (await handleData(request, response, method, path)) return true;
         if (await handleGrants(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {
             const who = await signedIn(request);

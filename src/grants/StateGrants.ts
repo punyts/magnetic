@@ -40,6 +40,19 @@ export interface IssueInput {
     readonly lifeMs?: number;
     /** The grant it is passed on from: the issuer must be its subject */
     readonly parentId?: string;
+    /** A standing share that lasts until it is revoked (a dataset shared with a workspace); `lifeMs` is then ignored */
+    readonly standing?: boolean;
+    /** The person who gave it, for the org's audit, when the issuer is a workspace they manage */
+    readonly by?: string;
+}
+
+/** The address of a workspace's dataset, for grants: the records stay in the data part, this names them */
+export const datasetAddress = (workspaceId: string, dataset: string): string => `${workspaceId}/${dataset}/data`;
+
+/** The workspace and dataset an address names, when it names a dataset */
+export function datasetOf(address: string): { readonly owner: string; readonly dataset: string } | undefined {
+    const [owner, dataset, scope] = address.split('/');
+    return scope === 'data' && owner !== undefined && dataset !== undefined ? { owner, dataset } : undefined;
 }
 
 interface GrantRow {
@@ -59,7 +72,7 @@ interface GrantRow {
 }
 
 const COLUMNS = 'id, kind, issuer, subject, address, prefix, rights, parent_grant, org_id, issued_at, expires_at, revoked_at, last_used_at';
-const ADDRESS = /^[^/\s]{1,200}\/([^/\s]{1,200}|\*)\/(app|user)$/;
+const ADDRESS = /^[^/\s]{1,200}\/([^/\s]{1,200}|\*)\/(app|user|data)$/;
 const PREFIX = /^\$(\.[^.\s]+)*$/;
 
 function toRecord(row: GrantRow): GrantRecord {
@@ -97,12 +110,12 @@ export class StateGrants {
 
     async issue(input: IssueInput, now: Date = new Date()): Promise<{ id: string; token: string }> {
         const { issuer, subject, address, prefix, rights } = input;
-        if (!ADDRESS.test(address)) throw new OrgError(400, 'An address is <owner>/<app>/<app or user>.');
+        if (!ADDRESS.test(address)) throw new OrgError(400, 'An address is <owner>/<app>/<app or user>, or <owner>/<dataset>/data.');
         if (!PREFIX.test(prefix)) throw new OrgError(400, 'A prefix is a "$." path.');
         if (rights.length === 0 || !rights.every((right) => right === 'read' || right === 'write')) throw new OrgError(400, 'Rights are read, write or both.');
         if (subject.trim() === '' || subject.length > 200) throw new OrgError(400, 'A grant needs a subject.');
         const life = Math.min(Math.max(input.lifeMs ?? MAX_SHARE_MS, 60_000), MAX_SHARE_MS);
-        let expires = new Date(now.getTime() + life);
+        let expires: Date | null = input.standing === true && input.parentId === undefined ? null : new Date(now.getTime() + life);
         let kind: GrantKind = 'share';
         if (input.parentId === undefined) {
             if (issuer !== ownerOfAddress(address)) throw new OrgError(403, 'Only the owner of the state can share it, or pass on a grant they hold.');
@@ -114,7 +127,7 @@ export class StateGrants {
             if (!addressCovers(parent.address, address) || !isWithinPrefix(parent.prefix, prefix) || !rights.every((right) => parent.rights.includes(right))) {
                 throw new OrgError(403, 'A grant passed on can only be narrower than the one it came from.');
             }
-            if (parent.expires_at !== null && parent.expires_at < expires) expires = parent.expires_at;
+            if (parent.expires_at !== null && (expires === null || parent.expires_at < expires)) expires = parent.expires_at;
             kind = 'passed';
         }
         await this.checkPolicy(address, subject);
@@ -133,7 +146,7 @@ export class StateGrants {
                 expires
             ]);
             const orgId = await this.orgOfAddress(tx, address);
-            if (orgId !== undefined) await audit(tx, { orgId, actorId: issuer, action: 'grant.issued', targetKind: 'grant', targetId: id, detail: { subject, address, prefix, rights: [...rights] } });
+            if (orgId !== undefined) await audit(tx, { orgId, actorId: input.by ?? issuer, action: 'grant.issued', targetKind: 'grant', targetId: id, detail: { subject, address, prefix, rights: [...rights] } });
         });
         return { id, token: await this.tokenFor(id, now) };
     }
@@ -167,7 +180,7 @@ export class StateGrants {
      * Revokes a grant and everything passed on from it: its issuer, the owner of the state, or (for an org's standing
      * read) an admin of the org. Answers each revoked id with when its tokens would have expired, for the relays
      */
-    async revoke(actorId: string, grantId: string, now: Date = new Date()): Promise<Array<{ id: string; expires: number }>> {
+    async revoke(actorId: string, grantId: string, now: Date = new Date(), by?: string): Promise<Array<{ id: string; expires: number }>> {
         return this.db.transaction(async (tx) => {
             const row = await this.row(tx, grantId);
             if (row === undefined) throw new OrgError(404, 'No such grant.');
@@ -181,7 +194,7 @@ export class StateGrants {
                 )
             ).rows.map((revokedRow) => revokedRow.id);
             const orgId = row.org_id ?? (await this.orgOfAddress(tx, row.address));
-            if (orgId !== undefined) await audit(tx, { orgId, actorId, action: 'grant.revoked', targetKind: 'grant', targetId: grantId, detail: { revoked } });
+            if (orgId !== undefined) await audit(tx, { orgId, actorId: by ?? actorId, action: 'grant.revoked', targetKind: 'grant', targetId: grantId, detail: { revoked } });
             return revoked.map((id) => ({ id, expires: now.getTime() + TOKEN_LIFE_MS }));
         });
     }
@@ -189,6 +202,37 @@ export class StateGrants {
     /** Shared by me: the grants on an owner's state and the ones they gave, newest first */
     async sharedBy(ownerId: string): Promise<GrantRecord[]> {
         return (await this.db.query<GrantRow>(`SELECT ${COLUMNS} FROM state_grant WHERE split_part(address, '/', 1) = $1 OR issuer = $1 ORDER BY issued_at DESC LIMIT 500`, [ownerId])).rows.map(toRecord);
+    }
+
+    /** The shares of a workspace's datasets that hold now, newest first */
+    async datasetShares(workspaceId: string, now: Date = new Date()): Promise<GrantRecord[]> {
+        return (
+            await this.db.query<GrantRow>(
+                `SELECT ${COLUMNS} FROM state_grant WHERE split_part(address, '/', 1) = $1 AND split_part(address, '/', 3) = 'data' AND kind = 'share' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY issued_at DESC LIMIT 500`,
+                [workspaceId, now]
+            )
+        ).rows.map(toRecord);
+    }
+
+    /** The datasets shared with a workspace that hold now: read rights whose subject is the workspace, newest first */
+    async datasetsSharedWith(workspaceId: string, now: Date = new Date()): Promise<GrantRecord[]> {
+        return (
+            await this.db.query<GrantRow>(
+                `SELECT ${COLUMNS} FROM state_grant WHERE subject = $1 AND split_part(address, '/', 3) = 'data' AND 'read' = ANY(rights) AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY issued_at DESC LIMIT 500`,
+                [workspaceId, now]
+            )
+        ).rows.map(toRecord);
+    }
+
+    /** The share that lets a workspace read another's dataset now, if there is one */
+    async datasetShare(readerId: string, owner: string, dataset: string, now: Date = new Date()): Promise<GrantRecord | undefined> {
+        const row = (
+            await this.db.query<GrantRow>(
+                `SELECT ${COLUMNS} FROM state_grant WHERE subject = $1 AND address = $2 AND 'read' = ANY(rights) AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $3) ORDER BY issued_at DESC LIMIT 1`,
+                [readerId, datasetAddress(owner, dataset), now]
+            )
+        ).rows[0];
+        return row === undefined ? undefined : toRecord(row);
     }
 
     /** The org's standing read of a member's state in its apps: made the first time the org reads it, and kept until revoked */
@@ -214,8 +258,13 @@ export class StateGrants {
         if (member === 0) throw new OrgError(403, "The org's policy keeps grants of its apps' state in the org.");
     }
 
-    /** The org whose workspace holds the address's app, if any (every org app has its settings row, which row-level security does not hide) */
+    /**
+     * The org whose workspace holds the address's app, if any (every org app has its settings row, which row-level
+     * security does not hide), or whose workspace has the address's dataset
+     */
     private async orgOfAddress(tx: Queryable, address: string): Promise<string | undefined> {
+        const data = datasetOf(address);
+        if (data !== undefined) return (await tx.query<{ org_id: string }>("SELECT org_id::text FROM workspace WHERE id::text = $1 AND kind = 'org'", [data.owner])).rows[0]?.org_id;
         const appId = address.split('/')[1];
         if (appId === undefined || appId === '*') return undefined;
         return (await tx.query<{ org_id: string }>('SELECT w.org_id FROM app_setting s JOIN workspace w ON w.id = s.workspace_id WHERE s.app_id::text = $1 AND w.org_id IS NOT NULL', [appId])).rows[0]?.org_id;
