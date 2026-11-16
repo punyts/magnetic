@@ -10,7 +10,7 @@ import { HOME_APP } from '../home/HomeApp.js';
 import { allows, isAppPermission, moveAppToOrg } from '../orgs/AppAccess.js';
 import { atLeast, isOrgRole, OrgError } from '../orgs/Orgs.js';
 import type { Org } from '../orgs/Orgs.js';
-import { closeLostViews, createOrgApp, mailInvite } from './orgRoutes.js';
+import { closeLostViews, createOrgApp, mailInvite, MAKING_ORGS_CLOSED } from './orgRoutes.js';
 import type { OrgRouteContext } from './orgRoutes.js';
 
 /** What the org settings pages work with, beyond the org routes' context */
@@ -191,17 +191,18 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         let match: RegExpExecArray | null;
         if (LIST.test(path)) {
             if (method === 'GET') {
-                context.sendPage(response, orgListPage({ look: await context.lookOf(request, user.id), orgs: await orgs.of(user.id) }));
+                context.sendPage(response, orgListPage({ makeOrgs: context.makeOrgs !== false, look: await context.lookOf(request, user.id), orgs: await orgs.of(user.id) }));
                 return true;
             }
             if (method !== 'POST') return false;
             const form = await context.readForm(request);
             try {
+                if (context.makeOrgs === false) throw new OrgError(403, MAKING_ORGS_CLOSED);
                 const org = await orgs.create(user.id, { name: text(form, 'name'), slug: text(form, 'slug') });
                 context.redirect(response, `/settings/orgs/${org.id}`);
             } catch (error) {
                 if (!(error instanceof OrgError)) throw error;
-                context.sendPage(response, orgListPage({ look: await context.lookOf(request, user.id), orgs: await orgs.of(user.id), error: error.message }), error.status);
+                context.sendPage(response, orgListPage({ makeOrgs: context.makeOrgs !== false, look: await context.lookOf(request, user.id), orgs: await orgs.of(user.id), error: error.message }), error.status);
             }
             return true;
         }
@@ -270,7 +271,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         } catch (error) {
             if (!(error instanceof OrgError)) throw error;
             // Refused before there was an org page to show it on: the list of the person's orgs, with why
-            context.sendPage(response, orgListPage({ look: await context.lookOf(request, who.user.id), orgs: await orgs.of(who.user.id), error: error.message }), error.status);
+            context.sendPage(response, orgListPage({ makeOrgs: context.makeOrgs !== false, look: await context.lookOf(request, who.user.id), orgs: await orgs.of(who.user.id), error: error.message }), error.status);
             return true;
         }
     };

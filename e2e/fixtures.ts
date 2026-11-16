@@ -50,6 +50,12 @@ export async function verifyEmail(user: string, email: string): Promise<void> {
     if (!response.ok) throw new Error(await response.text());
 }
 
+/** A dev user who signed in spends agent use, as the agent's turns would */
+export async function spend(user: string, dollars: number): Promise<void> {
+    const response = await fetch(`${CONTROL}/spend`, { method: 'POST', body: JSON.stringify({ user, dollars }) });
+    if (!response.ok) throw new Error(await response.text());
+}
+
 /** The feedback the test server has emailed to its operator, oldest first */
 export async function feedbackSent(): Promise<Array<{ to: string; kind: string; text: string; fromName: string; appName?: string; context: Record<string, string> }>> {
     return (await (await fetch(`${CONTROL}/feedback-mail`)).json()) as Array<{ to: string; kind: string; text: string; fromName: string; appName?: string; context: Record<string, string> }>;

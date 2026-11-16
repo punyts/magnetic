@@ -43,6 +43,8 @@ export async function mailInvite(
 const ROLE_WORDS: Readonly<Record<string, string>> = { owner: 'an owner', admin: 'an admin', builder: 'a builder', member: 'a member' };
 
 export interface OrgRouteContext {
+    /** False: nobody makes an org (the beta: everyone is in its org); true by default */
+    readonly makeOrgs?: boolean;
     /** Sends invites by email; without one, the invite's link is only shown to the person who made it */
     readonly mailer?: Mailer;
     /** Where a failed email is reported */
@@ -153,6 +155,9 @@ function text(body: unknown, name: string): string {
  * Every change is checked against the person's role or the app's permission, and an `OrgError` answers with its
  * status. Answers whether it handled the request
  */
+/** Said when making an org is closed */
+export const MAKING_ORGS_CLOSED = 'Making an org is not open yet.';
+
 export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, response: ServerResponse, method: string, path: string) => Promise<boolean> {
     const { orgs, access, sendJson } = context;
 
@@ -167,6 +172,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
         if (ROUTES.orgs.test(path)) {
             if (method === 'GET') sendJson(response, 200, { orgs: await orgs.of(user.id) });
             else if (method === 'POST') {
+                if (context.makeOrgs === false) throw new OrgError(403, MAKING_ORGS_CLOSED);
                 const body = await context.readJson(request);
                 sendJson(response, 201, await orgs.create(user.id, { name: text(body, 'name'), slug: text(body, 'slug') }));
             } else return false;

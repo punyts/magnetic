@@ -51,13 +51,13 @@ const E = '$.data.editor';
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden'
+    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget'
 ];
 
 /** The models of the editor's data */
 const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     'magnetic-editor': [
-        ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note', 'feedbackText', 'feedbackStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
+        ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note', 'feedbackText', 'feedbackStatus', 'budgetLine'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'size', type: 'string', default: 'desktop' },
         { op: 'set', field: 'feedbackKind', type: 'string', default: 'bug' },
         { op: 'set', field: 'tool', type: 'string', default: 'use' },
@@ -71,7 +71,7 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
         { op: 'set', field: 'show', type: 'object', default: { theme: false, layout: false, data: false, logic: false, screens: false } },
         // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the toggles)
         { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
@@ -327,6 +327,8 @@ function chatBar(t: Texts): Record<string, unknown> {
             clear: button(t['chat.clear'], 'focusClear')
         }, `${E}.noFocus`),
         dataLine: line({ text: bound(`${E}.dataLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noDataLine`),
+        // The person's agent use: what is used and left, or, once it is spent, that they can carry on by hand
+        budget: line({ text: bound(`${E}.budgetLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noBudget`),
         bar: {
             component: 'panel',
             padding: 'none',
@@ -350,10 +352,12 @@ function chatBar(t: Texts): Record<string, unknown> {
                     autoGrow: true,
                     rows: 1,
                     sendOnEnter: true,
+                    // Off while the person may not ask the agent (their agent use is spent); the line above says why
+                    '<-disabled': `${E}.chatOff`,
                     on: { send: [emit('chat.send'), { command: 'clear' }] }
                 },
                 model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
-                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', on: { press: { command: 'send', target: '^bar.children.input' } } }
+                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': `${E}.chatOff`, on: { press: { command: 'send', target: '^bar.children.input' } } }
             }
         }
         // A round end at one line (half its 50px height), and the same corners when the lines above it show, as the

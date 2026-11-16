@@ -351,6 +351,7 @@ function handle(event) {
             ed({ note: '' });
             scheduleDrawerClose();
             editorChanged();
+            void loadBudget();
             break;
     }
 }
@@ -358,6 +359,23 @@ function handle(event) {
 const events = new EventSource(base + '/events');
 events.onmessage = (message) => handle(JSON.parse(message.data));
 events.onerror = () => { if (events.readyState === EventSource.CLOSED) status(T['chat.disconnected']); };
+
+/** The person's agent use, on the line above the chat bar; the request and Send are off once they may not ask */
+function money(dollars) { return '$' + Number(dollars).toFixed(2); }
+async function loadBudget() {
+    try {
+        const response = await fetch(base + '/budget');
+        if (!response.ok) return;
+        const budget = await response.json();
+        const limited = typeof budget.total === 'number';
+        const spent = limited && budget.used >= budget.total;
+        const line = budget.refusal
+            ? (spent ? fill(T['chat.spentByHand'], { total: money(budget.total) }) : budget.refusal)
+            : limited ? fill(T['chat.budgetLine'], { used: money(budget.used), total: money(budget.total), left: money(Math.max(0, budget.total - budget.used)) }) : '';
+        ed({ budgetLine: line, noBudget: line === '', chatOff: Boolean(budget.refusal) });
+    } catch { /* the line stays as it was */ }
+}
+void loadBudget();
 
 async function post(path, body) {
     const response = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -377,7 +395,7 @@ async function sendRequest(text) {
     const context = CONTEXT.filter((name) => shown[name]);
     const focus = magneticShell.focus.slice();
     const refused = await post('/turns', { text: value, context, ...(model && MODELS.length > 1 && { model }), ...(focus.length > 0 && { focus }) });
-    if (refused !== undefined) { status(refused); return; }
+    if (refused !== undefined) { status(refused); void loadBudget(); return; }
     ed({ blank: false, notBlank: true, hintHidden: true });
     magneticShell.focus.length = 0;
     showFocus();

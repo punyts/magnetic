@@ -23,7 +23,8 @@ const magnetic = await startMagnetic({
     runtimePort: port + 1,
     // Quiet unless MAGNETIC_E2E_VERBOSE is set
     report: { info: (message, fields) => (process.env.MAGNETIC_E2E_VERBOSE ? process.stderr.write(`[magnetic] ${message} ${JSON.stringify(fields ?? {})}\n`) : undefined) },
-    devUsers: ['alice', 'bob', 'carol', 'dan', 'erin'],
+    // frank and gina spend all their agent use, one for each project of the suite
+    devUsers: ['alice', 'bob', 'carol', 'dan', 'erin', 'frank', 'gina'],
     // erin runs the server once POST /verify gives her this email (dev users have none)
     admins: ['admin@example.test'],
     starter: 'none',
@@ -96,6 +97,15 @@ const control = createServer((request, response) => {
             const { user, email } = JSON.parse(body);
             devUserId(user)
                 .then((id) => test.db.query('UPDATE app_user SET email = $2, email_verified = true WHERE id = $1', [id, email]))
+                .then(
+                    () => response.writeHead(204).end(),
+                    (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+                );
+        } else if (request.method === 'POST' && request.url === '/spend') {
+            // POST /spend { user, dollars }: a dev user who signed in spends agent use, as turns would
+            const { user, dollars } = JSON.parse(body);
+            devUserId(user)
+                .then((id) => magnetic.budgets.charge(id, dollars))
                 .then(
                     () => response.writeHead(204).end(),
                     (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))

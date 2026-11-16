@@ -18,7 +18,7 @@ const EN = {
     'beta.inTextNoAmount': 'Make an app on Your apps and ask the agent to build it.',
     'beta.run': 'You run the beta org. Your own agent use does not come from its places.',
     'beta.full': 'The beta is full',
-    'beta.fullText': 'It has reached its {places} people. Try again after the beta test.',
+    'beta.fullText': 'It has reached its {places} people. We’ll contact you when we run the next beta test.',
     'beta.feedback': 'Tell us what you find with the bug button at the top of the editor.',
     'beta.apps': 'Your apps'
 };
@@ -36,7 +36,7 @@ const DE: BetaTexts = {
     'beta.inTextNoAmount': 'Lege unter Deine Apps eine App an und lass den Agenten sie bauen.',
     'beta.run': 'Du betreust die Beta-Organisation. Deine eigene Agentennutzung kommt nicht aus ihren Plätzen.',
     'beta.full': 'Die Beta ist voll',
-    'beta.fullText': 'Sie hat ihre {places} Personen erreicht. Versuche es nach dem Betatest wieder.',
+    'beta.fullText': 'Sie hat ihre {places} Personen erreicht. Wir melden uns, wenn wir den nächsten Betatest starten.',
     'beta.feedback': 'Sag uns, was dir auffällt, mit dem Käfer-Knopf oben im Editor.',
     'beta.apps': 'Deine Apps'
 };
@@ -52,7 +52,7 @@ const FR: BetaTexts = {
     'beta.inTextNoAmount': 'Créez une app dans Vos apps et demandez à l’agent de la construire.',
     'beta.run': 'Vous gérez l’organisation de la bêta. Votre propre utilisation de l’agent ne vient pas de ses places.',
     'beta.full': 'La bêta est complète',
-    'beta.fullText': 'Elle a atteint ses {places} personnes. Réessayez après la bêta.',
+    'beta.fullText': 'Elle a atteint ses {places} personnes. Nous vous contacterons lors du prochain test bêta.',
     'beta.feedback': 'Dites-nous ce que vous trouvez avec le bouton insecte en haut de l’éditeur.',
     'beta.apps': 'Vos apps'
 };
@@ -68,7 +68,7 @@ const ES: BetaTexts = {
     'beta.inTextNoAmount': 'Crea una app en Tus apps y pide al agente que la construya.',
     'beta.run': 'Llevas la organización de la beta. Tu propio uso del agente no sale de sus plazas.',
     'beta.full': 'La beta está completa',
-    'beta.fullText': 'Ya tiene sus {places} personas. Vuelve a intentarlo después de la beta.',
+    'beta.fullText': 'Ya tiene sus {places} personas. Te avisaremos cuando hagamos la próxima prueba beta.',
     'beta.feedback': 'Cuéntanos lo que encuentres con el botón del insecto arriba en el editor.',
     'beta.apps': 'Tus apps'
 };

@@ -30,6 +30,8 @@ export interface HomeData {
     readonly orgs?: readonly HomeCard[];
     /** An invite's id, "Join <org>", and the role and who sent it */
     readonly invites?: readonly HomeCard[];
+    /** False: Make an org hides, as nobody makes one */
+    readonly makeOrgs?: boolean;
     /** Whether the person runs the server: Admin shows */
     readonly admin?: boolean;
 }
@@ -93,6 +95,9 @@ const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.valu
 const INVITES_HIDDEN = '$.screens.home.children.page.children.invitesBox.hidden';
 /** Admin, among the links at the top: shown only to those who run the server (the page writes its hidden) */
 const ADMIN_HIDDEN = '$.screens.home.children.page.children.top.children.admin.hidden';
+
+/** Make an org, beside the orgs' heading: hidden while making orgs is closed (the page writes its hidden) */
+const MAKE_ORG_HIDDEN = '$.screens.home.children.page.children.orgsHead.children.make.hidden';
 
 /** Where the home app keeps the person's choices of mode and language, which its menus show */
 const TOP = '$.screens.home.children.page.children.top.children';
@@ -301,6 +306,7 @@ export class HomeApps {
             ['$.data.invites', byId(data.invites ?? [])],
             [INVITES_HIDDEN, (data.invites ?? []).length === 0],
             [ADMIN_HIDDEN, data.admin !== true],
+            [MAKE_ORG_HIDDEN, data.makeOrgs === false],
             [MAKE_VALUE, ''],
             [`${TOP}.mode.value`, prefs.mode],
             [`${TOP}.language.value`, prefs.language]

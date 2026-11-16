@@ -73,7 +73,7 @@ const SIGN_IN: PageAppSpec = {
     name: 'magnetic-signin',
     models: (context) => ({
         // A label per development user, so each button links to a field that is there from the start
-        'magnetic-signin': [field('error', 'string', ''), field('noError', 'boolean', true), field('labels', 'object', Object.fromEntries(context.devUsers.map((_, index) => [`u${index}`, ''])))]
+        'magnetic-signin': [field('error', 'string', ''), field('noError', 'boolean', true), field('notice', 'string', ''), field('noNotice', 'boolean', true), field('labels', 'object', Object.fromEntries(context.devUsers.map((_, index) => [`u${index}`, ''])))]
     }),
     definition: (t, context) => {
         const stack = (children: Record<string, unknown>): Record<string, unknown> => ({ component: 'panel', padding: 'none', layout: { type: 'column', gap: 'sm', align: 'start' }, children });
@@ -86,6 +86,8 @@ const SIGN_IN: PageAppSpec = {
                 brand: brand(),
                 tagline: { component: 'text', _text: t['signin.tagline'] },
                 error: { component: 'alert', tone: 'danger', '<-_title': '$.data.signin.error', '<-hidden': '$.data.signin.noError' },
+                // Why someone who signs in now gets no free agent use: the beta is full
+                notice: { component: 'alert', tone: 'info', _title: t['signin.betaFull'], '<-_text': '$.data.signin.notice', '<-hidden': '$.data.signin.noNotice' },
                 ...(context.providers.length > 0 && { providers: stack(providers) }),
                 ...(context.sso === true && {
                     work: {

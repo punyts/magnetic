@@ -416,8 +416,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     if (runtimeOrigin !== undefined && publicOrigin === undefined) throw new Error('A runtime origin needs a public origin beside it');
     if (runtimeOrigin !== undefined && new URL(runtimeOrigin).host === new URL(publicOrigin as string).host) throw new Error('The runtime origin must be another host than the public origin, so an app cannot reach the session cookie');
     const secure = options.secureCookies ?? publicOrigin?.startsWith('https://') ?? false;
+    /** In the beta (docs/design/magnetic-beta.md) people sign in only with the server's providers, and nobody makes an org */
+    const inBeta = options.agent?.budgets?.betaOrg !== undefined;
     const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
     const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
+    /** The notice of the sign-in page while the beta is full: people may still sign in, and hear of the next one */
+    const betaNotice = async (t: ReturnType<typeof textsOf>): Promise<{ notice: string; noNotice: boolean }> => {
+        if (!inBeta || !(await budgets.allowanceFull())) return { notice: '', noNotice: true };
+        return { notice: fill(t['signin.betaFullText'], { places: String(budgetLimits.allowanceUsers), provider: providerButtons[0]?.label ?? '' }), noNotice: false };
+    };
     /** The sign-in page, a StateUI app in the browser's language: a button per provider and per development user */
     const signInPageOf = async (request: IncomingMessage, next: string, error?: string): Promise<string> => {
         const look: PageLook = { language: languageOf(request.headers['accept-language']), mode: 'system' };
@@ -428,7 +435,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             title: t['signin.title'],
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             app: await pageApps.document(PAGE_APPS.signIn),
-            data: { '$.data.signin': { error: error ?? '', noError: error === undefined, labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name })])) } },
+            data: { '$.data.signin': { error: error ?? '', noError: error === undefined, ...(await betaNotice(t)), labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name })])) } },
             actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
     };
@@ -528,7 +535,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     };
     const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, stamps, exclusive);
     /** Magnetic's own pages before a person's workspace (sign in, share links), as StateUI apps */
-    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers, sso: sso.available }, exclusive);
+    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers, sso: sso.available && !inBeta }, exclusive);
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
@@ -683,6 +690,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sso,
         budgets,
         ssoRedirectUri: () => signIn.redirectUri(CUSTOM_PROVIDER),
+        makeOrgs: !inBeta,
         orgDeleted: async (workspaceId: string, members: readonly string[]) => {
             for (const userId of members) closeOrgViews(userId, 'all', 'The org was deleted');
             await workspaces.reopen(workspaceId);
@@ -708,6 +716,27 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     // The beta (docs/design/magnetic-beta.md): one org, joined through a link signed with the server's key
     if (budgetLimits.betaOrg !== undefined && options.secretKey === undefined) throw new Error('The beta org needs secretKey, which signs the beta link');
     const beta = budgetLimits.betaOrg === undefined || options.secretKey === undefined ? undefined : new Beta(db, orgs, budgetLimits.betaOrg, budgetLimits.allowanceUsers, options.secretKey);
+    /** Those this server saw in the beta org already, so their visits ask no more */
+    const inBetaOrg = new Set<string>();
+    /**
+     * Everyone who signs in joins the beta org while places are left, as through its link; an admin's sign-in makes the
+     * org first, with them as its owner. Tried again on Your apps, for those who signed in before it was made
+     */
+    const joinBeta = async (userId: string): Promise<void> => {
+        if (beta === undefined || inBetaOrg.has(userId)) return;
+        try {
+            if (await admins.is(userId)) {
+                await beta.start(userId);
+                if ((await beta.roleOf(userId)) !== undefined) inBetaOrg.add(userId);
+                return;
+            }
+            const joined = await beta.join(userId);
+            if (joined === 'joined' || joined === 'member') inBetaOrg.add(userId);
+            if (joined === 'joined') options.report.info('Joined the beta', { userId });
+        } catch (error) {
+            options.report.info('Joining the beta failed', { userId, error: error instanceof Error ? error.message : String(error) });
+        }
+    };
     const handleBeta =
         beta === undefined
             ? async () => false
@@ -890,6 +919,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
 
     /** `GET /`: the person's "Your apps", with the lists written into its data first */
     async function homeRoute(request: IncomingMessage, response: ServerResponse, user: User): Promise<void> {
+        await joinBeta(user.id);
         const services = await workspaces.get(user.id);
         const look = await lookOf(request, user.id);
         const t = textsOf(look.language);
@@ -906,7 +936,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const roleWords = (role: string): string => orgWords[`orgs.role.${role}` as keyof typeof orgWords] ?? role;
         const memberships: HomeCard[] = (await orgs.of(user.id)).map((org) => ({ id: org.id, name: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }) }));
         const invites: HomeCard[] = (await orgs.pendingFor(user.id)).map((invite) => ({ id: invite.id, name: fill(t['home.inviteName'], { org: invite.org.name }), note: fill(t['home.inviteNote'], { role: roleWords(invite.role), name: invite.invitedBy }) }));
-        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites, admin: await admins.is(user.id) }, look);
+        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites, admin: await admins.is(user.id), makeOrgs: !inBeta }, look);
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHostPage(
@@ -1003,12 +1033,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const name = form.get('user');
             if (name === null || !devUsers.includes(name)) throw new HttpError(403, 'Not a development user of this server', 'forbidden');
             const user = await accounts.signIn({ provider: 'dev', subject: name }, { name });
+            await joinBeta(user.id);
             await rules.signedIn({ id: user.id, emailVerified: false }, { provider: 'dev', ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
             redirect(response, safeNext(form.get('next')), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
             return true;
         }
         const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure, path: '/auth' });
-        if (method === 'GET' && path === '/signin/sso') {
+        if (method === 'GET' && path === '/signin/sso' && !inBeta) {
             // "Sign in with your work email": the org that verified the email's domain, through its own provider
             const next = safeNext(url.searchParams.get('next'));
             const email = (url.searchParams.get('email') ?? '').trim().slice(0, 320);
@@ -1054,6 +1085,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 const refusal = await rules.refusal(profile.email, orgId);
                 if (refusal !== undefined) throw new SignInError(refusal);
                 const user = await accounts.signIn(identity, profile, orgId);
+                await joinBeta(user.id);
                 await rules.signedIn({ id: user.id, ...(profile.email !== undefined && { email: profile.email }), emailVerified: profile.emailVerified === true }, { provider: identity.provider, ...(orgId !== undefined && { orgId }), ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
                 redirect(response, done.next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
             } catch (error) {
@@ -1181,7 +1213,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1325,6 +1357,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const started = await turns.start(userId, { id: appId, name: app.name, workspaceId }, text, context, model, focus);
             if ('refused' in started) sendJson(response, 409, { message: started.refused });
             else sendJson(response, 202, { ok: true });
+            return;
+        }
+        if (what === '/budget' && method === 'GET') {
+            // What the person has of agent use, for the line above the chat bar, and why they may not ask now
+            const spent = await budgets.spent(userId);
+            const allowance = await budgets.allowanceOf(userId);
+            const refusal = await turns.refusal(userId, { id: appId, name: app.name, workspaceId });
+            sendJson(response, 200, { used: spent.total, ...(allowance !== undefined && { total: allowance + spent.bought }), ...(refusal !== undefined && { refusal }) });
             return;
         }
         if (what === '/stop' && method === 'POST') {

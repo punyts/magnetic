@@ -108,13 +108,13 @@ function rolesFor(actor: OrgRole, current: OrgRole): readonly OrgRole[] {
 }
 
 /** `GET /settings/orgs`: the person's orgs, and a form to make one */
-export function orgListPage(view: { readonly look: PageLook; readonly orgs: readonly Membership[]; readonly error?: string }): string {
+export function orgListPage(view: { readonly makeOrgs?: boolean; readonly look: PageLook; readonly orgs: readonly Membership[]; readonly error?: string }): string {
     const t = orgTextsOf(view.look.language);
     const list =
         view.orgs.length === 0
             ? `<p class="muted">${e(t['orgs.none'])}</p>`
             : `<ul class="list">${view.orgs.map((org) => `<li><a href="/settings/orgs/${e(org.id)}">${e(org.name)}</a><span class="muted">${e(t[`orgs.roleName.${org.role}`])}</span></li>`).join('')}</ul>`;
-    const make = `<h2>${e(t['orgs.makeTitle'])}</h2>
+    const make = view.makeOrgs === false ? '' : `<h2>${e(t['orgs.makeTitle'])}</h2>
 <form method="post" action="/settings/orgs" class="stack">
 <label>${e(t['orgs.name'])}<input name="name" required maxlength="200"></label>
 <label>${e(t['orgs.slug'])}<input name="slug" required pattern="[a-z0-9][a-z0-9\\-]{1,62}"></label>

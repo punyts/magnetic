@@ -250,6 +250,11 @@ export class AgentTurns {
     }
 
     /** Why the app's workspace refuses a turn now, when it is not the person's own */
+    /** Why the person may not start a turn in the app now (their budget or their org's), or undefined when they may */
+    async refusal(userId: string, app: TurnApp): Promise<string | undefined> {
+        return (await this.options.budgets.check(userId)) ?? (await this.workspaceRefusal(userId, app));
+    }
+
     private async workspaceRefusal(userId: string, app: TurnApp): Promise<string | undefined> {
         if (app.workspaceId === undefined || app.workspaceId === userId || this.options.workspaceRefusal === undefined) return undefined;
         return this.options.workspaceRefusal(app.workspaceId);

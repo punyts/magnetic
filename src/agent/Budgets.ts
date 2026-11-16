@@ -156,8 +156,8 @@ export class Budgets {
     private async noAllowance(): Promise<string> {
         const first = this.limits.allowanceUsers;
         if (this.limits.betaOrg === undefined) return `The free agent use of this beta went to its first ${first} people.`;
-        if (await this.allowanceFull()) return `The beta has reached its ${first} people, who each got $${this.limits.perUserTotal} of free agent use. Try again after the beta test.`;
-        return 'The free agent use of this beta comes with its invite link.';
+        if (await this.allowanceFull()) return `The beta has reached its ${first} people, who each got $${this.limits.perUserTotal} of free agent use. We’ll contact you when we run the next beta test.`;
+        return 'The free agent use of this beta comes with a place in it.';
     }
 
     /** What the agent has spent in a workspace (an org's) this UTC month */
