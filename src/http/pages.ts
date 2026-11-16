@@ -85,6 +85,7 @@ main.admin form.give { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 main.admin form.give input[name=dollars] { width: 4rem; }
 main.admin form.give input[name=note] { width: 8rem; }
 main.admin dl.balance dd a { color: var(--accent); }
+main.admin input.link { box-sizing: border-box; width: 100%; max-width: 40rem; font-family: ui-monospace, monospace; }
 main.settings pre { background: color-mix(in srgb, var(--line) 35%, transparent); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.85rem; }
 `;
 

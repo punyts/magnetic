@@ -37,6 +37,8 @@ import { Credits } from '../billing/Credits.js';
 import { Feedback, FEEDBACK_KINDS, FEEDBACK_PER_HOUR, MAX_FEEDBACK_LENGTH } from '../feedback/Feedback.js';
 import { Admin, AdminList } from '../admin/Admin.js';
 import { adminRoutes } from './adminRoutes.js';
+import { betaRoutes } from './betaRoutes.js';
+import { Beta } from '../beta/Beta.js';
 import { Stripe } from '../billing/Stripe.js';
 import type { StripeOptions } from '../billing/Stripe.js';
 import type { LogicInstance } from '@punyts/stateui-mcp';
@@ -702,10 +704,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         origin: () => publicOrigin ?? origin,
         report: (message, fields) => options.report.info(message, fields)
     });
+    // The beta (docs/design/magnetic-beta.md): one org, joined through a link signed with the server's key
+    if (budgetLimits.betaOrg !== undefined && options.secretKey === undefined) throw new Error('The beta org needs secretKey, which signs the beta link');
+    const beta = budgetLimits.betaOrg === undefined || options.secretKey === undefined ? undefined : new Beta(db, orgs, budgetLimits.betaOrg, budgetLimits.allowanceUsers, options.secretKey);
+    const handleBeta =
+        beta === undefined
+            ? async () => false
+            : betaRoutes({ beta, budgets, signedIn, lookOf, sendPage: (response, html, status) => sendPage(response, html, status), redirect: (response, location) => redirect(response, location), report: (message, fields) => options.report.info(message, fields) });
     const handleAdmin = adminRoutes({
         admin: new Admin(db),
         admins,
-        allowance: { ...(budgetLimits.perUserTotal !== undefined && { dollars: budgetLimits.perUserTotal }), ...(budgetLimits.allowanceUsers !== undefined && { people: budgetLimits.allowanceUsers }), monthly: budgetLimits.monthly },
+        allowance: { ...(budgetLimits.perUserTotal !== undefined && { dollars: budgetLimits.perUserTotal }), ...(budgetLimits.allowanceUsers !== undefined && { people: budgetLimits.allowanceUsers }), monthly: budgetLimits.monthly, ...(beta !== undefined && { betaOrg: beta.slug }) },
+        ...(beta !== undefined && { beta }),
+        origin: () => publicOrigin ?? origin,
         signedIn,
         readForm,
         lookOf,
@@ -1179,6 +1190,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleConnections(request, response, method, path)) return true;
         if (await handleData(request, response, method, path)) return true;
         if (await handleAdmin(request, response, method, path, url.searchParams)) return true;
+        if (await handleBeta(request, response, method, path)) return true;
         if (await handleBilling(request, response, method, path, url.searchParams)) return true;
         if (await handleGrants(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {

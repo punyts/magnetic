@@ -201,8 +201,10 @@ can run twice).
 - **Budgets** (`Budgets`, a ledger of requests in `agent_request`). Each request is priced from its token counts. A user may spend
   `--daily-budget` dollars per UTC day (default 1; `off` for none), `--user-allowance` dollars ever (a one-time
   allowance such as the beta's $5; default none), and the server `--monthly-budget` per UTC month (default 100).
-  `--allowance-users` gives the allowance only to the first people to sign in (the beta: 100); the others start
-  with none and may buy agent use.
+  `--allowance-users` gives the allowance only to the first people to sign in; the others start with none and may
+  buy agent use. With `--beta-org <slug>` (`docs/design/magnetic-beta.md`) it goes instead to the first members of
+  that org, who join through the beta link an admin hands out (`/beta/<code>`, on Admin); those after are told the beta
+  is full. The host runs the beta: org `beta`, 100 places of $5, $500 a month.
   A turn ends as soon as a request spends the last of any budget, so a limit is passed by one request at most;
   the next turn is refused with a message.
 - **Feedback** (`docs/design/magnetic-feedback.md`). The bug button at the top right of the editor sends a bug, a

@@ -2,6 +2,7 @@
 
 ## 0.1.0 (unreleased)
 
+- **The beta** (docs/design/magnetic-beta.md): `--beta-org` / `MAGNETIC_BETA_ORG`. An admin presses Start the beta on Admin, which makes the org with them as owner and shows the beta link, `/beta/<code>` (an HMAC of the slug with the server's key). Whoever opens it signs in and joins the org as a builder while places are left (`--allowance-users`); the allowance goes to those places in the order people joined, and those after are told the beta is full and to try again after it. Joins lock the org, so the last place goes once. The refusals and the Agent use page say why someone has no free use. The beta page speaks four languages. Admin shows the places taken and each person's beta place. The host: org `beta`, 100 places of $5, and a monthly budget of $500. Tests: `server/beta.test.ts` (3), options (1).
 - **Admin pages** (docs/design/magnetic-admin.md), `/admin`, for whoever runs the server: `MAGNETIC_ADMIN_EMAILS`, matched against verified emails; a 404 for anyone else, and Admin on Your apps only for them.
   - **Overview:** people (and new this week), agent use today and this month against the monthly budget, paid, given, open feedback, and the free places left.
   - **Feedback:** open, done or all, by kind, newest first, with the sender's email, the app, the frame size and the language; Done and Reopen (migration 0010: `status`, `handled_by`, `handled_at`).

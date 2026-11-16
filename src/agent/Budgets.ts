@@ -1,4 +1,5 @@
 import type { Database } from '@punyts/stateui-pg';
+import { betaPlaceOf, betaTaken } from '../beta/Beta.js';
 
 /** The tokens of one model request, as the Claude API reports them in `usage` */
 export interface TokenUsage {
@@ -46,6 +47,11 @@ export interface BudgetLimits {
      * may buy agent use. Undefined for everyone
      */
     readonly allowanceUsers?: number | undefined;
+    /**
+     * The slug of the beta org (docs/design/magnetic-beta.md): only those holding one of its first `allowanceUsers`
+     * places get `perUserTotal`, instead of the first people to sign in
+     */
+    readonly betaOrg?: string | undefined;
     /** Dollars the whole server may spend per UTC month */
     readonly monthly: number;
     /** True when people can buy more agent use (Agent use on Your apps): the refusals say where */
@@ -104,7 +110,12 @@ export class Budgets {
     async allowanceOf(userId: string): Promise<number | undefined> {
         const allowance = this.limits.perUserTotal;
         const first = this.limits.allowanceUsers;
-        if (allowance === undefined || first === undefined) return allowance;
+        if (allowance === undefined) return undefined;
+        if (this.limits.betaOrg !== undefined) {
+            const place = await betaPlaceOf(this.db, this.limits.betaOrg, userId);
+            return place !== undefined && (first === undefined || place <= first) ? allowance : 0;
+        }
+        if (first === undefined) return allowance;
         // Those who signed in before them, in the order they first did (the id breaks a tie)
         const before = (
             await this.db.query<{ before: number }>(
@@ -128,10 +139,25 @@ export class Budgets {
             return spent.bought > 0
                 ? `You have used the agent use you added.${buy} Everything else still works: your apps, editing by hand and sharing.`
                 : allowance === 0
-                  ? `The free agent use of this beta went to its first ${this.limits.allowanceUsers} people.${buy} Everything else still works: your apps, editing by hand and sharing.`
+                  ? `${await this.noAllowance()}${buy} Everything else still works: your apps, editing by hand and sharing.`
                   : `You have used your $${allowance} of agent use.${buy} Everything else still works: your apps, editing by hand and sharing.`;
         if (!paying && this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
         return undefined;
+    }
+
+    /** Whether every place that comes with the allowance is taken (without a beta org: someone has none, so they are) */
+    async allowanceFull(): Promise<boolean> {
+        const first = this.limits.allowanceUsers;
+        if (this.limits.betaOrg === undefined) return first !== undefined;
+        return first !== undefined && (await betaTaken(this.db, this.limits.betaOrg)) >= first;
+    }
+
+    /** Why someone has no free agent use: the beta is full, or (with places left) they did not join through its link */
+    private async noAllowance(): Promise<string> {
+        const first = this.limits.allowanceUsers;
+        if (this.limits.betaOrg === undefined) return `The free agent use of this beta went to its first ${first} people.`;
+        if (await this.allowanceFull()) return `The beta has reached its ${first} people, who each got $${this.limits.perUserTotal} of free agent use. Try again after the beta test.`;
+        return 'The free agent use of this beta comes with its invite link.';
     }
 
     /** What the agent has spent in a workspace (an org's) this UTC month */

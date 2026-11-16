@@ -12,6 +12,19 @@ export interface AllowanceInfo {
     readonly people?: number;
     /** The server's agent budget per UTC month */
     readonly monthly: number;
+    /** The beta org's slug: the allowance goes by places in it, not by sign-in */
+    readonly betaOrg?: string;
+}
+
+/** The beta as the overview shows it */
+export interface BetaInfo {
+    readonly slug: string;
+    /** Whether the beta org is there yet */
+    readonly started: boolean;
+    readonly taken: number;
+    readonly places?: number;
+    /** The link to hand out */
+    readonly link: string;
 }
 
 const e = (value: unknown): string => escapeHtml(String(value));
@@ -40,9 +53,10 @@ function adminPage(look: PageLook, title: string, at: 'overview' | 'feedback' | 
 const tile = (name: string, value: string, href?: string): string => `<div><dt>${e(name)}</dt><dd>${href === undefined ? e(value) : `<a href="${href}">${e(value)}</a>`}</dd></div>`;
 
 /** `GET /admin`: the numbers that say how the service is going */
-export function adminOverviewPage(look: PageLook, overview: Overview, allowance: AllowanceInfo): string {
-    const given = allowance.dollars === undefined ? 'No limit per person' : `${usd(allowance.dollars)} once, ${allowance.people === undefined ? 'to everyone' : `to the first ${allowance.people} people`}`;
-    const left = allowance.people === undefined ? undefined : Math.max(0, allowance.people - overview.people);
+export function adminOverviewPage(look: PageLook, overview: Overview, allowance: AllowanceInfo, beta?: BetaInfo, said?: { readonly notice?: string; readonly error?: string }): string {
+    const who = beta === undefined ? 'people' : 'people to join the beta';
+    const given = allowance.dollars === undefined ? 'No limit per person' : `${usd(allowance.dollars)} once, ${allowance.people === undefined ? (beta === undefined ? 'to everyone' : 'to everyone who joins the beta') : `to the first ${allowance.people} ${who}`}`;
+    const left = allowance.people === undefined ? undefined : Math.max(0, allowance.people - (beta === undefined ? overview.people : beta.taken));
     return adminPage(
         look,
         'Admin',
@@ -57,9 +71,26 @@ export function adminOverviewPage(look: PageLook, overview: Overview, allowance:
             tile('Paid by people', usd(overview.paid)),
             tile('Given by admins', usd(overview.given)),
             '</dl>',
-            `<p class="muted">Free agent use: ${e(given)}.${left === undefined ? '' : ` ${left === 0 ? 'No places are left' : `${left} ${left === 1 ? 'place is' : 'places are'} left`}.`} The month's budget counts only free use; what people paid for is not held to it.</p>`
-        ].join('\n')
+            `<p class="muted">Free agent use: ${e(given)}.${left === undefined ? '' : ` ${left === 0 ? 'No places are left' : `${left} ${left === 1 ? 'place is' : 'places are'} left`}.`} The month's budget counts only free use; what people paid for is not held to it.</p>`,
+            beta === undefined ? '' : betaSection(beta)
+        ].join('\n'),
+        said
     );
+}
+
+/** The beta on the overview: start its org, then the link to hand out and the places taken */
+function betaSection(beta: BetaInfo): string {
+    if (!beta.started)
+        return [
+            '<h2>Beta</h2>',
+            `<p class="muted">The beta org (${e(beta.slug)}) is not there yet. Starting it makes it, with you as its owner, and opens the beta link. Owners and admins of the org hold no place.</p>`,
+            '<form method="post" action="/admin/beta"><button class="primary">Start the beta</button></form>'
+        ].join('\n');
+    return [
+        '<h2>Beta</h2>',
+        `<p>${beta.places === undefined ? `${beta.taken} joined` : `${beta.taken} of ${beta.places} places taken`}. Hand out this link: people sign in, join the beta org (${e(beta.slug)}) as builders, and get the free agent use${beta.places === undefined ? '' : ` while places are left; after that they are told the beta is full`}.</p>`,
+        `<p><input class="link" readonly value="${e(beta.link)}" aria-label="Beta link"></p>`
+    ].join('\n');
 }
 
 /** `GET /admin/feedback`: what people sent from the editor, open first by default, with Done and Reopen */
@@ -105,14 +136,15 @@ export function adminFeedbackPage(look: PageLook, rows: readonly FeedbackRow[], 
 
 /** `GET /admin/people`: everyone in sign-in order, whether they got the allowance, what they used, and Give */
 export function adminPeoplePage(look: PageLook, people: readonly PersonRow[], allowance: AllowanceInfo, said?: { readonly notice?: string; readonly error?: string }): string {
-    const free = (row: PersonRow): number => (allowance.dollars === undefined ? 0 : allowance.people === undefined || row.place <= allowance.people ? allowance.dollars : 0);
+    const first = (place: number | null): boolean => place !== null && (allowance.people === undefined || place <= allowance.people);
+    const free = (row: PersonRow): number => (allowance.dollars === undefined ? 0 : allowance.betaOrg !== undefined ? (first(row.betaPlace) ? allowance.dollars : 0) : first(row.place) ? allowance.dollars : 0);
     const rows = people
         .map((row) => {
             const left = allowance.dollars === undefined ? undefined : Math.max(0, free(row) + row.paid + row.given - row.spent);
             return [
                 '<tr>',
                 `<td>${row.place}</td>`,
-                `<td><strong>${e(row.name)}</strong>${row.email === null ? '' : `<br><span class="muted">${e(row.email)}${row.emailVerified ? '' : ' (not verified)'}</span>`}</td>`,
+                `<td><strong>${e(row.name)}</strong>${row.email === null ? '' : `<br><span class="muted">${e(row.email)}${row.emailVerified ? '' : ' (not verified)'}</span>`}${row.betaPlace === null ? '' : `<br><span class="muted">Beta place ${row.betaPlace}</span>`}</td>`,
                 `<td>${e(day(row.createdAt))}</td>`,
                 `<td>${e(usd(free(row)))}</td>`,
                 `<td>${e(usd(row.paid))}</td>`,
@@ -129,7 +161,7 @@ export function adminPeoplePage(look: PageLook, people: readonly PersonRow[], al
         'People',
         'people',
         [
-            `<p class="muted">In the order they first signed in, which is the order free agent use goes by. Giving adds agent use to what they have, as a payment would.</p>`,
+            `<p class="muted">In the order they first signed in. ${allowance.betaOrg === undefined ? 'That is the order free agent use goes by.' : 'Free agent use goes by place in the beta org, in the order people joined it.'} Giving adds agent use to what they have, as a payment would.</p>`,
             `<div class="table"><table><thead><tr><th>#</th><th>Person</th><th>Joined</th><th>Free</th><th>Paid</th><th>Given</th><th>Used</th><th>Left</th><th>Give agent use</th></tr></thead><tbody>${rows}</tbody></table></div>`
         ].join('\n'),
         said

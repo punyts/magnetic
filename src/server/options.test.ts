@@ -82,6 +82,11 @@ describe('parseOptions', () => {
         expect(parseOptions([], {}).admins).toEqual([]);
         expect(parseOptions([], { MAGNETIC_ADMIN_EMAILS: ' Ops@Example.com, b@example.com ' }).admins).toEqual(['ops@example.com', 'b@example.com']);
         expect(() => parseOptions([], { MAGNETIC_ADMIN_EMAILS: 'ops' })).toThrow('Invalid admin email');
+        expect(parseOptions([], {}).betaOrg).toBeUndefined();
+        expect(parseOptions([], { MAGNETIC_BETA_ORG: 'beta', MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' }).betaOrg).toBe('beta');
+        expect(parseOptions(['--beta-org', 'trial'], { MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' }).betaOrg).toBe('trial');
+        expect(() => parseOptions([], { MAGNETIC_BETA_ORG: 'beta' })).toThrow('needs MAGNETIC_SECRET_KEY');
+        expect(() => parseOptions([], { MAGNETIC_BETA_ORG: 'Beta Org', MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' })).toThrow('Invalid beta org');
         expect(parseOptions(['--user-allowance', '2', '--daily-budget', 'off'], {})).toMatchObject({ userAllowance: 2, dailyBudget: undefined });
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
     });

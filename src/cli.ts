@@ -173,11 +173,11 @@ async function main(): Promise<void> {
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         ...(options.stripe !== undefined && { payments: { stripe: options.stripe, ...(options.topUps !== undefined && { topUps: options.topUps }) } }),
         ...(options.admins.length > 0 && { admins: options.admins }),
-        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, monthly: options.monthlyBudget } }
+        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, betaOrg: options.betaOrg, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);
     if (options.mockAgent) process.stderr.write('magnetic: agent is the scripted mock agent; no API calls\n');
-    else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget ${[options.userAllowance !== undefined && `$${options.userAllowance} per user in all${options.allowanceUsers !== undefined ? ` for the first ${options.allowanceUsers}` : ''}`, options.dailyBudget !== undefined && `$${options.dailyBudget} per user per day`, `$${options.monthlyBudget} per month`].filter(Boolean).join(', ')}${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
+    else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget ${[options.userAllowance !== undefined && `$${options.userAllowance} per user in all${options.allowanceUsers !== undefined ? ` for the first ${options.allowanceUsers}` : ''}${options.betaOrg !== undefined ? ` of the beta org ${options.betaOrg}` : ''}`, options.dailyBudget !== undefined && `$${options.dailyBudget} per user per day`, `$${options.monthlyBudget} per month`].filter(Boolean).join(', ')}${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
     if (options.stripe !== undefined) process.stderr.write(`magnetic: agent use can be bought through Stripe; its webhook is ${server.origin}/billing/stripe\n`);
     process.stderr.write(`magnetic: ${server.origin}\n`);
 

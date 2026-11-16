@@ -59,7 +59,7 @@ export function billingRoutes(context: BillingRouteContext) {
         const first = budgets.limits.allowanceUsers;
         context.sendPage(
             response,
-            billingPage({ look: await context.lookOf(request, user.id), ...(allowance !== undefined && { allowance }), ...(allowance === 0 && full !== undefined && first !== undefined && { firstOnly: { allowance: full, people: first } }), bought: spent.bought, spent: spent.total, credits: await credits.of(user.id), topUps, ...extra }),
+            billingPage({ look: await context.lookOf(request, user.id), ...(allowance !== undefined && { allowance }), ...(allowance === 0 && full !== undefined && { firstOnly: { allowance: full, people: first, full: await budgets.allowanceFull() } }), bought: spent.bought, spent: spent.total, credits: await credits.of(user.id), topUps, ...extra }),
             status,
             stripe === undefined ? [] : [stripe.checkoutOrigin]
         );

@@ -1,9 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { User } from '../accounts/Accounts.js';
 import type { Admin, AdminList, FeedbackFilter } from '../admin/Admin.js';
+import type { Beta } from '../beta/Beta.js';
 import { FEEDBACK_KINDS } from '../feedback/Feedback.js';
 import { adminFeedbackPage, adminOverviewPage, adminPeoplePage } from '../http/adminPage.js';
-import type { AllowanceInfo } from '../http/adminPage.js';
+import type { AllowanceInfo, BetaInfo } from '../http/adminPage.js';
 import { usd } from '../http/billingPage.js';
 import type { PageLook } from '../http/pages.js';
 
@@ -14,6 +15,10 @@ export interface AdminRouteContext {
     readonly admin: Admin;
     readonly admins: AdminList;
     readonly allowance: AllowanceInfo;
+    /** The beta, when the server runs one (`--beta-org`) */
+    readonly beta?: Beta;
+    /** The origin people reach the server at, for the beta link */
+    readonly origin: () => string;
     readonly signedIn: (request: IncomingMessage) => Promise<{ readonly user: User } | undefined>;
     readonly readForm: (request: IncomingMessage) => Promise<URLSearchParams>;
     readonly lookOf: (request: IncomingMessage, userId: string) => Promise<PageLook>;
@@ -38,7 +43,13 @@ const backTo = (value: string | null): string => (value !== null && /^\/admin\/f
  * when it handled the request
  */
 export function adminRoutes(context: AdminRouteContext) {
-    const { admin, admins } = context;
+    const { admin, admins, beta } = context;
+
+    async function betaInfo(): Promise<BetaInfo | undefined> {
+        if (beta === undefined) return undefined;
+        const status = await beta.status();
+        return { slug: status.slug, started: status.org !== undefined, taken: status.taken, ...(status.places !== undefined && { places: status.places }), link: `${context.origin()}/beta/${beta.code}` };
+    }
 
     return async (request: IncomingMessage, response: ServerResponse, method: string, path: string, query: URLSearchParams): Promise<boolean> => {
         if (path !== '/admin' && !path.startsWith('/admin/')) return false;
@@ -52,7 +63,13 @@ export function adminRoutes(context: AdminRouteContext) {
         const look = await context.lookOf(request, who.user.id);
 
         if (method === 'GET' && path === '/admin') {
-            context.sendPage(response, adminOverviewPage(look, await admin.overview(), context.allowance));
+            context.sendPage(response, adminOverviewPage(look, await admin.overview(), context.allowance, await betaInfo(), query.get('started') === null ? undefined : { notice: 'The beta has started. Hand out its link.' }));
+            return true;
+        }
+        if (method === 'POST' && path === '/admin/beta' && beta !== undefined) {
+            await beta.start(who.user.id);
+            context.report('Beta started', { by: who.user.id, org: beta.slug });
+            context.redirect(response, '/admin?started=1');
             return true;
         }
         if (method === 'GET' && path === '/admin/feedback') {
@@ -74,7 +91,7 @@ export function adminRoutes(context: AdminRouteContext) {
             const gave = query.get('gave');
             const name = gave === null ? undefined : await admin.personName(gave);
             const amount = Number(query.get('dollars'));
-            context.sendPage(response, adminPeoplePage(look, await admin.people(), context.allowance, name === undefined || !(amount > 0) ? undefined : { notice: `Gave ${name} ${usd(amount)} of agent use.` }));
+            context.sendPage(response, adminPeoplePage(look, await admin.people(beta?.slug), context.allowance, name === undefined || !(amount > 0) ? undefined : { notice: `Gave ${name} ${usd(amount)} of agent use.` }));
             return true;
         }
         const give = /^\/admin\/people\/([0-9a-f-]{36})\/give$/.exec(path);
@@ -86,7 +103,7 @@ export function adminRoutes(context: AdminRouteContext) {
             const name = await admin.personName(userId);
             if (name === undefined) return false;
             if (!Number.isFinite(dollars) || dollars <= 0 || dollars > MAX_GIFT || Math.round(dollars * 100) !== dollars * 100) {
-                context.sendPage(response, adminPeoplePage(look, await admin.people(), context.allowance, { error: `Give between $0.01 and ${usd(MAX_GIFT)}, in cents at most.` }), 400);
+                context.sendPage(response, adminPeoplePage(look, await admin.people(beta?.slug), context.allowance, { error: `Give between $0.01 and ${usd(MAX_GIFT)}, in cents at most.` }), 400);
                 return true;
             }
             await admin.give({ userId, dollars, note, by: who.user.id });

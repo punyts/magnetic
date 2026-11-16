@@ -44,6 +44,8 @@ export interface CliOptions {
     userAllowance: number | undefined;
     /** Only the first this many people get the allowance; undefined for everyone */
     allowanceUsers: number | undefined;
+    /** The slug of the beta org, whose first `allowanceUsers` members get the allowance (docs/design/magnetic-beta.md) */
+    betaOrg: string | undefined;
     /** The verified emails of the people who reach the admin pages */
     admins: string[];
     /** Stripe, for people to buy agent use after their allowance (environment only); undefined without both keys */
@@ -133,6 +135,9 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
                          (env MAGNETIC_USER_ALLOWANCE, default none)
   --allowance-users <n>  Only the first n people (by first sign-in) get the allowance; the others may buy
                          agent use (env MAGNETIC_ALLOWANCE_USERS, default everyone)
+  --beta-org <slug>      The beta org: people join it through the beta link on Admin, and only its first
+                         --allowance-users members get the allowance. Needs MAGNETIC_SECRET_KEY
+                         (env MAGNETIC_BETA_ORG, default none)
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
   --top-ups <usd,...>    The amounts of agent use people may buy after their allowance
                          (env MAGNETIC_TOP_UPS, default 10,25,50)
@@ -293,6 +298,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseOptionalDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
     let userAllowance = env['MAGNETIC_USER_ALLOWANCE'] !== undefined && env['MAGNETIC_USER_ALLOWANCE'] !== '' ? parseOptionalDollars('user allowance', env['MAGNETIC_USER_ALLOWANCE']) : undefined;
     let allowanceUsers = env['MAGNETIC_ALLOWANCE_USERS'] !== undefined && env['MAGNETIC_ALLOWANCE_USERS'] !== '' ? parseCount('allowance users', env['MAGNETIC_ALLOWANCE_USERS']) : undefined;
+    let betaOrg = env['MAGNETIC_BETA_ORG']?.trim() || undefined;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
     let topUps = env['MAGNETIC_TOP_UPS'] !== undefined && env['MAGNETIC_TOP_UPS'] !== '' ? parseTopUps(env['MAGNETIC_TOP_UPS']) : undefined;
     const admins = (env['MAGNETIC_ADMIN_EMAILS'] ?? '').split(',').map((email) => email.trim().toLowerCase()).filter((email) => email !== '');
@@ -395,6 +401,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--allowance-users':
                 allowanceUsers = parseCount('allowance users', value());
                 break;
+            case '--beta-org':
+                betaOrg = value();
+                break;
             case '--monthly-budget':
                 monthlyBudget = parseDollars('monthly budget', value());
                 break;
@@ -434,6 +443,8 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (meshUrl !== undefined && !/^wss?:\/\/[^/]+/.test(meshUrl)) throw new UsageError(`Invalid mesh URL: ${meshUrl} (ws:// or wss://, such as ws://magnetic-2:4310)`);
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
+    if (betaOrg !== undefined && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(betaOrg)) throw new UsageError(`Invalid beta org: ${betaOrg} (an org slug: lower-case letters, digits and dashes)`);
+    if (betaOrg !== undefined && secretKey === undefined) throw new UsageError('The beta org (--beta-org) needs MAGNETIC_SECRET_KEY, which signs the beta link');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }

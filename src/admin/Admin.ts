@@ -49,6 +49,8 @@ export interface PersonRow {
     readonly paid: number;
     readonly given: number;
     readonly lastAgentUse: Date | null;
+    /** Their place in the beta org (1 for the first to join), or null when they hold none */
+    readonly betaPlace: number | null;
 }
 
 /** One message on the admin Feedback page */
@@ -108,16 +110,20 @@ export class Admin {
         };
     }
 
-    /** Everyone, in the order they first signed in (the order the allowance goes by) */
-    async people(): Promise<PersonRow[]> {
+    /** Everyone, in the order they first signed in, with their place in the beta org when there is one */
+    async people(betaOrg?: string): Promise<PersonRow[]> {
         const rows = (
-            await this.db.query<{ place: string; id: string; name: string; email: string | null; email_verified: boolean; created_at: Date; spent: string | null; paid: string | null; given: string | null; last: Date | null }>(
+            await this.db.query<{ place: string; id: string; name: string; email: string | null; email_verified: boolean; created_at: Date; spent: string | null; paid: string | null; given: string | null; last: Date | null; beta: string | null }>(
                 `SELECT row_number() OVER (ORDER BY u.created_at, u.id) AS place, u.id::text AS id, u.name, u.email, u.email_verified, u.created_at,
-                        r.spent, r.last, c.paid, c.given
+                        r.spent, r.last, c.paid, c.given, b.place AS beta
                    FROM app_user u
                    LEFT JOIN (SELECT user_id, sum(dollars) AS spent, max(at) AS last FROM agent_request GROUP BY user_id) r ON r.user_id = u.id
                    LEFT JOIN (SELECT user_id, sum(dollars) FILTER (WHERE kind IN ('payment', 'refund')) AS paid, sum(dollars) FILTER (WHERE kind = 'gift') AS given FROM agent_credit GROUP BY user_id) c ON c.user_id = u.id
-                  ORDER BY u.created_at, u.id`
+                   LEFT JOIN (SELECT m.user_id, row_number() OVER (ORDER BY m.joined_at, m.user_id) AS place
+                                FROM org_member m JOIN org o ON o.id = m.org_id
+                               WHERE o.slug = $1 AND m.role IN ('builder', 'member')) b ON b.user_id = u.id
+                  ORDER BY u.created_at, u.id`,
+                [betaOrg ?? null]
             )
         ).rows;
         return rows.map((row) => ({
@@ -130,7 +136,8 @@ export class Admin {
             spent: Number(row.spent ?? 0),
             paid: Math.max(0, Number(row.paid ?? 0)),
             given: Number(row.given ?? 0),
-            lastAgentUse: row.last === null ? null : new Date(row.last)
+            lastAgentUse: row.last === null ? null : new Date(row.last),
+            betaPlace: row.beta === null ? null : Number(row.beta)
         }));
     }
 
