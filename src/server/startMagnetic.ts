@@ -35,6 +35,8 @@ import { dataRoutes } from './dataRoutes.js';
 import { billingRoutes } from './billingRoutes.js';
 import { Credits } from '../billing/Credits.js';
 import { Feedback, FEEDBACK_KINDS, FEEDBACK_PER_HOUR, MAX_FEEDBACK_LENGTH } from '../feedback/Feedback.js';
+import { Admin, AdminList } from '../admin/Admin.js';
+import { adminRoutes } from './adminRoutes.js';
 import { Stripe } from '../billing/Stripe.js';
 import type { StripeOptions } from '../billing/Stripe.js';
 import type { LogicInstance } from '@punyts/stateui-mcp';
@@ -226,6 +228,11 @@ export interface MagneticOptions {
      * (docs/design/magnetic-payments.md). Absent: the Agent use page shows the balance only
      */
     readonly payments?: PaymentsOptions;
+    /**
+     * The verified emails of the people who run the server: they reach the admin pages, `/admin`
+     * (docs/design/magnetic-admin.md). Empty or absent: there are none
+     */
+    readonly admins?: readonly string[];
 }
 
 export interface PaymentsOptions {
@@ -528,6 +535,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const budgets = new Budgets(db, { ...budgetLimits, canBuy: options.payments !== undefined && budgetLimits.perUserTotal !== undefined });
     const credits = new Credits(db);
     const feedback = new Feedback(db);
+    const admins = new AdminList(db, options.admins ?? []);
     const stripe = options.payments === undefined ? undefined : new Stripe(options.payments.stripe);
     const turns = new AgentTurns({
         model: options.agent?.model ?? new ClaudeModel(),
@@ -692,6 +700,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sendPage,
         redirect: (response, location) => redirect(response, location),
         origin: () => publicOrigin ?? origin,
+        report: (message, fields) => options.report.info(message, fields)
+    });
+    const handleAdmin = adminRoutes({
+        admin: new Admin(db),
+        admins,
+        allowance: { ...(budgetLimits.perUserTotal !== undefined && { dollars: budgetLimits.perUserTotal }), ...(budgetLimits.allowanceUsers !== undefined && { people: budgetLimits.allowanceUsers }), monthly: budgetLimits.monthly },
+        signedIn,
+        readForm,
+        lookOf,
+        sendPage: (response, html, status) => sendPage(response, html, status),
+        redirect: (response, location) => redirect(response, location),
         report: (message, fields) => options.report.info(message, fields)
     });
     const handleBilling = billingRoutes({
@@ -875,7 +894,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const roleWords = (role: string): string => orgWords[`orgs.role.${role}` as keyof typeof orgWords] ?? role;
         const memberships: HomeCard[] = (await orgs.of(user.id)).map((org) => ({ id: org.id, name: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }) }));
         const invites: HomeCard[] = (await orgs.pendingFor(user.id)).map((invite) => ({ id: invite.id, name: fill(t['home.inviteName'], { org: invite.org.name }), note: fill(t['home.inviteNote'], { role: roleWords(invite.role), name: invite.invitedBy }) }));
-        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites }, look);
+        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites, admin: await admins.is(user.id) }, look);
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHostPage(
@@ -1159,6 +1178,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleConnections(request, response, method, path)) return true;
         if (await handleData(request, response, method, path)) return true;
+        if (await handleAdmin(request, response, method, path, url.searchParams)) return true;
         if (await handleBilling(request, response, method, path, url.searchParams)) return true;
         if (await handleGrants(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {

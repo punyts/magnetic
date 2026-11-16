@@ -79,6 +79,9 @@ describe('parseOptions', () => {
         expect(parseOptions(['--allowance-users', '100'], { MAGNETIC_ALLOWANCE_USERS: '7' }).allowanceUsers).toBe(100);
         expect(parseOptions([], { MAGNETIC_ALLOWANCE_USERS: '100' }).allowanceUsers).toBe(100);
         expect(() => parseOptions(['--allowance-users', '0'], {})).toThrow('Invalid allowance users');
+        expect(parseOptions([], {}).admins).toEqual([]);
+        expect(parseOptions([], { MAGNETIC_ADMIN_EMAILS: ' Ops@Example.com, b@example.com ' }).admins).toEqual(['ops@example.com', 'b@example.com']);
+        expect(() => parseOptions([], { MAGNETIC_ADMIN_EMAILS: 'ops' })).toThrow('Invalid admin email');
         expect(parseOptions(['--user-allowance', '2', '--daily-budget', 'off'], {})).toMatchObject({ userAllowance: 2, dailyBudget: undefined });
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
     });

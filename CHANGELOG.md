@@ -2,6 +2,12 @@
 
 ## 0.1.0 (unreleased)
 
+- **Admin pages** (docs/design/magnetic-admin.md), `/admin`, for whoever runs the server: `MAGNETIC_ADMIN_EMAILS`, matched against verified emails; a 404 for anyone else, and Admin on Your apps only for them.
+  - **Overview:** people (and new this week), agent use today and this month against the monthly budget, paid, given, open feedback, and the free places left.
+  - **Feedback:** open, done or all, by kind, newest first, with the sender's email, the app, the frame size and the language; Done and Reopen (migration 0010: `status`, `handled_by`, `handled_at`).
+  - **People:** in sign-in order (the allowance's order), with free, paid, given, used and left, and a form to give agent use: up to $500, a row of kind `gift` in `agent_credit` with a note and who gave it, shown on the person's Agent use page as Given by Magnetic (four languages).
+  - Plain HTML, English only. The host deploy sets it from SSM `/magnetic/admin-emails`, or else the privacy contact.
+  - Tests: `server/admin.test.ts` (4), options (1), `e2e/admin.spec.ts` (2 at two sizes), with a `/verify` control route that gives a dev user a verified email.
 - **Feedback from the editor** (docs/design/magnetic-feedback.md). A bug button at the top right of the editor opens a sheet: a bug, a comment or a feature request, in the person's words. `POST /edit/<app>/feedback` keeps it in `feedback` (migration 0009) with the app, the frame size, the language and the browser, and emails it to the privacy contact (`MAGNETIC_CONTACT_EMAIL`) through the mailer, the sender as Reply-To. Twenty an hour per person, up to 4000 characters. `magnetic feedback` prints the latest. Four languages. Tests: `server/feedback.test.ts` (3), `e2e/feedback.spec.ts` (2 at two sizes).
 - **The allowance for the first people only:** `--allowance-users` / `MAGNETIC_ALLOWANCE_USERS`. Only the first n people to sign in get `--user-allowance`; the others start with none, are told why, and may buy agent use. The beta: the first 100 get $5.
 

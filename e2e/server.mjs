@@ -23,7 +23,9 @@ const magnetic = await startMagnetic({
     runtimePort: port + 1,
     // Quiet unless MAGNETIC_E2E_VERBOSE is set
     report: { info: (message, fields) => (process.env.MAGNETIC_E2E_VERBOSE ? process.stderr.write(`[magnetic] ${message} ${JSON.stringify(fields ?? {})}\n`) : undefined) },
-    devUsers: ['alice', 'bob', 'carol', 'dan'],
+    devUsers: ['alice', 'bob', 'carol', 'dan', 'erin'],
+    // erin runs the server once POST /verify gives her this email (dev users have none)
+    admins: ['admin@example.test'],
     starter: 'none',
     providers: [{ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret }],
     allowHttpProviders: true,
@@ -90,6 +92,14 @@ const control = createServer((request, response) => {
                 () => response.writeHead(204).end(),
                 (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
             );
+        } else if (request.method === 'POST' && request.url === '/verify') {
+            const { user, email } = JSON.parse(body);
+            devUserId(user)
+                .then((id) => test.db.query('UPDATE app_user SET email = $2, email_verified = true WHERE id = $1', [id, email]))
+                .then(
+                    () => response.writeHead(204).end(),
+                    (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+                );
         } else if (request.method === 'POST' && request.url === '/dataset') {
             seedDataset(JSON.parse(body)).then(
                 () => response.writeHead(204).end(),

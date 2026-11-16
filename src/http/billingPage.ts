@@ -62,7 +62,7 @@ export function billingPage(view: BillingView): string {
             : [
                   `<div class="table"><table><thead><tr><th>${e(t['billing.column.date'])}</th><th>${e(t['billing.column.what'])}</th><th>${e(t['billing.column.amount'])}</th></tr></thead><tbody>`,
                   view.credits
-                      .map((credit) => `<tr><td>${e(credit.at.toISOString().slice(0, 10))}</td><td>${e(credit.kind === 'payment' ? t['billing.payment'] : t['billing.refund'])}</td><td>${e(credit.dollars < 0 ? `−${usd(-credit.dollars)}` : usd(credit.dollars))}</td></tr>`)
+                      .map((credit) => `<tr><td>${e(credit.at.toISOString().slice(0, 10))}</td><td>${e(credit.kind === 'payment' ? t['billing.payment'] : credit.kind === 'gift' ? t['billing.gift'] : t['billing.refund'])}</td><td>${e(credit.dollars < 0 ? `−${usd(-credit.dollars)}` : usd(credit.dollars))}</td></tr>`)
                       .join(''),
                   '</tbody></table></div>'
               ].join('');

@@ -74,6 +74,17 @@ main.settings button.link { border: none; padding: 0 0.25rem; color: var(--accen
 main.settings button.danger { color: var(--bad); }
 main.settings .notice { border: 1px solid var(--accent); border-radius: 0.5rem; padding: 0.6rem 0.8rem; }
 main.settings code.link { overflow-wrap: anywhere; user-select: all; }
+main.admin .chip { color: var(--ink); text-decoration: none; }
+main.admin .chip[aria-current] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+main.admin header nav a[aria-current] { border-color: var(--accent); color: var(--accent); }
+main.admin ul.feedback li { display: block; }
+main.admin ul.feedback li.done { opacity: 0.6; }
+main.admin p.said { white-space: pre-wrap; margin: 0.5rem 0; }
+main.admin p.small { font-size: 0.8rem; margin: 0 0 0.5rem; overflow-wrap: anywhere; }
+main.admin form.give { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+main.admin form.give input[name=dollars] { width: 4rem; }
+main.admin form.give input[name=note] { width: 8rem; }
+main.admin dl.balance dd a { color: var(--accent); }
 main.settings pre { background: color-mix(in srgb, var(--line) 35%, transparent); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.85rem; }
 `;
 

@@ -30,6 +30,8 @@ export interface HomeData {
     readonly orgs?: readonly HomeCard[];
     /** An invite's id, "Join <org>", and the role and who sent it */
     readonly invites?: readonly HomeCard[];
+    /** Whether the person runs the server: Admin shows */
+    readonly admin?: boolean;
 }
 
 /** The cards of a list, keyed by id in their order, as a record grid reads them */
@@ -79,6 +81,8 @@ const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.valu
 
 /** Whether the invites box hides: while no invite waits */
 const INVITES_HIDDEN = '$.screens.home.children.page.children.invitesBox.hidden';
+/** Admin, among the links at the top: shown only to those who run the server (the page writes its hidden) */
+const ADMIN_HIDDEN = '$.screens.home.children.page.children.top.children.admin.hidden';
 
 /** Where the home app keeps the person's choices of mode and language, which its menus show */
 const TOP = '$.screens.home.children.page.children.top.children';
@@ -120,6 +124,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                             connections: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.connections'], on: { press: { command: 'emit', target: 'connections' } } },
                             data: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.data'], on: { press: { command: 'emit', target: 'data' } } },
                             billing: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.billing'], on: { press: { command: 'emit', target: 'billing' } } },
+                            admin: { component: 'button', variant: 'ghost', size: 'sm', hidden: true, _title: t['home.admin'], on: { press: { command: 'emit', target: 'admin' } } },
                             signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
                         }
                     },
@@ -284,6 +289,7 @@ export class HomeApps {
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.orgs', value: byId(data.orgs ?? []), logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.invites', value: byId(data.invites ?? []), logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: INVITES_HIDDEN, value: (data.invites ?? []).length === 0, logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: ADMIN_HIDDEN, value: data.admin !== true, logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: MAKE_VALUE, value: '', logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.mode.value`, value: prefs.mode, logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.language.value`, value: prefs.language, logic: false });

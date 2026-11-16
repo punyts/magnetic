@@ -172,6 +172,7 @@ async function main(): Promise<void> {
         ...(options.mail !== undefined && { mailer: sesMailer(options.mail) }),
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         ...(options.stripe !== undefined && { payments: { stripe: options.stripe, ...(options.topUps !== undefined && { topUps: options.topUps }) } }),
+        ...(options.admins.length > 0 && { admins: options.admins }),
         agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);

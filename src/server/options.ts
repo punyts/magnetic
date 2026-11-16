@@ -44,6 +44,8 @@ export interface CliOptions {
     userAllowance: number | undefined;
     /** Only the first this many people get the allowance; undefined for everyone */
     allowanceUsers: number | undefined;
+    /** The verified emails of the people who reach the admin pages */
+    admins: string[];
     /** Stripe, for people to buy agent use after their allowance (environment only); undefined without both keys */
     stripe: { secretKey: string; webhookSecret: string } | undefined;
     /** The amounts of agent use offered, in dollars */
@@ -134,6 +136,9 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
   --top-ups <usd,...>    The amounts of agent use people may buy after their allowance
                          (env MAGNETIC_TOP_UPS, default 10,25,50)
+
+Admin pages, /admin: feedback, people and giving agent use (environment only):
+  MAGNETIC_ADMIN_EMAILS            Comma-separated; a person whose verified email is listed is an admin
 
 Buying agent use after the allowance (environment only; both, or no buying):
   MAGNETIC_STRIPE_SECRET_KEY       The Stripe secret key (sk_live_... or sk_test_...)
@@ -290,6 +295,8 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let allowanceUsers = env['MAGNETIC_ALLOWANCE_USERS'] !== undefined && env['MAGNETIC_ALLOWANCE_USERS'] !== '' ? parseCount('allowance users', env['MAGNETIC_ALLOWANCE_USERS']) : undefined;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
     let topUps = env['MAGNETIC_TOP_UPS'] !== undefined && env['MAGNETIC_TOP_UPS'] !== '' ? parseTopUps(env['MAGNETIC_TOP_UPS']) : undefined;
+    const admins = (env['MAGNETIC_ADMIN_EMAILS'] ?? '').split(',').map((email) => email.trim().toLowerCase()).filter((email) => email !== '');
+    for (const email of admins) if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new UsageError(`Invalid admin email: ${email}`);
     const stripeSecretKey = env['MAGNETIC_STRIPE_SECRET_KEY']?.trim() || undefined;
     const stripeWebhookSecret = env['MAGNETIC_STRIPE_WEBHOOK_SECRET']?.trim() || undefined;
     if ((stripeSecretKey === undefined) !== (stripeWebhookSecret === undefined)) throw new UsageError('MAGNETIC_STRIPE_SECRET_KEY and MAGNETIC_STRIPE_WEBHOOK_SECRET go together');
@@ -428,5 +435,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }

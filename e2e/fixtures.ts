@@ -44,6 +44,12 @@ export async function mailSent(): Promise<Array<{ to: string; orgName: string; i
     return (await (await fetch(`${CONTROL}/mail`)).json()) as Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>;
 }
 
+/** Gives a dev user who signed in a verified email (dev users have none) */
+export async function verifyEmail(user: string, email: string): Promise<void> {
+    const response = await fetch(`${CONTROL}/verify`, { method: 'POST', body: JSON.stringify({ user, email }) });
+    if (!response.ok) throw new Error(await response.text());
+}
+
 /** The feedback the test server has emailed to its operator, oldest first */
 export async function feedbackSent(): Promise<Array<{ to: string; kind: string; text: string; fromName: string; appName?: string; context: Record<string, string> }>> {
     return (await (await fetch(`${CONTROL}/feedback-mail`)).json()) as Array<{ to: string; kind: string; text: string; fromName: string; appName?: string; context: Record<string, string> }>;

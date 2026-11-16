@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from '@punyts/stateui-pg';
 
-/** One row of a person's ledger: a payment (+dollars) or a payment's refunds (-dollars) */
+/** One row of a person's ledger: a payment (+dollars), a payment's refunds (-dollars), or agent use an admin gave (+dollars) */
 export interface Credit {
     readonly id: string;
-    readonly kind: 'payment' | 'refund';
+    readonly kind: 'payment' | 'refund' | 'gift';
     readonly dollars: number;
     readonly at: Date;
 }
@@ -53,7 +53,7 @@ export class Credits {
 
     /** A person's ledger, the latest first */
     async of(userId: string): Promise<Credit[]> {
-        const rows = (await this.db.query<{ id: string; kind: 'payment' | 'refund'; dollars: number; at: Date }>('SELECT id::text AS id, kind, dollars, at FROM agent_credit WHERE user_id::text = $1 ORDER BY at DESC, kind', [userId])).rows;
+        const rows = (await this.db.query<{ id: string; kind: 'payment' | 'refund' | 'gift'; dollars: number; at: Date }>('SELECT id::text AS id, kind, dollars, at FROM agent_credit WHERE user_id::text = $1 ORDER BY at DESC, kind', [userId])).rows;
         return rows.map((row) => ({ id: row.id, kind: row.kind, dollars: Number(row.dollars), at: new Date(row.at) }));
     }
 }
