@@ -40,6 +40,7 @@
         "@punyts/core": "^1.0.0",
         "@punyts/state-sync": "^0.8.0",
         "@punyts/statenet": "^0.1.0",
+        "@punyts/stateui-app": "^0.1.0",
         "@punyts/stateui-mcp": "^0.1.0",
         "@punyts/stateui-pg": "^0.1.0",
         "jose": "^6.2.17",

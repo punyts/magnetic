@@ -31,6 +31,26 @@ export function nodeAt(document: JsonRecord, path: string): JsonRecord | undefin
     return isRecord(current) && typeof current['component'] === 'string' ? current : undefined;
 }
 
+/** The path of a node's parent: the node whose `children` hold it; undefined for a screen's root or the app node */
+export function parentPath(path: string): string | undefined {
+    const match = /^(.*)\.children\.[A-Za-z_][\w-]*$/.exec(path);
+    return match === null ? undefined : match[1];
+}
+
+/** The layout a node lays its children out with: its `layout.type`, or `column` when it has children and no layout */
+export function layoutTypeOf(node: JsonRecord | undefined): string | undefined {
+    if (node === undefined) return undefined;
+    const layout = node['layout'];
+    if (isRecord(layout) && typeof layout['type'] === 'string') return layout['type'];
+    return isRecord(node['children']) ? 'column' : undefined;
+}
+
+/** Each child's own placement in its parent, by the child's key */
+export function childPlacements(node: JsonRecord): Record<string, JsonRecord> {
+    const children = isRecord(node['children']) ? node['children'] : {};
+    return Object.fromEntries(Object.entries(children).map(([key, child]) => [key, isRecord(child) && isRecord(child['placement']) ? child['placement'] : {}]));
+}
+
 /** The root node of a screen of the assembled document */
 function screenRoot(document: JsonRecord, screen: string): unknown {
     const screens = document['screens'];

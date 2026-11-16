@@ -24,8 +24,9 @@ import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Prefer
 import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
-import { bindingsOf, logicOf, nodeAt, ownSettings, treeOf } from '../inspector/editInfo.js';
+import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, treeOf } from '../inspector/editInfo.js';
 import { COMPONENT_CATEGORIES, SYSTEM_USER_ID } from '../inspector/constants.js';
+import { LAYOUTS } from '@punyts/stateui-app/core';
 import { DefaultEditor, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
 import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
 import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
@@ -1215,13 +1216,18 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 return;
             }
             const component = await run(tools, 'ui_component_get', { name: node['component'] }).catch(() => undefined);
+            const parent = parentPath(path);
             sendJson(response, 200, {
                 path,
                 tree,
                 revision: app.revision,
                 settings: ownSettings(node),
                 children: Object.keys(isRecord(node['children']) ? node['children'] : {}),
-                component: component === undefined ? undefined : { name: component['name'], summary: component['summary'], properties: component['properties'], events: component['events'] }
+                // The layout the node's parent lays it out with (its Placement fields), and its children's placements,
+                // which a change of its own layout type may clear
+                parentLayout: parent === undefined ? null : (layoutTypeOf(nodeAt(document as Record<string, unknown>, parent)) ?? null),
+                childPlacements: childPlacements(node),
+                component: component === undefined ? undefined : { name: component['name'], summary: component['summary'], properties: component['properties'], events: component['events'], layout: component['layout'] === true }
             });
             return;
         }
@@ -1244,7 +1250,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return;
         }
         if (what === '/components' && method === 'GET') {
-            sendJson(response, 200, { categories: COMPONENT_CATEGORIES, components: library });
+            sendJson(response, 200, { categories: COMPONENT_CATEGORIES, components: library, layouts: LAYOUTS });
             return;
         }
         if (what === '/state' && method === 'GET') {

@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { EditorPage, expect, signIn, test, uniqueName } from './fixtures.js';
 
 test.describe('The editor', () => {
@@ -73,7 +74,7 @@ test.describe('The editor', () => {
         const panel = editor.editor.getByRole('tabpanel');
         for (const name of ['Add to chat', 'Delete']) await expect(panel.getByRole('button', { name })).toBeVisible();
         // The Text property, changed by hand, changes the app
-        const field = panel.getByRole('textbox').first();
+        const field = panel.getByRole('textbox', { name: 'Text', exact: true });
         await expect(field).toHaveValue("Select me");
         await field.fill("Changed by hand");
         await field.press("Enter");
@@ -185,4 +186,67 @@ test.describe('The component library', () => {
         await expect(editor.app.getByRole('button')).toHaveCount(0);
     });
 
+});
+
+test.describe('Layout and placement', () => {
+    let editor: EditorPage;
+
+    test.beforeEach(async ({ context, home }, info) => {
+        await signIn(context, 'alice');
+        await home.goto();
+        editor = await home.makeApp(uniqueName(info, 'layout'));
+        await editor.ask('One');
+        await editor.ask('Two');
+        await editor.button('Close the chat').click();
+    });
+
+    /** Selects a part of the app by its text, then (with `up`) its parent from the breadcrumb */
+    async function selectText(page: Page, text: string, up = false): Promise<void> {
+        if ((await editor.tool()) !== 'select') await editor.button('Select a part of the app (S)').click();
+        const box = await editor.app.getByText(text, { exact: true }).boundingBox();
+        expect(box).not.toBeNull();
+        if (box !== null) await page.mouse.click(box.x + 4, box.y + box.height / 2);
+        await expect(page.locator('#overlay .box.selected')).toBeVisible();
+        if (up) await editor.editor.getByRole('tabpanel').getByText('home screen').click();
+    }
+    const field = (name: string) => editor.editor.getByRole('tabpanel').getByRole('combobox', { name, exact: true });
+    const number = (name: string) => editor.editor.getByRole('tabpanel').getByRole('spinbutton', { name, exact: true });
+    const boxOf = async (text: string) => (await editor.app.getByText(text, { exact: true }).boundingBox()) as { x: number; y: number; width: number; height: number };
+
+    test('a column made a grid of two lays its parts side by side', async ({ page }) => {
+        await selectText(page, 'One', true);
+        await expect(editor.editor.getByRole('tabpanel').getByText('Layout', { exact: true })).toBeVisible();
+        await expect(field('Lays out its parts as')).toHaveValue('column');
+        const [one, two] = [await boxOf('One'), await boxOf('Two')];
+        expect(two.y).toBeGreaterThan(one.y);
+        await field('Lays out its parts as').selectOption('grid');
+        await expect(number('Cols')).toBeVisible();
+        await number('Cols').fill('2');
+        await number('Cols').press('Enter');
+        await expect.poll(async () => Math.abs((await boxOf('Two')).y - (await boxOf('One')).y)).toBeLessThan(4);
+        await expect.poll(async () => (await boxOf('Two')).x).toBeGreaterThan((await boxOf('One')).x + 20);
+    });
+
+    test('a part of a grid takes its place in it: spanning two columns pushes the next part down', async ({ page }) => {
+        await selectText(page, 'One', true);
+        await field('Lays out its parts as').selectOption('grid');
+        await number('Cols').fill('2');
+        await number('Cols').press('Enter');
+        await expect.poll(async () => Math.abs((await boxOf('Two')).y - (await boxOf('One')).y)).toBeLessThan(4);
+        await selectText(page, 'One');
+        await expect(editor.editor.getByRole('tabpanel').getByText('Place in its parent')).toBeVisible();
+        await number('Span').fill('2');
+        await number('Span').press('Enter');
+        await expect.poll(async () => (await boxOf('Two')).y).toBeGreaterThan((await boxOf('One')).y + 4);
+    });
+
+    test('changing the type keeps the settings both types have', async ({ page }) => {
+        await selectText(page, 'One', true);
+        await field('Gap').selectOption('lg');
+        await expect.poll(async () => (await boxOf('Two')).y - (await boxOf('One')).y).toBeGreaterThan(0);
+        await field('Lays out its parts as').selectOption('row');
+        await expect(field('Gap')).toHaveValue('lg');
+        await expect(field('Wrap').or(editor.editor.getByRole('tabpanel').getByRole('switch', { name: 'Wrap' }))).toBeVisible();
+        await expect.poll(async () => Math.abs((await boxOf('Two')).y - (await boxOf('One')).y)).toBeLessThan(4);
+    });
 });

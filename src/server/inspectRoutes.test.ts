@@ -159,6 +159,34 @@ describe("The editor's inspector routes", () => {
         expect(data.status).toBe(404);
     });
 
+    it("should answer a node's layout: the parent's type for its placement, its children's placements, and whether its component lays out parts", async () => {
+        // Arrange: the list becomes a grid whose first part spans two columns
+        const placed = await write([
+            { op: 'set', path: '$.screens.home.children.list.layout', value: { type: 'grid', cols: 2 } },
+            { op: 'set', path: '$.screens.home.children.list.children.a.placement', value: { span: 2 } }
+        ]);
+
+        // Act
+        const list = await get(`/node?path=${encodeURIComponent('$.screens.home.children.list')}`);
+        const alpha = await get(`/node?path=${encodeURIComponent('$.screens.home.children.list.children.a')}`);
+        const root = await get(`/node?path=${encodeURIComponent('$.screens.home')}`);
+        const { body } = await get('/components');
+
+        // Assert
+        expect(placed.status).toBe(200);
+        expect(list.body).toMatchObject({ settings: { layout: { type: 'grid', cols: 2 } }, parentLayout: 'column', childPlacements: { a: { span: 2 }, b: {} }, component: { layout: true } });
+        expect(alpha.body).toMatchObject({ settings: { placement: { span: 2 } }, parentLayout: 'grid', childPlacements: {}, component: { layout: false } });
+        expect(root.body['parentLayout']).toBeNull();
+        expect(Object.keys(body['layouts'] as object)).toEqual(['column', 'row', 'grid', 'region', 'adhoc']);
+        expect((body['layouts'] as Record<string, { placement: object }>)['grid']!.placement).toHaveProperty('span');
+
+        // Afterwards: the list as it was, for the tests after this one
+        await write([
+            { op: 'remove', path: '$.screens.home.children.list.layout' },
+            { op: 'remove', path: '$.screens.home.children.list.children.a.placement' }
+        ]);
+    });
+
     it('should add, set, move and remove nodes, each as one checked write that moves the revision on by one', async () => {
         // Arrange
         const start = await revision();

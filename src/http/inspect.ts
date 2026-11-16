@@ -11,7 +11,11 @@ import { SCRIPT_TEXTS } from './text.js';
  * `ui_nodes_write` (`POST /edit/<id>/nodes`), and the app follows through its sync, as it does for the agent.
  *
  * - Select (S): hover outlines a node, a click selects it; the breadcrumb selects a parent; Escape lets go.
- * - Properties: a field per property of the node's component, saved as a `set`; Delete removes the node.
+ * - Properties: a field per property of the node's component, saved as a `set`; Delete removes the node. A node
+ *   that lays out parts has a Layout section (its type, then that type's settings, from stateui-app's `LAYOUTS`), and
+ *   a node inside a layout has a Placement section (the fields its parent's layout gives a child). Changing the type
+ *   keeps the settings both types share and drops the rest, and clears the children's placements the new type lacks,
+ *   all in one write.
  * - The library (a panel of the editor beside the rail): drag a component onto the app, or press it and then click
  *   where it goes. A card holds the pointer while it is dragged and emits `grab`, `dragMove` and `dragEnd` with the
  *   pointer in the editor's frame, which covers the window, so in the page's own pixels: over the app frame the drop
@@ -42,6 +46,12 @@ let drop = null;
 let crumbPaths = [];
 let fieldNames = [];
 let library = [];
+/** stateui-app's layouts, by type: each with its settings and the placement fields of a child */
+let layouts = {};
+let layoutFieldNames = [];
+let placeFieldNames = [];
+/** The key of a select's "not set" choice */
+const UNSET = '_unset';
 let search = '';
 let category = 'all';
 let stateInfo = null;
@@ -418,7 +428,133 @@ function fieldsOf(info) {
         else if (shape.type === 'number' || shape.type === 'integer') children[key] = { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', on };
         else children[key] = { component: 'textField', size: 'sm', _label: label, value: typeof value === 'string' ? value : '', on };
     }
-    return { component: 'panel', padding: 'none', children };
+    // Layout and placement first, where they are found without scrolling past the component's own properties
+    const sections = layoutSections(info);
+    if (Object.keys(sections).length === 0) return { component: 'panel', padding: 'none', children };
+    return { component: 'panel', padding: 'none', children: { ...sections, propertiesTitle: { component: 'text', textRole: 'label', _text: T['inspector.properties'] }, ...children } };
+}
+
+/** A field for a setting of a layout or a placement (a FieldSpec of stateui-app), emitting target */
+function specField(label, spec, value, target) {
+    const on = { change: { command: 'emit', target } };
+    if (spec.type === 'enum' && Array.isArray(spec.values)) {
+        const options = { [UNSET]: { _label: T['inspector.notSet'] }, ...Object.fromEntries(spec.values.map((option) => [option, { _label: option }])) };
+        return { component: 'selectField', size: 'sm', _label: label, options, value: typeof value === 'string' && spec.values.includes(value) ? value : UNSET, on };
+    }
+    if (spec.type === 'boolean') return { component: 'switchField', size: 'sm', _label: label, checked: value === true, on };
+    if (spec.type === 'integer' || spec.type === 'number') return { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', ...(typeof spec.min === 'number' && { min: spec.min }), ...(typeof spec.max === 'number' && { max: spec.max }), on };
+    return { component: 'textField', size: 'sm', _label: label, value: typeof value === 'string' ? value : '', on };
+}
+
+/** The type a node lays its parts out with, or null when it lays none out */
+function layoutTypeOf(info) {
+    const layout = info.settings && info.settings.layout;
+    if (layout && typeof layout === 'object' && typeof layout.type === 'string') return layout.type;
+    return info.component && info.component.layout ? 'column' : null;
+}
+
+function layoutSections(info) {
+    const children = {};
+    layoutFieldNames = [];
+    placeFieldNames = [];
+    const type = layoutTypeOf(info);
+    if (type && layouts[type]) {
+        const current = info.settings.layout && typeof info.settings.layout === 'object' ? info.settings.layout : {};
+        children.layoutTitle = { component: 'text', textRole: 'label', _text: T['inspector.layout'] };
+        children.layoutType = {
+            component: 'selectField',
+            size: 'sm',
+            _label: T['inspector.layoutType'],
+            options: Object.fromEntries(Object.keys(layouts).map((name) => [name, { _label: name }])),
+            value: type,
+            on: { change: { command: 'emit', target: 'layoutType' } }
+        };
+        for (const [name, spec] of Object.entries(layouts[type].settings || {})) {
+            const index = layoutFieldNames.length;
+            layoutFieldNames.push(name);
+            children['lay' + index] = specField(labelFor(name), spec, current[name], 'lay' + index);
+        }
+    }
+    const parent = info.parentLayout;
+    if (parent && layouts[parent] && Object.keys(layouts[parent].placement || {}).length > 0) {
+        const placement = info.settings.placement && typeof info.settings.placement === 'object' ? info.settings.placement : {};
+        children.placeTitle = { component: 'text', textRole: 'label', _text: T['inspector.placement'] };
+        for (const [name, spec] of Object.entries(layouts[parent].placement)) {
+            const index = placeFieldNames.length;
+            placeFieldNames.push(name);
+            children['place' + index] = specField(labelFor(name), spec, placement[name], 'place' + index);
+        }
+    }
+    return children;
+}
+
+/** An object with one key set, or taken out when the value is empty */
+function withValue(object, name, value) {
+    const next = { ...object };
+    if (value === undefined || value === null || value === '' || value === UNSET || (typeof value === 'number' && !Number.isFinite(value))) delete next[name];
+    else next[name] = value;
+    return next;
+}
+
+/** Writes the selected node's layout (and the children's placements it clears), then shows its fields again */
+async function saveLayout(next, operations, redraw) {
+    if (!selected) return;
+    const node = selected;
+    if (await writeNodes([{ op: 'set', path: node.path + '.layout', value: next }, ...operations])) {
+        node.info.settings.layout = next;
+        if (redraw && selected === node) writeFields(fieldsOf(node.info));
+        settle();
+    }
+}
+
+function changeLayoutType(type) {
+    if (!selected || !layouts[type]) return;
+    const info = selected.info;
+    const current = info.settings.layout && typeof info.settings.layout === 'object' ? info.settings.layout : {};
+    if (layoutTypeOf(info) === type) return;
+    const next = { type };
+    for (const [name, value] of Object.entries(current)) if (name !== 'type' && name in (layouts[type].settings || {})) next[name] = value;
+    // A child keeps only the placement fields the new layout gives a child
+    const operations = [];
+    const fields = layouts[type].placement || {};
+    for (const [key, placement] of Object.entries(info.childPlacements || {})) {
+        const kept = Object.fromEntries(Object.entries(placement).filter(([name]) => name in fields));
+        if (Object.keys(kept).length === Object.keys(placement).length) continue;
+        operations.push({ op: 'set', path: selected.path + '.children.' + key + '.placement', value: kept });
+        info.childPlacements[key] = kept;
+    }
+    void saveLayout(next, operations, true);
+}
+
+function changeLayoutSetting(name, value, wait) {
+    if (!selected) return;
+    const node = selected;
+    const current = node.info.settings.layout && typeof node.info.settings.layout === 'object' ? node.info.settings.layout : {};
+    const next = withValue({ type: layoutTypeOf(node.info), ...current }, name, value);
+    if (JSON.stringify(next) === JSON.stringify({ type: layoutTypeOf(node.info), ...current })) return;
+    const key = node.path + '.layout';
+    clearTimeout(saveTimers.get(key));
+    saveTimers.set(key, setTimeout(() => {
+        saveTimers.delete(key);
+        if (selected === node) void saveLayout(next, [], false);
+    }, wait));
+}
+
+function changePlacement(name, value, wait) {
+    if (!selected) return;
+    const node = selected;
+    const current = node.info.settings.placement && typeof node.info.settings.placement === 'object' ? node.info.settings.placement : {};
+    const next = withValue(current, name, value);
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
+    const key = node.path + '.placement';
+    clearTimeout(saveTimers.get(key));
+    saveTimers.set(key, setTimeout(async () => {
+        saveTimers.delete(key);
+        if (await writeNodes([{ op: 'set', path: key, value: next }])) {
+            node.info.settings.placement = next;
+            settle();
+        }
+    }, wait));
 }
 
 /** Fills the editor's propertyFields panel, wherever the editor keeps it */
@@ -692,7 +828,24 @@ function onEmit(name, payload) {
         void saveProperty(field, valueOf(payload), typed ? TEXT_SAVE_MS : 0);
         return;
     }
+    const lay = /^lay(\d+)$/.exec(name);
+    if (lay) {
+        const field = layoutFieldNames[Number(lay[1])];
+        const type = selected && layoutTypeOf(selected.info);
+        const spec = field && type && layouts[type] ? layouts[type].settings[field] : undefined;
+        if (spec) changeLayoutSetting(field, valueOf(payload), spec.type === 'size' ? TEXT_SAVE_MS : 0);
+        return;
+    }
+    const place = /^place(\d+)$/.exec(name);
+    if (place) {
+        const field = placeFieldNames[Number(place[1])];
+        const parent = selected && selected.info.parentLayout;
+        const spec = field && parent && layouts[parent] ? layouts[parent].placement[field] : undefined;
+        if (spec) changePlacement(field, valueOf(payload), spec.type === 'size' ? TEXT_SAVE_MS : 0);
+        return;
+    }
     switch (name) {
+        case 'layoutType': changeLayoutType(String(valueOf(payload))); return;
         case 'crumb': {
             const index = Number(String(valueOf(payload)).replace(/^c/, ''));
             if (crumbPaths[index]) void select(crumbPaths[index]);
@@ -758,6 +911,7 @@ document.addEventListener('keydown', (event) => {
     try {
         const listed = await getJson('/components');
         library = listed.components || [];
+        layouts = listed.layouts || {};
         showLibrary();
     } catch {
         says(T['inspect.failed']);

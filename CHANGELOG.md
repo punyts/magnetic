@@ -2,6 +2,16 @@
 
 ## 0.1.0 (unreleased)
 
+- **Set a layout and a part's place in it by hand** (M8, N3). The inspector's Properties tab opens with two new sections, above the component's own properties:
+  - **Layout**, on a node that lays out parts (a panel, a card, a screen): its type (column, row, grid, region or free-form `adhoc`), then that type's settings, such as gap, align, wrap, columns and rows. The fields come from stateui-app's `LAYOUTS`, so they follow the closed list.
+  - **Place in its parent**, on a node inside a layout: the fields that layout gives a child, such as grow and height in a column, column, row and span in a grid, the area in a region, or x, y and size in a free-form layout.
+  - **Changing the type** keeps the settings both types have (a column's gap stays when it becomes a row), drops the rest, and clears the children's placement fields the new type lacks, all in one write.
+  - **The server** (`/edit/<id>/node`) now answers with the parent's layout type, the children's placements, and whether the component lays out parts. `/components` also returns the layouts. magnetic now depends on `@punyts/stateui-app` directly.
+  - **Text.** The new labels are in English, German, French and Spanish.
+  - Tests:
+    - `e2e/editor.spec.ts` "Layout and placement": a column made a grid of two, a part spanning two columns, the gap kept from a column to a row;
+    - `inspectRoutes.test.ts`: the node's layout answers.
+
 - **The component library is a panel of its own, and components drag onto the app** (M8, N2).
   - **Where it is.** The library left the inspector's Add tab for a panel beside the rail. It shows when the editor opens on a wide window, and on a phone it is a sheet across the bottom that starts hidden. The rail's new Components button, or `A`, shows and hides it, and the browser remembers the choice. A fitted app is fitted again to the right of it. The inspector keeps Properties and State.
   - **Search as you type.** The search narrows the list with each letter, through `searchBox`'s new `input` event. Before, it narrowed only on Enter or when the box was left.
