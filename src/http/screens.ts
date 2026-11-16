@@ -33,6 +33,8 @@ let start = null;
 let current = null;
 let typedNew = '';
 let typedRename = '';
+/** The screen typedRename was typed for: a list reloaded under it (a new revision) keeps what was typed */
+let renameFor = null;
 let revision = document.body.dataset.revision || '';
 /** By screen name: the preview's element, its frame holder, and its panel while mounted */
 const previews = new Map();
@@ -74,7 +76,7 @@ function show() {
         note: screen.name === start ? screen.name + ' · ' + T['screens.isHome'] : screen.name,
         current: screen.name === current
     })));
-    typedRename = current || '';
+    if (current !== renameFor) { renameFor = current; typedRename = current || ''; }
     editor.set({ screenName: current || '', screenRename: current || '', isHome: current === start, notHome: current !== start });
 }
 

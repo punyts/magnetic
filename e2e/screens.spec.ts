@@ -65,7 +65,13 @@ test.describe('Screens', () => {
         await expect(rename).toHaveValue('home-copy');
         await rename.fill('welcome');
         await rename.press('Tab');
+        // A new revision reloads the list after the name was typed (on a slow machine, the copy's): what was typed stays
+        const reloaded = page.waitForResponse((answer) => answer.url().endsWith('/screens') && answer.request().method() === 'GET');
+        await page.evaluate(() => { document.body.dataset.revision = 'typed-' + Date.now(); });
+        await reloaded;
         await editor.button('Rename').click();
+        // The server's answer: the list names the screen anew (the field alone shows what was typed)
+        await expect(editor.editor.getByText('welcome', { exact: true })).toBeVisible();
         await expect(rename).toHaveValue('welcome');
         await editor.button('Open on it').click();
         await expect(editor.editor.getByText('The app opens on it', { exact: true })).toBeVisible();
