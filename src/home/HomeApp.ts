@@ -39,6 +39,16 @@ function byId(cards: readonly HomeCard[]): Record<string, HomeCard> {
     return Object.fromEntries(cards.map((card) => [card.id, card]));
 }
 
+/** The value at a `$.a.b` path of a state, or undefined */
+function valueAt(state: unknown, path: string): unknown {
+    let at = state;
+    for (const key of path.split('.').slice(1)) {
+        if (typeof at !== 'object' || at === null) return undefined;
+        at = (at as Record<string, unknown>)[key];
+    }
+    return at;
+}
+
 /** A grid of app cards; pressing one raises `open` with the app's id */
 function grid(records: string): Record<string, unknown> {
     return {
@@ -284,14 +294,23 @@ export class HomeApps {
     async show(services: Services, userId: string, data: HomeData, prefs: Preferences = { mode: 'system', language: 'en' }): Promise<void> {
         await this.id(services, userId, prefs.language);
         const tools = this.toolsOf(services);
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.apps', value: byId(data.apps), logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.shared', value: byId(data.shared), logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.orgs', value: byId(data.orgs ?? []), logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.invites', value: byId(data.invites ?? []), logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: INVITES_HIDDEN, value: (data.invites ?? []).length === 0, logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: ADMIN_HIDDEN, value: data.admin !== true, logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: MAKE_VALUE, value: '', logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.mode.value`, value: prefs.mode, logic: false });
-        await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.language.value`, value: prefs.language, logic: false });
+        const wanted: Array<[string, unknown]> = [
+            ['$.data.apps', byId(data.apps)],
+            ['$.data.shared', byId(data.shared)],
+            ['$.data.orgs', byId(data.orgs ?? [])],
+            ['$.data.invites', byId(data.invites ?? [])],
+            [INVITES_HIDDEN, (data.invites ?? []).length === 0],
+            [ADMIN_HIDDEN, data.admin !== true],
+            [MAKE_VALUE, ''],
+            [`${TOP}.mode.value`, prefs.mode],
+            [`${TOP}.language.value`, prefs.language]
+        ];
+        // Each write assembles the app again, so the state is read once and only what differs is written: most
+        // loads of the page change nothing
+        const state = (await run(tools, 'ui_state_get', { app: HOME_APP, path: '$', full: true }).catch((): Record<string, unknown> => ({})))['value'];
+        for (const [path, value] of wanted) {
+            if (JSON.stringify(valueAt(state, path)) === JSON.stringify(value)) continue;
+            await run(tools, 'ui_state_set', { app: HOME_APP, path, value, logic: false });
+        }
     }
 }
