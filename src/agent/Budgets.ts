@@ -41,6 +41,11 @@ export interface BudgetLimits {
     readonly dailyPerUser?: number | undefined;
     /** Dollars each user may spend on agent turns ever, such as a beta's one-time allowance; undefined for none */
     readonly perUserTotal?: number | undefined;
+    /**
+     * Only the first this many people (by when they first signed in) get `perUserTotal`; the others start with none and
+     * may buy agent use. Undefined for everyone
+     */
+    readonly allowanceUsers?: number | undefined;
     /** Dollars the whole server may spend per UTC month */
     readonly monthly: number;
     /** True when people can buy more agent use (Agent use on Your apps): the refusals say where */
@@ -92,10 +97,28 @@ export class Budgets {
         return { today: Number(row?.today ?? 0), total: Number(row?.total ?? 0), month: Number(row?.month ?? 0), bought: Math.max(0, Number(row?.bought ?? 0)) };
     }
 
+    /**
+     * The one-time allowance of a person: `perUserTotal`, or nothing when only the first `allowanceUsers` people get it
+     * and they are not among them. Undefined when agent use has no limit per person
+     */
+    async allowanceOf(userId: string): Promise<number | undefined> {
+        const allowance = this.limits.perUserTotal;
+        const first = this.limits.allowanceUsers;
+        if (allowance === undefined || first === undefined) return allowance;
+        // Those who signed in before them, in the order they first did (the id breaks a tie)
+        const before = (
+            await this.db.query<{ before: number }>(
+                'SELECT count(*)::int AS before FROM app_user other, app_user me WHERE me.id = $1 AND (other.created_at, other.id) < (me.created_at, me.id)',
+                [userId]
+            )
+        ).rows[0]?.before;
+        return before !== undefined && before < first ? allowance : 0;
+    }
+
     /** Whether the user may start a turn now */
     async check(userId: string): Promise<BudgetRefusal> {
         const spent = await this.spent(userId);
-        const allowance = this.limits.perUserTotal;
+        const allowance = await this.allowanceOf(userId);
         // Spending what they bought: the daily limit and the server's month limit what the operator gives away, so
         // they do not stop paid use
         const paying = allowance !== undefined && spent.bought > 0 && spent.total >= allowance;
@@ -104,7 +127,9 @@ export class Budgets {
         if (allowance !== undefined && spent.total >= allowance + spent.bought)
             return spent.bought > 0
                 ? `You have used the agent use you added.${buy} Everything else still works: your apps, editing by hand and sharing.`
-                : `You have used your $${allowance} of agent use.${buy} Everything else still works: your apps, editing by hand and sharing.`;
+                : allowance === 0
+                  ? `The free agent use of this beta went to its first ${this.limits.allowanceUsers} people.${buy} Everything else still works: your apps, editing by hand and sharing.`
+                  : `You have used your $${allowance} of agent use.${buy} Everything else still works: your apps, editing by hand and sharing.`;
         if (!paying && this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
         return undefined;
     }

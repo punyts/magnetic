@@ -66,6 +66,24 @@ describe('Budgets', () => {
         expect(await budgets.spent(U1)).toEqual({ today: 0, total: 5.5, month: 0, bought: 0 });
     });
 
+    it('should give the allowance only to the first people to sign in, and let the others buy agent use', async () => {
+        // Arrange: three people, in the order they first signed in
+        for (const [id, at] of [[U2, '2026-11-01T00:00:00Z'], [U1, '2026-11-02T00:00:00Z'], [U3, '2026-11-03T00:00:00Z']] as const) {
+            await test.db.query('INSERT INTO app_user (id, name, created_at) VALUES ($1, $2, $3)', [id, id.slice(-2), at]);
+        }
+        const budgets = new Budgets(test.db, { perUserTotal: 5, allowanceUsers: 2, monthly: 100, canBuy: true }, clock);
+
+        // Act + Assert
+        expect(await budgets.allowanceOf(U2)).toBe(5);
+        expect(await budgets.allowanceOf(U1)).toBe(5);
+        expect(await budgets.allowanceOf(U3)).toBe(0);
+        expect(await budgets.check(U1)).toBeUndefined();
+        expect(await budgets.check(U3)).toBe('The free agent use of this beta went to its first 2 people. Add more under Agent use on Your apps. Everything else still works: your apps, editing by hand and sharing.');
+        await test.db.query("INSERT INTO agent_credit (id, user_id, kind, dollars, provider, provider_ref) VALUES (gen_random_uuid(), $1, 'payment', 10, 'stripe', 'cs_1')", [U3]);
+        expect(await budgets.check(U3)).toBeUndefined();
+        expect(await new Budgets(test.db, { perUserTotal: 5, monthly: 100 }, clock).allowanceOf(U3)).toBe(5);
+    });
+
     it('should count only this month toward the monthly budget', async () => {
         const budgets = new Budgets(test.db, { dailyPerUser: 10, monthly: 100 }, clock);
         await budgets.charge(U1, 1);

@@ -2,6 +2,9 @@
 
 ## 0.1.0 (unreleased)
 
+- **Feedback from the editor** (docs/design/magnetic-feedback.md). A bug button at the top right of the editor opens a sheet: a bug, a comment or a feature request, in the person's words. `POST /edit/<app>/feedback` keeps it in `feedback` (migration 0009) with the app, the frame size, the language and the browser, and emails it to the privacy contact (`MAGNETIC_CONTACT_EMAIL`) through the mailer, the sender as Reply-To. Twenty an hour per person, up to 4000 characters. `magnetic feedback` prints the latest. Four languages. Tests: `server/feedback.test.ts` (3), `e2e/feedback.spec.ts` (2 at two sizes).
+- **The allowance for the first people only:** `--allowance-users` / `MAGNETIC_ALLOWANCE_USERS`. Only the first n people to sign in get `--user-allowance`; the others start with none, are told why, and may buy agent use. The beta: the first 100 get $5.
+
 - **Buying agent use after the allowance** (docs/design/magnetic-payments.md).
   - **The Agent use page,** `/settings/billing` (Agent use on Your apps): the allowance, what was added, used and is left; a button per amount on offer (`--top-ups`, default $10, $25, $50); and the person's payments and refunds. Four languages.
   - **Stripe Checkout,** called with fetch: the person pays on Stripe's page and comes back; Magnetic never sees a card. `MAGNETIC_STRIPE_SECRET_KEY` and `MAGNETIC_STRIPE_WEBHOOK_SECRET`, both or none.

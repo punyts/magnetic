@@ -13,6 +13,7 @@ import { assertMigrated, createDatabase, EmbeddingIndex, grantAppRole, hashEmbed
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from './agent/Chats.js';
 import { EMBEDDING_SOURCES } from './search/Search.js';
+import { Feedback } from './feedback/Feedback.js';
 import { ALL_MIGRATIONS } from './storage/db.js';
 import { importPeople } from './storage/importFiles.js';
 import type { OidcProvider } from './auth/OidcSignIn.js';
@@ -82,6 +83,20 @@ async function main(): Promise<void> {
             const report = await importPeople(database, options.dataDir);
             process.stdout.write(`magnetic: imported ${report.users} users, ${report.identities} identities, ${report.sessions} sessions, ${report.grants} links, ${report.spend} spend rows, ${report.chats} chat entries and ${report.workspaces} workspaces (${report.parts} parts, ${report.instances} instances, ${report.files} files; ${report.workspacesSkipped} already there) from ${options.dataDir}\n`);
             for (const reason of report.skipped) process.stdout.write(`magnetic: skipped ${reason}\n`);
+        } finally {
+            await database.close();
+        }
+        return;
+    }
+    if (options.command === 'feedback') {
+        try {
+            await assertMigrated(database, ALL_MIGRATIONS);
+            const entries = await new Feedback(database).latest(100);
+            if (entries.length === 0) process.stdout.write('magnetic: no feedback yet\n');
+            // The oldest first, so the newest ends the output
+            for (const entry of entries.reverse()) {
+                process.stdout.write(`\n${entry.at.toISOString()}  ${entry.kind}  ${entry.userName}${entry.email === null ? '' : ` <${entry.email}>`}${entry.appName === null ? '' : `  in ${entry.appName} (${entry.appId})`}\n${entry.text}\n`);
+            }
         } finally {
             await database.close();
         }
@@ -157,11 +172,11 @@ async function main(): Promise<void> {
         ...(options.mail !== undefined && { mailer: sesMailer(options.mail) }),
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         ...(options.stripe !== undefined && { payments: { stripe: options.stripe, ...(options.topUps !== undefined && { topUps: options.topUps }) } }),
-        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, monthly: options.monthlyBudget } }
+        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);
     if (options.mockAgent) process.stderr.write('magnetic: agent is the scripted mock agent; no API calls\n');
-    else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget ${[options.userAllowance !== undefined && `$${options.userAllowance} per user in all`, options.dailyBudget !== undefined && `$${options.dailyBudget} per user per day`, `$${options.monthlyBudget} per month`].filter(Boolean).join(', ')}${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
+    else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget ${[options.userAllowance !== undefined && `$${options.userAllowance} per user in all${options.allowanceUsers !== undefined ? ` for the first ${options.allowanceUsers}` : ''}`, options.dailyBudget !== undefined && `$${options.dailyBudget} per user per day`, `$${options.monthlyBudget} per month`].filter(Boolean).join(', ')}${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
     if (options.stripe !== undefined) process.stderr.write(`magnetic: agent use can be bought through Stripe; its webhook is ${server.origin}/billing/stripe\n`);
     process.stderr.write(`magnetic: ${server.origin}\n`);
 

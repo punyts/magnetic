@@ -41,7 +41,8 @@ export const EDITOR_EMITS = [
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'path', 'ask',
-    'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk'
+    'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk',
+    'feedback', 'feedbackClose', 'feedbackKind', 'feedbackText', 'feedbackSend'
 ] as const;
 
 const E = '$.data.editor';
@@ -50,14 +51,15 @@ const E = '$.data.editor';
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData'
+    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden'
 ];
 
 /** The models of the editor's data */
 const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     'magnetic-editor': [
-        ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
+        ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note', 'feedbackText', 'feedbackStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'size', type: 'string', default: 'desktop' },
+        { op: 'set', field: 'feedbackKind', type: 'string', default: 'bug' },
         { op: 'set', field: 'tool', type: 'string', default: 'use' },
         { op: 'set', field: 'shareRight', type: 'string', default: 'use' },
         { op: 'set', field: 'mode', type: 'string', default: 'system' },
@@ -154,6 +156,7 @@ export const EDITOR_ICONS = {
     screens: { outline: ['M3 6h7v12H3zM14 6h7v12h-7z'] },
     connections: { outline: ['M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z', 'M12 16v5'] },
     'shared-data': { outline: ['M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z', 'M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6', 'M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'] },
+    bug: { outline: ['M9 9h6a3 3 0 0 1 3 3v3a6 6 0 0 1-12 0v-3a3 3 0 0 1 3-3z', 'M9 9V8a3 3 0 0 1 6 0v1M12 12v9M6 13H3M21 13h-3M6.5 18L4 20M17.5 18l2.5 2M7 10L5 8M17 10l2-2'] },
     prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
 } as const;
 
@@ -234,10 +237,11 @@ function nameCorner(t: Texts): Record<string, unknown> {
     });
 }
 
-/** The corner at the top right: the person's choices and Share */
+/** The corner at the top right: the bug button (feedback), the person's choices and Share */
 function shareCorner(t: Texts): Record<string, unknown> {
     return float({ right: '12px', y: '12px' }, {
         bar: row({
+            feedback: icon(t['feedback.open'], 'feedback', 'bug'),
             prefs: icon(t['prefs.open'], 'prefs', 'prefs'),
             share: { component: 'button', size: 'sm', _title: t['shell.share'], on: { press: emit('share') } }
         }, CORNER_ROW)
@@ -692,6 +696,40 @@ function prefsSheet(t: Texts): Record<string, unknown> {
 }
 
 /**
+ * Feedback, under the bug button: a bug, a comment or a feature request, in the person's words, sent to whoever runs
+ * the server with the app's name, the frame size and the browser
+ */
+function feedbackSheet(t: Texts): Record<string, unknown> {
+    return float(
+        { right: '12px', y: BELOW_RAIL, width: fit('352px') },
+        {
+            head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['feedback.title'] }, close: icon(t['editor.close'], 'feedbackClose', 'x') }),
+            kind: {
+                component: 'selectField',
+                size: 'sm',
+                _label: t['feedback.kind'],
+                options: { bug: { _label: t['feedback.kind.bug'] }, comment: { _label: t['feedback.kind.comment'] }, feature: { _label: t['feedback.kind.feature'] } },
+                '<-value': `${E}.feedbackKind`,
+                on: { change: emit('feedbackKind') }
+            },
+            text: {
+                component: 'textareaField',
+                size: 'sm',
+                rows: 5,
+                maxLength: 4000,
+                _label: t['feedback.text'],
+                _placeholder: t['feedback.placeholder'],
+                '<-value': `${E}.feedbackText`,
+                on: { change: emit('feedbackText') }
+            },
+            note: caption(t['feedback.note'], { muted: true }),
+            send: row({ status: bound(`${E}.feedbackStatus`, { textRole: 'caption', placement: { grow: 1 } }), send: button(t['feedback.send'], 'feedbackSend', { variant: 'solid', tone: 'accent' }) })
+        },
+        { '<-hidden': `${E}.feedbackHidden`, padding: 'md' }
+    );
+}
+
+/**
  * The editor's screen: a stage as big as the window, whose children float over the canvas at their places (the adhoc
  * layout holds each to its edges): the name corner, the Share corner, the rail, the zoom, the chat bar and the chat,
  * the inspector, the two sheets, the blank app's hint and the notice
@@ -723,6 +761,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
+                    feedback: feedbackSheet(t),
                     notice: float({ center: 'x', y: '12px', width: fit('480px') }, { text: bound(`${E}.notice`, { tone: 'danger' }) }, { '<-hidden': `${E}.noNotice` })
                 }
             }

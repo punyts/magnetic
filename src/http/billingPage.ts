@@ -11,6 +11,8 @@ export interface BillingView {
     readonly look: PageLook;
     /** The one-time allowance; undefined when agent use has no limit per person */
     readonly allowance?: number;
+    /** The person has no allowance because only the first `people` got one, of `allowance` dollars */
+    readonly firstOnly?: { readonly allowance: number; readonly people: number };
     readonly bought: number;
     readonly spent: number;
     readonly credits: readonly Credit[];
@@ -69,6 +71,7 @@ export function billingPage(view: BillingView): string {
         `<p class="muted">${e(t['billing.intro'])}</p>`,
         view.notice === undefined ? '' : `<p class="notice" role="status">${e(said(t, view.notice))}${view.pending === undefined ? '' : ` <a href="/settings/billing?paid=${encodeURIComponent(view.pending)}">${e(t['billing.checkAgain'])}</a>`}</p>`,
         view.error === undefined ? '' : `<p class="error" role="alert">${e(said(t, view.error))}</p>`,
+        view.firstOnly === undefined ? '' : `<p class="notice" role="note">${e(fill(t['billing.firstOnly'], { amount: usd(view.firstOnly.allowance), people: String(view.firstOnly.people) }))}</p>`,
         balance,
         add,
         `<h2>${e(t['billing.history'])}</h2>`,

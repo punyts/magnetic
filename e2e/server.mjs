@@ -78,6 +78,8 @@ const control = createServer((request, response) => {
     request.on('end', () => {
         if (request.method === 'GET' && request.url === '/mail') {
             response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(mailer.sent));
+        } else if (request.method === 'GET' && request.url === '/feedback-mail') {
+            response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(mailer.feedbackSent));
         } else if (request.method === 'POST' && request.url === '/person') {
             mock.person = JSON.parse(body);
             response.writeHead(204).end();

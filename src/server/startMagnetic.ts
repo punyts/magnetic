@@ -34,6 +34,7 @@ import { connectionRoutes } from './connectionRoutes.js';
 import { dataRoutes } from './dataRoutes.js';
 import { billingRoutes } from './billingRoutes.js';
 import { Credits } from '../billing/Credits.js';
+import { Feedback, FEEDBACK_KINDS, FEEDBACK_PER_HOUR, MAX_FEEDBACK_LENGTH } from '../feedback/Feedback.js';
 import { Stripe } from '../billing/Stripe.js';
 import type { StripeOptions } from '../billing/Stripe.js';
 import type { LogicInstance } from '@punyts/stateui-mcp';
@@ -526,6 +527,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const budgetLimits = options.agent?.budgets ?? DEFAULT_BUDGETS;
     const budgets = new Budgets(db, { ...budgetLimits, canBuy: options.payments !== undefined && budgetLimits.perUserTotal !== undefined });
     const credits = new Credits(db);
+    const feedback = new Feedback(db);
     const stripe = options.payments === undefined ? undefined : new Stripe(options.payments.stripe);
     const turns = new AgentTurns({
         model: options.agent?.model ?? new ClaudeModel(),
@@ -1148,7 +1150,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1346,6 +1348,33 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 manage: manages ? `/settings/data?w=${encodeURIComponent(workspaceId)}` : null,
                 datasets: stateGrants === undefined ? [] : (await sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)).map(({ owner, ownerName, dataset, fields }) => ({ owner, ownerName, dataset, fields }))
             });
+            return;
+        }
+        if (what === '/feedback' && method === 'POST') {
+            // The editor's bug button: a bug, a comment or a feature request, kept and emailed to whoever runs the
+            // server (docs/design/magnetic-feedback.md)
+            const body = (await readJsonBody(request, MAX_FORM_BYTES)) as { kind?: unknown; text?: unknown; context?: unknown } | undefined;
+            const kind = FEEDBACK_KINDS.find((item) => item === body?.kind);
+            const text = typeof body?.text === 'string' ? body.text.trim() : '';
+            if (kind === undefined || text === '' || text.length > MAX_FEEDBACK_LENGTH) {
+                sendJson(response, 400, { message: `Say what happened, in up to ${MAX_FEEDBACK_LENGTH} characters.` });
+                return;
+            }
+            if ((await feedback.sentLastHour(userId)) >= FEEDBACK_PER_HOUR) {
+                sendJson(response, 429, { message: 'You have sent a lot in the last hour. Try again later.' });
+                return;
+            }
+            const raw = body?.context !== null && typeof body?.context === 'object' ? (body.context as Record<string, unknown>) : {};
+            const context = Object.fromEntries(['size', 'screen', 'language'].filter((key) => typeof raw[key] === 'string').map((key) => [key, String(raw[key]).slice(0, 80)]));
+            const userAgent = request.headers['user-agent'];
+            await feedback.add({ userId, kind, text, workspaceId, appId, appName: app.name, context, ...(userAgent !== undefined && { userAgent }) });
+            if (options.mailer?.feedback !== undefined && options.privacy !== undefined) {
+                const email = who.user.email;
+                options.mailer
+                    .feedback({ to: options.privacy.email, kind, text, fromName: who.user.name, ...(email !== undefined && { fromEmail: email }), appName: app.name, context: { ...context, app: appId, ...(userAgent !== undefined && { browser: userAgent.slice(0, 200) }) } })
+                    .catch((error: unknown) => options.report.info('feedback email failed', { error: error instanceof Error ? error.message : String(error) }));
+            }
+            sendJson(response, 200, { sent: true });
             return;
         }
         if (what !== undefined && INSPECT_ROUTES.has(what)) {

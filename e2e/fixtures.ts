@@ -44,6 +44,11 @@ export async function mailSent(): Promise<Array<{ to: string; orgName: string; i
     return (await (await fetch(`${CONTROL}/mail`)).json()) as Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>;
 }
 
+/** The feedback the test server has emailed to its operator, oldest first */
+export async function feedbackSent(): Promise<Array<{ to: string; kind: string; text: string; fromName: string; appName?: string; context: Record<string, string> }>> {
+    return (await (await fetch(`${CONTROL}/feedback-mail`)).json()) as Array<{ to: string; kind: string; text: string; fromName: string; appName?: string; context: Record<string, string> }>;
+}
+
 /** The sign-in page */
 export class SignInPage {
     readonly app: FrameLocator;

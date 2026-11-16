@@ -1,6 +1,6 @@
 export interface CliOptions {
     /** The command: run the server (default), apply the migrations, or import a file data folder */
-    command: 'serve' | 'migrate' | 'import' | 'reindex' | 'relay-certificate';
+    command: 'serve' | 'migrate' | 'import' | 'reindex' | 'relay-certificate' | 'feedback';
     /** What makes the vectors of semantic search: the local CPU model, word hashing (no model), or nothing */
     embedding: 'local' | 'hash' | 'off';
     /** Where the local model is kept; it is downloaded there on first use */
@@ -42,6 +42,8 @@ export interface CliOptions {
     dailyBudget: number | undefined;
     /** Dollars per user ever (a one-time allowance); undefined for none */
     userAllowance: number | undefined;
+    /** Only the first this many people get the allowance; undefined for everyone */
+    allowanceUsers: number | undefined;
     /** Stripe, for people to buy agent use after their allowance (environment only); undefined without both keys */
     stripe: { secretKey: string; webhookSecret: string } | undefined;
     /** The amounts of agent use offered, in dollars */
@@ -69,6 +71,7 @@ Commands:
                          database, then exit. A workspace already in the database is skipped
   reindex                Queue every part, chat and embedded record field to be embedded again with the current model, embed
                          them, then exit (after changing --embedding)
+  feedback               Print the latest bugs, comments and feature requests sent from the editor, then exit
   relay-certificate      Make a key pair and a node certificate for a statenet-relay (--node-id), write them to
                          --out, and print the authority key the relay checks its parents with. Needs MAGNETIC_SECRET_KEY
 
@@ -126,6 +129,8 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
   --daily-budget <usd>   Dollars each user may spend per UTC day, or off (env MAGNETIC_DAILY_BUDGET, default 1)
   --user-allowance <usd> Dollars each user may spend ever, a one-time allowance such as a beta's
                          (env MAGNETIC_USER_ALLOWANCE, default none)
+  --allowance-users <n>  Only the first n people (by first sign-in) get the allowance; the others may buy
+                         agent use (env MAGNETIC_ALLOWANCE_USERS, default everyone)
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
   --top-ups <usd,...>    The amounts of agent use people may buy after their allowance
                          (env MAGNETIC_TOP_UPS, default 10,25,50)
@@ -160,6 +165,13 @@ export class UsageError extends Error {}
 const parsePort = (text: string): number => {
     const value = Number(text);
     if (!Number.isInteger(value) || value < 0 || value > 65535) throw new UsageError(`Invalid port: ${text}`);
+    return value;
+};
+
+/** A whole number of people, one or more */
+const parseCount = (name: string, text: string): number => {
+    const value = Number(text.trim());
+    if (!Number.isInteger(value) || value < 1) throw new UsageError(`Invalid ${name}: ${text}`);
     return value;
 };
 
@@ -275,6 +287,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let effort = env['MAGNETIC_EFFORT'] !== undefined ? parseEffort(env['MAGNETIC_EFFORT']) : 'high';
     let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseOptionalDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
     let userAllowance = env['MAGNETIC_USER_ALLOWANCE'] !== undefined && env['MAGNETIC_USER_ALLOWANCE'] !== '' ? parseOptionalDollars('user allowance', env['MAGNETIC_USER_ALLOWANCE']) : undefined;
+    let allowanceUsers = env['MAGNETIC_ALLOWANCE_USERS'] !== undefined && env['MAGNETIC_ALLOWANCE_USERS'] !== '' ? parseCount('allowance users', env['MAGNETIC_ALLOWANCE_USERS']) : undefined;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
     let topUps = env['MAGNETIC_TOP_UPS'] !== undefined && env['MAGNETIC_TOP_UPS'] !== '' ? parseTopUps(env['MAGNETIC_TOP_UPS']) : undefined;
     const stripeSecretKey = env['MAGNETIC_STRIPE_SECRET_KEY']?.trim() || undefined;
@@ -296,7 +309,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let out = '.';
 
     let first = 0;
-    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex' || argv[0] === 'relay-certificate') {
+    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex' || argv[0] === 'relay-certificate' || argv[0] === 'feedback') {
         command = argv[0];
         first = 1;
     }
@@ -372,6 +385,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--user-allowance':
                 userAllowance = parseOptionalDollars('user allowance', value());
                 break;
+            case '--allowance-users':
+                allowanceUsers = parseCount('allowance users', value());
+                break;
             case '--monthly-budget':
                 monthlyBudget = parseDollars('monthly budget', value());
                 break;
@@ -412,5 +428,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }

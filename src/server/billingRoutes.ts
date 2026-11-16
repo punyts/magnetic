@@ -54,10 +54,12 @@ export function billingRoutes(context: BillingRouteContext) {
 
     async function show(request: IncomingMessage, response: ServerResponse, user: User, extra: Pick<BillingView, 'notice' | 'error' | 'pending'> = {}, status = 200): Promise<void> {
         const spent = await budgets.spent(user.id);
-        const allowance = budgets.limits.perUserTotal;
+        const allowance = await budgets.allowanceOf(user.id);
+        const full = budgets.limits.perUserTotal;
+        const first = budgets.limits.allowanceUsers;
         context.sendPage(
             response,
-            billingPage({ look: await context.lookOf(request, user.id), ...(allowance !== undefined && { allowance }), bought: spent.bought, spent: spent.total, credits: await credits.of(user.id), topUps, ...extra }),
+            billingPage({ look: await context.lookOf(request, user.id), ...(allowance !== undefined && { allowance }), ...(allowance === 0 && full !== undefined && first !== undefined && { firstOnly: { allowance: full, people: first } }), bought: spent.bought, spent: spent.total, credits: await credits.of(user.id), topUps, ...extra }),
             status,
             stripe === undefined ? [] : [stripe.checkoutOrigin]
         );

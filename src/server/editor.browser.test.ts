@@ -361,7 +361,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         }
         // The corner holds the app's name and its workspace's: under 400px on Windows, 437 with Linux's wider fonts (CI)
         expect(measured['nameCorner']?.width).toBeLessThan(480);
-        expect(measured['shareCorner']?.width).toBeLessThan(140);
+        expect(measured['shareCorner']?.width).toBeLessThan(190);
         expect(measured['chatBar']?.width).toBe(640);
     }, 60_000);
 
@@ -369,7 +369,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         // Arrange: each floating bar with its parts, left to right
         const CORNERS: [string, string[]][] = [
             ['nameCorner', ['home', 'name', 'workspace', 'size', 'open']],
-            ['shareCorner', ['prefs', 'share']],
+            ['shareCorner', ['feedback', 'prefs', 'share']],
             ['chatBar', ['chat', 'input', 'model', 'send']]
         ];
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
@@ -413,12 +413,13 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
             ['Zoom out (-)', 'minus'],
             ['Zoom in (+)', 'plus'],
             ['Fit the app (1)', 'fit'],
-            ['Appearance and language', 'prefs']
+            ['Appearance and language', 'prefs'],
+            ['Report a bug or send feedback', 'bug']
         ];
         const dataOf = (name: keyof typeof EDITOR_ICONS): string[] => EDITOR_ICONS[name].outline.map((path) => (typeof path === 'string' ? path : path.d));
 
         // Act
-        const drawn = await Promise.all(BUTTONS.map(([button]) => toolButton(button).first().locator('svg path').evaluateAll((paths) => paths.map((path) => path.getAttribute('d')))));
+        const drawn = await Promise.all(BUTTONS.map(([button]) => editor.getByRole('button', { name: button, exact: true }).first().locator('svg path').evaluateAll((paths) => paths.map((path) => path.getAttribute('d')))));
 
         // Assert
         BUTTONS.forEach(([button, name], index) => expect(drawn[index], button).toEqual(dataOf(name)));

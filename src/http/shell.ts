@@ -541,9 +541,27 @@ function libraryAtFirst() {
     return kept === null ? !NARROW.matches : kept === '1';
 }
 
-/** The Share and choices sheets open under their buttons, one at a time */
+/** The Share, choices and feedback sheets open under their buttons, one at a time */
 function showSheet(name, open) {
-    ed({ shareHidden: name === 'share' ? !open : true, prefsHidden: name === 'prefs' ? !open : true });
+    ed({ shareHidden: name === 'share' ? !open : true, prefsHidden: name === 'prefs' ? !open : true, feedbackHidden: name === 'feedback' ? !open : true });
+}
+
+// Feedback from the bug button: what kind and what was typed, sent to the server with where it was sent from
+let feedbackKind = 'bug';
+let feedbackText = '';
+let feedbackSending = false;
+async function sendFeedback() {
+    const text = feedbackText.trim();
+    if (text === '') { ed({ feedbackStatus: T['feedback.empty'] }); return; }
+    if (feedbackSending) return;
+    feedbackSending = true;
+    ed({ feedbackStatus: T['feedback.sending'] });
+    try {
+        const refused = await post('/feedback', { kind: feedbackKind, text, context: { size, language: document.documentElement.lang } });
+        if (refused !== undefined) { ed({ feedbackStatus: refused }); return; }
+        feedbackText = '';
+        ed({ feedbackText: '', feedbackStatus: T['feedback.thanks'] });
+    } catch { ed({ feedbackStatus: T['feedback.failed'] }); } finally { feedbackSending = false; }
 }
 
 // The chat opens above the chat bar and closes with its button; the agent's activity shows in it while the agent works
@@ -608,6 +626,12 @@ emitListeners.push((name, payload) => {
         })(); return;
         case 'prefs': ed({ prefsStatus: '' }); showSheet('prefs', editorState.prefsHidden !== false); return;
         case 'prefsClose': showSheet('prefs', false); return;
+        case 'feedback': ed({ feedbackStatus: '' }); showSheet('feedback', editorState.feedbackHidden !== false); return;
+        case 'feedbackClose': showSheet('feedback', false); return;
+        case 'feedbackKind': if (typeof value === 'string') { feedbackKind = value; ed({ feedbackKind: value }); } return;
+        // Kept in the editor's data too, so clearing it after sending clears the field
+        case 'feedbackText': feedbackText = String(value || ''); ed({ feedbackText }); return;
+        case 'feedbackSend': void sendFeedback(); return;
         case 'mode': if (typeof value === 'string' && value !== document.documentElement.dataset.mode) void choose({ mode: value }); return;
         case 'language': if (typeof value === 'string' && value !== document.documentElement.lang) void choose({ language: value }); return;
         case 'chat.send': void sendRequest(value); return;

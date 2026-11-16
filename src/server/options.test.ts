@@ -76,6 +76,9 @@ describe('parseOptions', () => {
     it('should take a one-time allowance per user and turn the daily budget off', () => {
         expect(parseOptions([], {})).toMatchObject({ userAllowance: undefined });
         expect(parseOptions([], { MAGNETIC_USER_ALLOWANCE: '5', MAGNETIC_DAILY_BUDGET: 'off' })).toMatchObject({ userAllowance: 5, dailyBudget: undefined });
+        expect(parseOptions(['--allowance-users', '100'], { MAGNETIC_ALLOWANCE_USERS: '7' }).allowanceUsers).toBe(100);
+        expect(parseOptions([], { MAGNETIC_ALLOWANCE_USERS: '100' }).allowanceUsers).toBe(100);
+        expect(() => parseOptions(['--allowance-users', '0'], {})).toThrow('Invalid allowance users');
         expect(parseOptions(['--user-allowance', '2', '--daily-budget', 'off'], {})).toMatchObject({ userAllowance: 2, dailyBudget: undefined });
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
     });

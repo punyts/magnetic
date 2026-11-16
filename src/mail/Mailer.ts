@@ -11,10 +11,42 @@ export interface InviteMail {
     readonly expiresAt: string;
 }
 
-/** Sends Magnetic's emails. Only invites so far */
+/** A bug, comment or feature request someone sent from the editor, as the operator gets it */
+export interface FeedbackMail {
+    /** The operator's contact address */
+    readonly to: string;
+    readonly kind: 'bug' | 'comment' | 'feature';
+    readonly text: string;
+    readonly fromName: string;
+    /** The sender's address, for a reply; when they have one */
+    readonly fromEmail?: string;
+    readonly appName?: string;
+    /** Where it was sent from: the frame size, the screen, the browser */
+    readonly context: Readonly<Record<string, string>>;
+}
+
+/** Sends Magnetic's emails: invites, and feedback to the operator */
 export interface Mailer {
     /** Sends an invite; throws when the mail service refused it */
     invite(mail: InviteMail): Promise<void>;
+    /** Sends feedback to the operator; throws when the mail service refused it */
+    feedback?(mail: FeedbackMail): Promise<void>;
+}
+
+const KIND_WORDS = { bug: 'Bug', comment: 'Comment', feature: 'Feature request' } as const;
+
+/** The words of a feedback email, as plain text */
+export function feedbackMessage(mail: FeedbackMail): { readonly subject: string; readonly text: string } {
+    const first = mail.text.split(/\r?\n/)[0]?.trim() ?? '';
+    const subject = `Magnetic ${KIND_WORDS[mail.kind].toLowerCase()}: ${first.length > 60 ? `${first.slice(0, 59)}…` : first}`;
+    const text = [
+        `${KIND_WORDS[mail.kind]} from ${mail.fromName}${mail.fromEmail === undefined ? '' : ` <${mail.fromEmail}>`}${mail.appName === undefined ? '' : `, in the app ${mail.appName}`}:`,
+        '',
+        mail.text,
+        '',
+        ...Object.entries(mail.context).map(([key, value]) => `${key}: ${value}`)
+    ].join('\n');
+    return { subject, text };
 }
 
 /** The words of an invite email, as plain text and as simple HTML */
@@ -61,17 +93,33 @@ export function sesMailer(options: { readonly from: string; readonly region: str
                     }
                 })
             );
+        },
+        async feedback(mail) {
+            const message = feedbackMessage(mail);
+            await client.send(
+                new SendEmailCommand({
+                    FromEmailAddress: options.from,
+                    Destination: { ToAddresses: [mail.to] },
+                    ...(mail.fromEmail !== undefined && { ReplyToAddresses: [mail.fromEmail] }),
+                    Content: { Simple: { Subject: { Data: message.subject, Charset: 'UTF-8' }, Body: { Text: { Data: message.text, Charset: 'UTF-8' } } } }
+                })
+            );
         }
     };
 }
 
 /** A mailer that keeps what it was given, for tests */
-export function memoryMailer(): Mailer & { readonly sent: InviteMail[] } {
+export function memoryMailer(): Mailer & { readonly sent: InviteMail[]; readonly feedbackSent: FeedbackMail[] } {
     const sent: InviteMail[] = [];
+    const feedbackSent: FeedbackMail[] = [];
     return {
         sent,
+        feedbackSent,
         async invite(mail) {
             sent.push(mail);
+        },
+        async feedback(mail) {
+            feedbackSent.push(mail);
         }
     };
 }
