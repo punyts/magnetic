@@ -33,6 +33,12 @@ export async function seedDataset(seed: { user: string; email: string; dataset: 
     expect(response.status, await response.text()).toBe(204);
 }
 
+/** The stand-in Stripe refunds a checkout session's payment, so far `cents` in all */
+export async function refundCheckout(session: string, cents: number): Promise<void> {
+    const answer = await fetch(`${CONTROL}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session, cents }) });
+    expect(answer.status, await answer.text()).toBe(204);
+}
+
 /** The invites the test server has "emailed", oldest first */
 export async function mailSent(): Promise<Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>> {
     return (await (await fetch(`${CONTROL}/mail`)).json()) as Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>;

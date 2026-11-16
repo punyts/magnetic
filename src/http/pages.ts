@@ -53,6 +53,11 @@ main.settings form.row { display: flex; gap: 0.5rem; align-items: end; flex-wrap
 main.settings div.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
 main.settings form.spaced { display: block; margin-top: 0.75rem; }
 main.settings div.table { overflow-x: auto; }
+main.settings dl.balance { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; margin: 1rem 0 2rem; }
+main.settings dl.balance div { border: 1px solid var(--line); border-radius: 0.5rem; padding: 0.75rem; }
+main.settings dl.balance dt { color: var(--muted); font-size: 0.875rem; }
+main.settings dl.balance dd { margin: 0.25rem 0 0; font-size: 1.25rem; }
+main.settings form.inline button + button { margin-left: 0.25rem; }
 main.settings table { width: 100%; border-collapse: collapse; }
 main.settings th, main.settings td { text-align: left; vertical-align: top; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--line); }
 main.settings th { color: var(--muted); font-weight: 600; font-size: 0.9rem; }

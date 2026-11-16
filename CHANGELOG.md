@@ -2,6 +2,13 @@
 
 ## 0.1.0 (unreleased)
 
+- **Buying agent use after the allowance** (docs/design/magnetic-payments.md).
+  - **The Agent use page,** `/settings/billing` (Agent use on Your apps): the allowance, what was added, used and is left; a button per amount on offer (`--top-ups`, default $10, $25, $50); and the person's payments and refunds. Four languages.
+  - **Stripe Checkout,** called with fetch: the person pays on Stripe's page and comes back; Magnetic never sees a card. `MAGNETIC_STRIPE_SECRET_KEY` and `MAGNETIC_STRIPE_WEBHOOK_SECRET`, both or none.
+  - **The webhook,** `POST /billing/stripe`, is the only thing that adds credit: it checks Stripe's signature and time, takes usd only, and keeps the ledger `agent_credit` (migration 0008), keyed so the same news twice adds nothing. A refund takes the refunded total off.
+  - **Budgets** count what was bought on top of the allowance. While a person spends it, the daily limit and the server's monthly budget do not stop them. The refusals point to Agent use when buying is on.
+  - Tests: `billing/billing.test.ts` (7), options (1), and `e2e/billing.spec.ts` (2 at two sizes) against a stand-in Stripe on the test server's API port.
+
 - **Reading another owner's data** (docs/design/magnetic-shared-data.md).
   - **The Data page,** `/settings/data` (Data on Your apps), tabbed by the workspaces a person manages:
     - each of the workspace's datasets, with whom it is shared, Stop sharing, and a form to share it read only with a person's verified email or an org's short name;

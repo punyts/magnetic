@@ -7,7 +7,9 @@ export type { OidcProvider, OidcSignInOptions, SignedIn } from './auth/OidcSignI
 export { Workspaces } from './workspaces/Workspaces.js';
 export type { WorkspaceFactory, WorkspacesOptions } from './workspaces/Workspaces.js';
 export { appNameOf, DEFAULT_AGENT_MODEL, DEFAULT_LOGIC_LIMITS, DEFAULT_SOCKET_MESSAGES_PER_SECOND, startMagnetic } from './server/startMagnetic.js';
-export type { AgentEffort, MagneticAgentOptions, MagneticOptions, RunningMagnetic } from './server/startMagnetic.js';
+export type { AgentEffort, MagneticAgentOptions, MagneticOptions, PaymentsOptions, RunningMagnetic } from './server/startMagnetic.js';
+export { Stripe, signatureOf } from './billing/Stripe.js';
+export type { StripeOptions } from './billing/Stripe.js';
 export { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
 export type { CliOptions } from './server/options.js';
 export { startMockOidcProvider } from './testing/mockOidcProvider.js';

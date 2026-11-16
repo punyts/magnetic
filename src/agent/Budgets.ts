@@ -43,6 +43,8 @@ export interface BudgetLimits {
     readonly perUserTotal?: number | undefined;
     /** Dollars the whole server may spend per UTC month */
     readonly monthly: number;
+    /** True when people can buy more agent use (Agent use on Your apps): the refusals say where */
+    readonly canBuy?: boolean | undefined;
 }
 
 export const DEFAULT_BUDGETS: BudgetLimits = { dailyPerUser: 1, monthly: 100 };
@@ -75,27 +77,35 @@ export class Budgets {
         return { day: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), month: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) };
     }
 
-    /** What the user has spent today and ever, and the server this month */
-    async spent(userId: string): Promise<{ today: number; total: number; month: number }> {
+    /** What the user has spent today and ever, the server this month, and what the user bought (less refunds) */
+    async spent(userId: string): Promise<{ today: number; total: number; month: number; bought: number }> {
         const { day, month } = this.bounds();
         const row = (
-            await this.db.query<{ today: number | null; total: number | null; month: number | null }>(
+            await this.db.query<{ today: number | null; total: number | null; month: number | null; bought: string | null }>(
                 `SELECT (SELECT sum(dollars) FROM agent_request WHERE user_id = $1 AND at >= $2) AS today,
                         (SELECT sum(dollars) FROM agent_request WHERE user_id = $1) AS total,
-                        (SELECT sum(dollars) FROM agent_request WHERE at >= $3) AS month`,
+                        (SELECT sum(dollars) FROM agent_request WHERE at >= $3) AS month,
+                        (SELECT sum(dollars) FROM agent_credit WHERE user_id = $1) AS bought`,
                 [userId, day, month]
             )
         ).rows[0];
-        return { today: row?.today ?? 0, total: row?.total ?? 0, month: row?.month ?? 0 };
+        return { today: Number(row?.today ?? 0), total: Number(row?.total ?? 0), month: Number(row?.month ?? 0), bought: Math.max(0, Number(row?.bought ?? 0)) };
     }
 
     /** Whether the user may start a turn now */
     async check(userId: string): Promise<BudgetRefusal> {
         const spent = await this.spent(userId);
-        if (spent.month >= this.limits.monthly) return 'Magnetic has used its agent budget for this month. Everything else still works, and the agent will be back next month.';
-        if (this.limits.perUserTotal !== undefined && spent.total >= this.limits.perUserTotal)
-            return `You have used your $${this.limits.perUserTotal} of agent use. Everything else still works: your apps, editing by hand and sharing.`;
-        if (this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
+        const allowance = this.limits.perUserTotal;
+        // Spending what they bought: the daily limit and the server's month limit what the operator gives away, so
+        // they do not stop paid use
+        const paying = allowance !== undefined && spent.bought > 0 && spent.total >= allowance;
+        const buy = this.limits.canBuy === true ? ' Add more under Agent use on Your apps.' : '';
+        if (!paying && spent.month >= this.limits.monthly) return `Magnetic has used its agent budget for this month. Everything else still works, and the agent will be back next month.${buy}`;
+        if (allowance !== undefined && spent.total >= allowance + spent.bought)
+            return spent.bought > 0
+                ? `You have used the agent use you added.${buy} Everything else still works: your apps, editing by hand and sharing.`
+                : `You have used your $${allowance} of agent use.${buy} Everything else still works: your apps, editing by hand and sharing.`;
+        if (!paying && this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
         return undefined;
     }
 

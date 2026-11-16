@@ -2,11 +2,12 @@
 // dev users, the mock OIDC provider and the scripted agent, so no test needs an API key or LinkedIn. The schema is
 // dropped when Playwright stops the server.
 //   node e2e/server.mjs   (Playwright's webServer starts it. MAGNETIC_E2E_PORT, default 4390: the pages; +1 the
-//                          runtime; +2 the test control; +3 a stand-in outside API with an OAuth provider)
+//                          runtime; +2 the test control; +3 a stand-in outside API with an OAuth provider, and a
+//                          stand-in Stripe Checkout)
 import { createServer } from 'node:http';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
 import { createStateUiTools } from '@punyts/stateui-mcp';
-import { MockAgentModel, startMagnetic, startMockOidcProvider } from '../dist/index.js';
+import { MockAgentModel, signatureOf, startMagnetic, startMockOidcProvider } from '../dist/index.js';
 import { ALL_MIGRATIONS } from '../dist/storage/db.js';
 import { memoryMailer } from '../dist/mail/Mailer.js';
 
@@ -31,7 +32,9 @@ const magnetic = await startMagnetic({
     // Connections may call the stand-in API on loopback, over http
     connectionGuard: { allowHttp: true, allowPrivate: true },
     privacy: { operator: 'The test operator', email: 'operator@example.com' },
-    agent: { model: new MockAgentModel(), budgets: { perUserTotal: 5, monthly: 100 } }
+    agent: { model: new MockAgentModel(), budgets: { perUserTotal: 5, monthly: 100 } },
+    // Agent use is bought through the stand-in Stripe on the API port, with test keys made up for it
+    payments: { stripe: { secretKey: 'sk_test_e2e', webhookSecret: 'whsec_e2e', api: `http://127.0.0.1:${port + 3}` }, topUps: [10, 25] }
 });
 
 /** The id of a dev user who signed in */
@@ -55,6 +58,18 @@ async function seedDataset({ user, email, dataset, records }) {
     await run('ui_data_write', { dataset, model: `${dataset}-item`, operations: Object.entries(records).map(([path, value]) => ({ op: 'set', path, value })) });
 }
 
+/**
+ * The stand-in Stripe's news to Magnetic: an event signed with the webhook secret, as Stripe sends it
+ */
+async function stripeSends(type, object) {
+    const body = JSON.stringify({ id: 'evt_' + Math.random().toString(36).slice(2), type, data: { object } });
+    const answer = await fetch(`${magnetic.origin}/billing/stripe`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': signatureOf(body, 'whsec_e2e') }, body });
+    if (!answer.ok) throw new Error(`The webhook answered ${answer.status}: ${await answer.text()}`);
+}
+
+/** The stand-in Stripe's checkout sessions, by id */
+const checkouts = new Map();
+
 // For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims), the
 // invites emailed so far (GET /mail), and a dev user's dataset (POST /dataset)
 const control = createServer((request, response) => {
@@ -66,6 +81,13 @@ const control = createServer((request, response) => {
         } else if (request.method === 'POST' && request.url === '/person') {
             mock.person = JSON.parse(body);
             response.writeHead(204).end();
+        } else if (request.method === 'POST' && request.url === '/refund') {
+            // POST /refund { session, cents }: the stand-in Stripe says a payment was refunded, so far in all
+            const { session, cents } = JSON.parse(body);
+            stripeSends('charge.refunded', { id: 'ch_' + session, currency: 'usd', payment_intent: 'pi_' + session, amount_refunded: cents }).then(
+                () => response.writeHead(204).end(),
+                (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+            );
         } else if (request.method === 'POST' && request.url === '/dataset') {
             seedDataset(JSON.parse(body)).then(
                 () => response.writeHead(204).end(),
@@ -102,6 +124,34 @@ const api = createServer((request, response) => {
             if (expected === undefined || createHash('sha256').update(verifier).digest('base64url') !== expected || form.get('client_secret') !== 'cs-e2e') return json(400, { error: 'invalid_grant' });
             challenges.delete(form.get('code'));
             return json(200, { access_token: 'at-e2e', refresh_token: 'rt-e2e', expires_in: 3600 });
+        }
+        // The stand-in Stripe Checkout: a session, its page, and Pay, which tells Magnetic and sends the person back
+        if (url.pathname === '/v1/checkout/sessions' && request.method === 'POST') {
+            if (request.headers.authorization !== 'Bearer sk_test_e2e') return json(401, { error: { message: 'Invalid API key' } });
+            const form = new URLSearchParams(body);
+            const id = 'cs_e2e_' + Math.random().toString(36).slice(2);
+            checkouts.set(id, form);
+            return json(200, { id, url: `http://127.0.0.1:${port + 3}/pay/${id}` });
+        }
+        const pay = /^\/pay\/(cs_e2e_[a-z0-9]+)$/.exec(url.pathname);
+        const checkout = pay === null ? undefined : checkouts.get(pay[1]);
+        if (checkout !== undefined && request.method === 'GET') {
+            const dollars = (Number(checkout.get('line_items[0][price_data][unit_amount]')) / 100).toFixed(2);
+            const page = `<!doctype html><title>Stand-in checkout</title><h1>Stand-in checkout</h1><p>${checkout.get('line_items[0][price_data][product_data][name]')}</p><form method="post"><button>Pay $${dollars}</button></form><p><a href="${checkout.get('cancel_url')}">Cancel</a></p>`;
+            return response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(page);
+        }
+        if (checkout !== undefined && request.method === 'POST') {
+            const session = pay[1];
+            await stripeSends('checkout.session.completed', {
+                id: session,
+                payment_status: 'paid',
+                currency: checkout.get('line_items[0][price_data][currency]'),
+                amount_total: Number(checkout.get('line_items[0][price_data][unit_amount]')),
+                payment_intent: 'pi_' + session,
+                client_reference_id: checkout.get('client_reference_id'),
+                metadata: { user_id: checkout.get('metadata[user_id]') }
+            });
+            return response.writeHead(303, { Location: (checkout.get('success_url') ?? '').replace('{CHECKOUT_SESSION_ID}', session) }).end();
         }
         if (url.pathname === '/me') return request.headers.authorization === 'Bearer at-e2e' ? json(200, { name: 'Ada' }) : json(401, { error: 'no token' });
         json(404, { error: 'not found' });

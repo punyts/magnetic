@@ -80,6 +80,16 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
     });
 
+    it('should take Stripe from the environment, both keys or none, and the amounts to buy', () => {
+        expect(parseOptions([], {})).toMatchObject({ stripe: undefined, topUps: undefined });
+        expect(parseOptions([], { MAGNETIC_STRIPE_SECRET_KEY: 'sk_test_x', MAGNETIC_STRIPE_WEBHOOK_SECRET: 'whsec_x' }).stripe).toEqual({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' });
+        expect(() => parseOptions([], { MAGNETIC_STRIPE_SECRET_KEY: 'sk_test_x' })).toThrow('go together');
+        expect(parseOptions(['--top-ups', '25, 10,25'], { MAGNETIC_TOP_UPS: '5' }).topUps).toEqual([10, 25]);
+        expect(parseOptions([], { MAGNETIC_TOP_UPS: '5,7.5' }).topUps).toEqual([5, 7.5]);
+        expect(() => parseOptions(['--top-ups', '0.5'], {})).toThrow('Invalid top-ups');
+        expect(() => parseOptions(['--top-ups', '10.001'], {})).toThrow('Invalid top-ups');
+    });
+
     it('should run as one of several servers with a mesh port, from flags over the environment, and only with the secret key', () => {
         const secret = { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' };
         expect(parseOptions([], secret).statenet).toBeUndefined();

@@ -32,6 +32,10 @@ import type { GuardOptions } from '../connections/guard.js';
 import { CallLimits, HTTP_EFFECT, httpEffect } from '../connections/httpEffect.js';
 import { connectionRoutes } from './connectionRoutes.js';
 import { dataRoutes } from './dataRoutes.js';
+import { billingRoutes } from './billingRoutes.js';
+import { Credits } from '../billing/Credits.js';
+import { Stripe } from '../billing/Stripe.js';
+import type { StripeOptions } from '../billing/Stripe.js';
 import type { LogicInstance } from '@punyts/stateui-mcp';
 import { orgTextsOf } from '../http/orgText.js';
 import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
@@ -216,7 +220,21 @@ export interface MagneticOptions {
      * node of the statenet, owning some instances and reaching the others over the mesh. Needs `secretKey`
      */
     readonly statenet?: StatenetOptions;
+    /**
+     * People buy more agent use after their allowance (`agent.budgets.perUserTotal`) through Stripe Checkout
+     * (docs/design/magnetic-payments.md). Absent: the Agent use page shows the balance only
+     */
+    readonly payments?: PaymentsOptions;
 }
+
+export interface PaymentsOptions {
+    readonly stripe: StripeOptions;
+    /** The amounts offered, in dollars; default 10, 25 and 50 */
+    readonly topUps?: readonly number[];
+}
+
+/** The amounts of agent use offered when the server names none */
+export const DEFAULT_TOP_UPS: readonly number[] = [10, 25, 50];
 
 export interface RunningMagnetic {
     readonly origin: string;
@@ -264,13 +282,13 @@ function redirect(response: ServerResponse, location: string, cookie?: string | 
  * post from a page whose referrer policy is `no-referrer`, which the same-origin check refuses: these pages send their
  * origin to themselves only (`same-origin`)
  */
-function sendPage(response: ServerResponse, html: string, status = 200, cookie?: string): void {
+function sendPage(response: ServerResponse, html: string, status = 200, cookie?: string, formTargets: readonly string[] = []): void {
     response.writeHead(status, {
         ...(cookie !== undefined && { 'Set-Cookie': cookie }),
         ...COMMON_HEADERS,
         'Referrer-Policy': 'same-origin',
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy': MAGNETIC_PAGE_CSP,
+        'Content-Security-Policy': formTargets.length === 0 ? MAGNETIC_PAGE_CSP : MAGNETIC_PAGE_CSP.replace("form-action 'self'", "form-action 'self' " + formTargets.join(' ')),
         'Cache-Control': 'no-store'
     });
     response.end(html);
@@ -505,7 +523,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         .components.filter((component) => component.name !== 'app')
         .map((component) => ({ name: component.name, category: component.category, summary: component.summary }));
     let system: string | undefined;
-    const budgets = new Budgets(db, options.agent?.budgets ?? DEFAULT_BUDGETS);
+    const budgetLimits = options.agent?.budgets ?? DEFAULT_BUDGETS;
+    const budgets = new Budgets(db, { ...budgetLimits, canBuy: options.payments !== undefined && budgetLimits.perUserTotal !== undefined });
+    const credits = new Credits(db);
+    const stripe = options.payments === undefined ? undefined : new Stripe(options.payments.stripe);
     const turns = new AgentTurns({
         model: options.agent?.model ?? new ClaudeModel(),
         modelName: options.agent?.modelName ?? DEFAULT_AGENT_MODEL,
@@ -667,6 +688,20 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         readForm,
         lookOf,
         sendPage,
+        redirect: (response, location) => redirect(response, location),
+        origin: () => publicOrigin ?? origin,
+        report: (message, fields) => options.report.info(message, fields)
+    });
+    const handleBilling = billingRoutes({
+        budgets,
+        credits,
+        ...(stripe !== undefined && { stripe }),
+        topUps: options.payments?.topUps ?? DEFAULT_TOP_UPS,
+        signedIn,
+        readForm,
+        lookOf,
+        sendPage: (response, html, status, formTargets) => sendPage(response, html, status, undefined, formTargets),
+        sendJson,
         redirect: (response, location) => redirect(response, location),
         origin: () => publicOrigin ?? origin,
         report: (message, fields) => options.report.info(message, fields)
@@ -1122,6 +1157,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleConnections(request, response, method, path)) return true;
         if (await handleData(request, response, method, path)) return true;
+        if (await handleBilling(request, response, method, path, url.searchParams)) return true;
         if (await handleGrants(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {
             const who = await signedIn(request);

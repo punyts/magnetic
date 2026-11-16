@@ -119,6 +119,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                             orgs: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.orgs'], on: { press: { command: 'emit', target: 'orgs' } } },
                             connections: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.connections'], on: { press: { command: 'emit', target: 'connections' } } },
                             data: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.data'], on: { press: { command: 'emit', target: 'data' } } },
+                            billing: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.billing'], on: { press: { command: 'emit', target: 'billing' } } },
                             signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
                         }
                     },

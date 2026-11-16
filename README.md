@@ -203,6 +203,16 @@ can run twice).
   allowance such as the beta's $5; default none), and the server `--monthly-budget` per UTC month (default 100).
   A turn ends as soon as a request spends the last of any budget, so a limit is passed by one request at most;
   the next turn is refused with a message.
+- **Buying agent use after the allowance** (`docs/design/magnetic-payments.md`). With `MAGNETIC_STRIPE_SECRET_KEY`
+  and `MAGNETIC_STRIPE_WEBHOOK_SECRET`, a person adds agent use on **Agent use** (`/settings/billing`) through
+  Stripe Checkout, in the amounts of `--top-ups` (default $10, $25, $50). Each dollar adds a dollar, spent at the
+  model prices.
+  - The webhook `<origin>/billing/stripe` (events `checkout.session.completed`,
+    `checkout.session.async_payment_succeeded`, `charge.refunded`) is the only thing that adds credit. It checks
+    Stripe's signature and keeps a ledger, `agent_credit`, where the same news twice adds nothing.
+  - While a person spends what they bought, the daily limit and the server's monthly budget do not stop them; an
+    org's monthly budget still does.
+  - Without the keys, the page shows the balance and says buying is not available.
 
 - **Sharing** (`Grants`, `link_grant` and `link_grant_member`). The editor's Share panel makes links to the app:
   - `use` (the default): each person who opens it gets their own instance of the app, with their own data
@@ -427,7 +437,7 @@ origin, and the page objects find them:
 - the editor is `#editor iframe`, with the person's app on the canvas at `#artboard iframe`;
 - an app opened on its own, as a person given it sees it, has only one frame.
 
-The org settings, Shared by me, Data and privacy pages are plain HTML.
+The org settings, Shared by me, Data, Agent use and privacy pages are plain HTML.
 
 | Spec | Covers |
 |---|---|
@@ -437,6 +447,7 @@ The org settings, Shared by me, Data and privacy pages are plain HTML.
 | `screens.spec.ts` | (Desktop only) The Screens panel and a frame per screen in order; pressing a preview to work on it in its place; copy, rename, open-on and delete; a bad name refused; previews out of view not running |
 | `connections.spec.ts` | The Connections page from Your apps; a key connection made, its endpoint added and tried, with the key never on the page; a URL that is not https refused; an OAuth connection connected through the stand-in provider (port + 3) and called with its token; deleting only with the box ticked; the page in German for someone who chose no language; the editor's Connections panel listing an endpoint and asking the agent, with "Yours" in the top bar; an org with connections turned off: its page says so with no Try, and its app's editor names the org and says so too |
 | `data.spec.ts` | The Data page from Your apps; a dataset shared by email, listed under Shared with this workspace for the other person with the `uses.external` that reads it, then stopped and gone from their page; the editor's Shared data panel listing a dataset shared with the workspace and asking the agent; an email nobody has refused with the reason |
+| `billing.spec.ts` | The Agent use page from Your apps; $10 bought through the stand-in Stripe's checkout page (the API port) and its signed webhook, then refunded; a cancelled checkout charging nothing |
 | `share.spec.ts` | What each right means; a `use` link opened by another person, on their Your apps, then revoked; a remix becoming the other person's copy |
 | `orgs.spec.ts` | Making an org; a group; an invite accepted by the person with that verified email, with its role; an invite refused for another email; an app made in the org. Invites emailed (the test server's memory mailer, `GET /mail` on the control port), joined and declined from Your apps; orgs listed there |
 

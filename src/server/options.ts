@@ -42,6 +42,10 @@ export interface CliOptions {
     dailyBudget: number | undefined;
     /** Dollars per user ever (a one-time allowance); undefined for none */
     userAllowance: number | undefined;
+    /** Stripe, for people to buy agent use after their allowance (environment only); undefined without both keys */
+    stripe: { secretKey: string; webhookSecret: string } | undefined;
+    /** The amounts of agent use offered, in dollars */
+    topUps: number[] | undefined;
     /** Dollars for the whole server per UTC month */
     monthlyBudget: number;
     /** This server as one of several on the database, a node of the statenet: set by `--mesh-port` */
@@ -123,6 +127,14 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
   --user-allowance <usd> Dollars each user may spend ever, a one-time allowance such as a beta's
                          (env MAGNETIC_USER_ALLOWANCE, default none)
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
+  --top-ups <usd,...>    The amounts of agent use people may buy after their allowance
+                         (env MAGNETIC_TOP_UPS, default 10,25,50)
+
+Buying agent use after the allowance (environment only; both, or no buying):
+  MAGNETIC_STRIPE_SECRET_KEY       The Stripe secret key (sk_live_... or sk_test_...)
+  MAGNETIC_STRIPE_WEBHOOK_SECRET   The signing secret of the webhook <origin>/billing/stripe, which takes the
+                                   events checkout.session.completed, checkout.session.async_payment_succeeded
+                                   and charge.refunded
   --mock-agent           A scripted agent that adds each request as a text on the app's first screen,
                          to try the editor without an API key (env MAGNETIC_MOCK_AGENT=true). Loopback hosts only
 
@@ -208,7 +220,16 @@ const parseDollars = (name: string, text: string): number => {
     return value;
 };
 
-const parseOptionalDollars = (name: string, text: string): number | undefined => (text.trim() === 'off' ? undefined : parseDollars(name, text));
+/** Amounts of agent use to buy: whole or cent dollars from 1 to 1,000, comma-separated */
+const parseTopUps = (text: string): number[] => {
+    const amounts = text.split(',').map((part) => Number(part.trim()));
+    if (amounts.length === 0 || amounts.some((amount) => !Number.isFinite(amount) || amount < 1 || amount > 1000 || Math.round(amount * 100) !== amount * 100)) {
+        throw new UsageError(`Invalid top-ups: ${text} (dollars from 1 to 1000, comma-separated, such as 10,25,50)`);
+    }
+    return [...new Set(amounts)].sort((a, b) => a - b);
+};
+
+const parseOptionalDollars =(name: string, text: string): number | undefined => (text.trim() === 'off' ? undefined : parseDollars(name, text));
 
 const parseEmbedding = (text: string): 'local' | 'hash' | 'off' => {
     if (text !== 'local' && text !== 'hash' && text !== 'off') throw new UsageError(`Invalid embedding: ${text} (local, hash or off)`);
@@ -255,6 +276,11 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let dailyBudget = env['MAGNETIC_DAILY_BUDGET'] !== undefined ? parseOptionalDollars('daily budget', env['MAGNETIC_DAILY_BUDGET']) : 1;
     let userAllowance = env['MAGNETIC_USER_ALLOWANCE'] !== undefined && env['MAGNETIC_USER_ALLOWANCE'] !== '' ? parseOptionalDollars('user allowance', env['MAGNETIC_USER_ALLOWANCE']) : undefined;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
+    let topUps = env['MAGNETIC_TOP_UPS'] !== undefined && env['MAGNETIC_TOP_UPS'] !== '' ? parseTopUps(env['MAGNETIC_TOP_UPS']) : undefined;
+    const stripeSecretKey = env['MAGNETIC_STRIPE_SECRET_KEY']?.trim() || undefined;
+    const stripeWebhookSecret = env['MAGNETIC_STRIPE_WEBHOOK_SECRET']?.trim() || undefined;
+    if ((stripeSecretKey === undefined) !== (stripeWebhookSecret === undefined)) throw new UsageError('MAGNETIC_STRIPE_SECRET_KEY and MAGNETIC_STRIPE_WEBHOOK_SECRET go together');
+    const stripe = stripeSecretKey !== undefined && stripeWebhookSecret !== undefined ? { secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret } : undefined;
     const envUsers = (env['MAGNETIC_DEV_USERS'] ?? '')
         .split(',')
         .map((name) => name.trim())
@@ -349,6 +375,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--monthly-budget':
                 monthlyBudget = parseDollars('monthly budget', value());
                 break;
+            case '--top-ups':
+                topUps = parseTopUps(value());
+                break;
             case '--mesh-port':
                 meshPort = parsePort(value());
                 break;
@@ -383,5 +412,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }
