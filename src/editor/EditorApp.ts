@@ -41,7 +41,7 @@ export const EDITOR_EMITS = [
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'path', 'ask',
-    'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk'
+    'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk'
 ] as const;
 
 const E = '$.data.editor';
@@ -50,13 +50,13 @@ const E = '$.data.editor';
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'connectionsHidden', 'noConnectionsStatus', 'cannotManage'
+    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData'
 ];
 
 /** The models of the editor's data */
 const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     'magnetic-editor': [
-        ...['appName', 'workspaceName', 'connectionsStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
+        ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'size', type: 'string', default: 'desktop' },
         { op: 'set', field: 'tool', type: 'string', default: 'use' },
         { op: 'set', field: 'shareRight', type: 'string', default: 'use' },
@@ -79,6 +79,8 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'screensTone', type: 'string', default: 'neutral' },
         { op: 'set', field: 'connectionsLook', type: 'string', default: 'ghost' },
         { op: 'set', field: 'connectionsTone', type: 'string', default: 'neutral' },
+        { op: 'set', field: 'sharedLook', type: 'string', default: 'ghost' },
+        { op: 'set', field: 'sharedTone', type: 'string', default: 'neutral' },
         // The Screens panel: the screen worked on, the names typed, and what the last change said
         ...['screenName', 'screenRename', 'screenNew', 'screensStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
@@ -151,6 +153,7 @@ export const EDITOR_ICONS = {
     components: { outline: ['M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z', 'M17 14v6M14 17h6'] },
     screens: { outline: ['M3 6h7v12H3zM14 6h7v12h-7z'] },
     connections: { outline: ['M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z', 'M12 16v5'] },
+    'shared-data': { outline: ['M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z', 'M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6', 'M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'] },
     prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
 } as const;
 
@@ -279,7 +282,8 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
                 // Solid while the library shows, as a tool is while it is on
                 library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, on: { press: emit('library') } },
                 screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], '<-variant': `${E}.screensLook`, '<-tone': `${E}.screensTone`, on: { press: emit('screensPanel') } },
-                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], '<-variant': `${E}.connectionsLook`, '<-tone': `${E}.connectionsTone`, on: { press: emit('connectionsPanel') } }
+                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], '<-variant': `${E}.connectionsLook`, '<-tone': `${E}.connectionsTone`, on: { press: emit('connectionsPanel') } },
+                shared: { component: 'button', size: 'sm', icon: 'shared-data', iconPosition: 'only', _title: t['sharedPanel.open'], '<-variant': `${E}.sharedLook`, '<-tone': `${E}.sharedTone`, on: { press: emit('sharedPanel') } }
             }
         },
         line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal' },
@@ -443,6 +447,34 @@ function connectionsPanel(t: Texts): Record<string, unknown> {
             manage: button(t['connectionsPanel.manage'], 'connectionsManage', { variant: 'soft', '<-hidden': `${E}.cannotManage` })
         },
         { '<-hidden': `${E}.connectionsHidden` }
+    );
+}
+
+/**
+ * The Shared data panel, in the library's place too: the datasets other owners shared with the app's workspace, read
+ * only, with who shared each and its fields. Pressing one asks the agent to show it in the app; Manage data opens the
+ * Data page for those who manage the workspace
+ */
+function sharedPanel(t: Texts): Record<string, unknown> {
+    return float(
+        LIBRARY,
+        {
+            head: row({
+                title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['sharedPanel.title'] },
+                close: icon(t['sharedPanel.close'], 'sharedClose', 'x')
+            }),
+            hint: caption(t['sharedPanel.hint']),
+            status: bound(`${E}.sharedStatus`, { textRole: 'caption', muted: true, '<-hidden': `${E}.noSharedStatus` }),
+            list: {
+                component: 'list',
+                '<-items': '$.data.shared',
+                rowHeight: 'xl',
+                placement: { grow: 1 },
+                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', on: { press: emit('sharedAsk', '$row.id') } }
+            },
+            manage: button(t['sharedPanel.manage'], 'sharedManage', { variant: 'soft', '<-hidden': `${E}.cannotManageData` })
+        },
+        { '<-hidden': `${E}.sharedHidden` }
     );
 }
 
@@ -687,6 +719,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     library: library(t),
                     screens: screensPanel(t),
                     connections: connectionsPanel(t),
+                    shared: sharedPanel(t),
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
@@ -708,6 +741,7 @@ function definition(): Record<string, unknown> {
         components: { model: 'inspector-component', scope: 'persona' },
         screens: { model: 'magnetic-screen', scope: 'persona' },
         connections: { model: 'magnetic-connection', scope: 'persona' },
+        shared: { model: 'magnetic-connection', scope: 'persona' },
         paths: { model: 'inspector-path', scope: 'persona' },
         feed: { model: 'inspector-change', scope: 'persona' }
     };

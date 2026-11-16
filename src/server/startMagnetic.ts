@@ -54,7 +54,7 @@ import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
 import { SharedData } from '../sharing/SharedData.js';
-import { sharedDataFacts } from '../sharing/facts.js';
+import { sharedDataFacts, sharedWithWorkspace } from '../sharing/facts.js';
 import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Orgs } from '../orgs/Orgs.js';
@@ -1113,7 +1113,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1298,6 +1298,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     host: new URL(connection.baseUrl).host,
                     endpoints: connection.endpoints.map((endpoint) => ({ name: endpoint.name, method: endpoint.method, path: endpoint.path, params: paramsOf(endpoint) }))
                 }))
+            });
+            return;
+        }
+        if (what === '/shared-data' && method === 'GET') {
+            // The editor's Shared data panel: the datasets other owners shared with the app's workspace, read only;
+            // Manage data for those who manage the workspace
+            const role = place.orgId === undefined ? undefined : await orgs.role(place.orgId, userId);
+            const manages = place.orgId === undefined || role === 'owner' || role === 'admin';
+            sendJson(response, 200, {
+                manage: manages ? `/settings/data?w=${encodeURIComponent(workspaceId)}` : null,
+                datasets: stateGrants === undefined ? [] : (await sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)).map(({ owner, ownerName, dataset, fields }) => ({ owner, ownerName, dataset, fields }))
             });
             return;
         }

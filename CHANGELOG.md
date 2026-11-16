@@ -9,7 +9,8 @@
   - **A share is a standing signed grant** (`StateGrants`), from the workspace to the other workspace, on the address `<workspace>/<dataset>/data`, read only on `$`, until it is stopped. The audit names the person who shared or stopped it. Shared by me lists it, as "the dataset <name>". An org whose policy keeps grants in the org refuses sharing outside it.
   - **An app reads it** with `uses.external.<alias> = { owner, dataset }` (stateui-app). Its records show at `$.external.<alias>`, live, and the logic runs on their changes; the app can never write them. `SharedData` checks the signed grant as a read opens and on each change, and stopping a share clears the reading apps at once.
   - **The agent is told** what datasets are shared with the app's workspace, with their fields and how to read each.
-  - Tests: `sharing/sharedData.test.ts` (6), and `e2e/data.spec.ts` (3 at two sizes), with a `/dataset` control route that seeds a dataset and a verified email.
+  - **A Shared data panel in the editor** (rail button, key D): the datasets shared with the app's workspace, who shared each and its fields, from `GET /edit/<id>/shared-data`. Pressing one asks the agent to show it in the app; Manage data opens the Data page.
+  - Tests: `sharing/sharedData.test.ts` (6), and `e2e/data.spec.ts` (4 at two sizes), with a `/dataset` control route that seeds a dataset and a verified email.
 
 - **M8's gaps filled.**
   - **An org can turn connections off.** A new policy, `connections` (on by default), on the org's settings page. While it is off:

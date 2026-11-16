@@ -443,10 +443,12 @@ async function loadLinks() {
 let libraryOpen = null;
 let screensOpen = false;
 let connectionsOpen = false;
+let sharedOpen = false;
 function showLibraryPanel(open, remember) {
     libraryOpen = open;
     if (open && screensOpen) showScreensPanel(false);
     if (open && connectionsOpen) showConnectionsPanel(false);
+    if (open && sharedOpen) showSharedPanel(false);
     ed({ libraryHidden: !open, libraryLook: open ? 'soft' : 'ghost', libraryTone: open ? 'accent' : 'neutral' });
     if (remember) { try { localStorage.setItem('magnetic.library', open ? '1' : '0'); } catch { /* storage may be blocked */ } }
     if (fittedRail !== null) setTimeout(() => fit(true), 50);
@@ -456,6 +458,7 @@ function showScreensPanel(open) {
     screensOpen = open;
     if (open && libraryOpen) showLibraryPanel(false, false);
     if (open && connectionsOpen) showConnectionsPanel(false);
+    if (open && sharedOpen) showSharedPanel(false);
     ed({ screensHidden: !open, screensLook: open ? 'soft' : 'ghost', screensTone: open ? 'accent' : 'neutral' });
     if (fittedRail !== null) setTimeout(() => fit(true), 50);
 }
@@ -468,6 +471,7 @@ function showConnectionsPanel(open) {
     connectionsOpen = open;
     if (open && libraryOpen) showLibraryPanel(false, false);
     if (open && screensOpen) showScreensPanel(false);
+    if (open && sharedOpen) showSharedPanel(false);
     ed({ connectionsHidden: !open, connectionsLook: open ? 'soft' : 'ghost', connectionsTone: open ? 'accent' : 'neutral' });
     if (open) void loadConnections();
     if (fittedRail !== null) setTimeout(() => fit(true), 50);
@@ -495,6 +499,41 @@ async function loadConnections() {
     list('connections', rows);
     const status = answer.off ? T['connectionsPanel.off'] : (answer.connections || []).length === 0 ? T['connectionsPanel.none'] : '';
     ed({ connectionsStatus: status, noConnectionsStatus: status === '', cannotManage: connectionsManage === null });
+}
+/**
+ * The Shared data panel, in the library's place too: the datasets other owners shared with the app's workspace, from
+ * GET /edit/<id>/shared-data. Pressing one asks the agent to show it in the app; Manage data opens the Data page
+ */
+function showSharedPanel(open) {
+    sharedOpen = open;
+    if (open && libraryOpen) showLibraryPanel(false, false);
+    if (open && screensOpen) showScreensPanel(false);
+    if (open && connectionsOpen) showConnectionsPanel(false);
+    ed({ sharedHidden: !open, sharedLook: open ? 'soft' : 'ghost', sharedTone: open ? 'accent' : 'neutral' });
+    if (open) void loadShared();
+    if (fittedRail !== null) setTimeout(() => fit(true), 50);
+}
+let sharedManage = null;
+const sharedById = new Map();
+async function loadShared() {
+    let answer = null;
+    try {
+        const response = await fetch(base + '/shared-data');
+        if (response.ok) answer = await response.json();
+    } catch { /* offline: the panel keeps what it had */ }
+    if (!answer) return;
+    sharedManage = typeof answer.manage === 'string' ? answer.manage : null;
+    sharedById.clear();
+    const rows = [];
+    for (const [index, shared] of (Array.isArray(answer.datasets) ? answer.datasets : []).entries()) {
+        const id = 'shared' + index;
+        sharedById.set(id, { dataset: shared.dataset, name: shared.ownerName });
+        const fields = shared.fields.length > 0 ? ' · ' + shared.fields.join(', ') : '';
+        rows.push({ id, title: shared.dataset, subtitle: fill(T['sharedPanel.by'], { name: shared.ownerName }) + fields });
+    }
+    list('shared', rows);
+    const status = rows.length === 0 ? T['sharedPanel.none'] : '';
+    ed({ sharedStatus: status, noSharedStatus: status === '', cannotManageData: sharedManage === null });
 }
 function libraryAtFirst() {
     let kept = null;
@@ -593,6 +632,14 @@ emitListeners.push((name, payload) => {
             if (chosen) void sendRequest(fill(T['connectionsPanel.askText'], chosen));
             return;
         }
+        case 'sharedPanel': showSharedPanel(!sharedOpen); return;
+        case 'sharedClose': showSharedPanel(false); return;
+        case 'sharedManage': if (sharedManage) window.open(sharedManage, '_blank', 'noopener'); return;
+        case 'sharedAsk': {
+            const chosen = typeof value === 'string' ? sharedById.get(value) : undefined;
+            if (chosen) void sendRequest(fill(T['sharedPanel.askText'], chosen));
+            return;
+        }
     }
     const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
     if (show) {
@@ -655,7 +702,7 @@ function freeArea() {
     const zoomBox = box('zoom');
     const inspector = box('inspector');
     // The library beside the rail, when it shows down the side rather than as a sheet across the bottom
-    const library = libraryOpen ? box('library') : screensOpen ? box('screens') : connectionsOpen ? box('connections') : null;
+    const library = libraryOpen ? box('library') : screensOpen ? box('screens') : connectionsOpen ? box('connections') : sharedOpen ? box('shared') : null;
     const left = library && library.height > innerHeight / 2 && library.x < innerWidth / 2 ? library.x + library.width + 24 : upright ? rail.x + rail.width + 24 : 24;
     const top = Math.max(corner ? corner.y + corner.height : 0, rail && !upright ? rail.y + rail.height : 0) + 32;
     const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
@@ -810,6 +857,7 @@ const TOOL_KEYS = {
     a: () => showLibraryPanel(!libraryOpen, true),
     p: () => showScreensPanel(!screensOpen),
     c: () => showConnectionsPanel(!connectionsOpen),
+    d: () => showSharedPanel(!sharedOpen),
     escape: () => { for (const listener of escapeListeners) if (listener()) return; if (chatOpen) showChat(false); }
 };
 /** What Escape lets go of first: inspect.js adds placing and the selection */

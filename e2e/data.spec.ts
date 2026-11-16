@@ -1,5 +1,5 @@
 import type { Browser } from '@playwright/test';
-import { expect, seedDataset, signIn, test } from './fixtures.js';
+import { expect, seedDataset, signIn, test, uniqueName } from './fixtures.js';
 
 const nameOf = (stem: string): string => `${stem}-${Date.now().toString(36)}`;
 
@@ -55,6 +55,35 @@ test.describe('Data', () => {
         await bob.page.reload();
         await expect(bob.page.getByRole('row').filter({ hasText: dataset })).toHaveCount(0);
         await bob.context.close();
+    });
+
+    test("the editor's Shared data panel lists what was shared with the workspace, and pressing one asks the agent", async ({ browser, home, page }, info) => {
+        // Arrange: bob shares a dataset with alice
+        const bob = await pageOf(browser, 'bob');
+        const dataset = nameOf('stock');
+        await seedDataset({ user: 'alice', email: 'alice-data@example.test', dataset: nameOf('own'), records: { a: { name: 'A' } } });
+        await seedDataset({ user: 'bob', email: 'bob-data@example.test', dataset, records: { bolt: { name: 'Bolt' } } });
+        await bob.page.goto('/settings/data');
+        const section = bob.page.getByRole('region', { name: dataset });
+        await section.getByLabel("Share with (an email, or an org's short name)").fill('alice-data@example.test');
+        await section.getByRole('button', { name: 'Share', exact: true }).click();
+        await expect(bob.page.getByRole('status')).toContainText(`${dataset} is shared with alice`);
+        await bob.context.close();
+
+        // Act
+        await home.goto();
+        const editor = await home.makeApp(uniqueName(info, 'reads'));
+        await editor.button('Shared data (D)').click();
+
+        // Assert
+        await expect(editor.editor.getByText('Datasets other people and orgs shared with this workspace', { exact: false })).toBeVisible();
+        const card = editor.editor.getByText(dataset, { exact: true });
+        await expect(card).toBeVisible();
+        await expect(editor.editor.getByText('shared by bob · name string').first()).toBeVisible();
+        await expect(editor.button('Manage data')).toBeVisible();
+        await card.click();
+        await expect(editor.app.getByText(`Show the dataset ${dataset} that bob shared in this app.`)).toBeVisible({ timeout: 30_000 });
+        void page;
     });
 
     test('an email nobody has is refused with the reason', async ({ page }) => {
