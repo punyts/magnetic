@@ -27,7 +27,7 @@ import { INSPECT_JS } from '../http/inspect.js';
 import { SCREENS_JS } from '../http/screens.js';
 import type { Mailer } from '../mail/Mailer.js';
 import { Connections } from '../connections/Connections.js';
-import { connectionFacts } from '../connections/facts.js';
+import { connectionFacts, paramsOf } from '../connections/facts.js';
 import type { GuardOptions } from '../connections/guard.js';
 import { CallLimits, HTTP_EFFECT, httpEffect } from '../connections/httpEffect.js';
 import { connectionRoutes } from './connectionRoutes.js';
@@ -359,6 +359,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     // Outside APIs: each workspace's connections, the calls each app made this minute, and the facts the agent is told
     const connections = new Connections(db, box, connectionGuard);
     const callLimits = new CallLimits();
+    /** Whether a workspace's apps may call out: a person's always, an org's unless its `connections` policy is off */
+    async function connectionsAllowed(workspaceId: string): Promise<boolean> {
+        const org = await orgs.byWorkspace(workspaceId);
+        return org === undefined || (await policies.get(org.id)).connections;
+    }
     const sso = new OrgSso(db, orgs, box);
     /** Each owner's signing key and the grants of state (docs/design/statenet-relays.md, S4); grants need the server's key */
     const keys = new OwnerKeys(db, box);
@@ -439,7 +444,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     // The http effect of each running app, bound to its workspace and app
                     logicFunctions: (instance: LogicInstance) => ({
                         effects: {
-                            [HTTP_EFFECT]: httpEffect({ connections, workspaceId, appId: instance.appId, limits: callLimits, report: (message, fields) => options.report.info(message, fields), guard: connectionGuard })
+                            [HTTP_EFFECT]: httpEffect({ connections, workspaceId, appId: instance.appId, limits: callLimits, report: (message, fields) => options.report.info(message, fields), guard: connectionGuard, allowed: () => connectionsAllowed(workspaceId) })
                         }
                     }),
                     logicLimits: options.logicLimits ?? DEFAULT_LOGIC_LIMITS,
@@ -500,7 +505,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
-        connectionFacts: (workspaceId: string) => connectionFacts(connections, workspaceId),
+        connectionFacts: async (workspaceId: string) => ((await connectionsAllowed(workspaceId)) ? connectionFacts(connections, workspaceId) : undefined),
         // An org's monthly budget, which every turn in its workspace spends
         workspaceRefusal: async (workspaceId: string): Promise<string | undefined> => {
             const org = await orgs.byWorkspace(workspaceId);
@@ -586,6 +591,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     }
 
+    /** The name of an org, shown in the editor beside the app's name; undefined for a person's own workspace */
+    async function orgNameOf(orgId: string | undefined): Promise<string | undefined> {
+        return orgId === undefined ? undefined : (await orgs.get(orgId))?.name;
+    }
+
     /** Whether a share link to an app of this workspace opens for the person: an org's reach only its members, unless it allows outside people */
     async function linkAllowed(workspaceId: string, userId: string): Promise<boolean> {
         const org = await orgs.byWorkspace(workspaceId);
@@ -638,6 +648,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         connections,
         orgs,
         guard: connectionGuard,
+        allowed: connectionsAllowed,
         signedIn,
         readForm,
         lookOf,
@@ -1075,7 +1086,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1100,7 +1111,16 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     /** The page of an app, with the editor hidden (`editing` false) or shown */
-    function appShellPage(request: IncomingMessage, services: Services, app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>, editing: boolean, look: PageLook, persona?: string, models: readonly string[] = turns.models): string {
+    function appShellPage(
+        request: IncomingMessage,
+        services: Services,
+        app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>,
+        editing: boolean,
+        look: PageLook,
+        persona?: string,
+        models: readonly string[] = turns.models,
+        workspace?: string
+    ): string {
         return shellPage({
             look,
             appId: app.id,
@@ -1110,7 +1130,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             namespace: services.instanceViews.namespace(app, persona),
             models: models.map(modelChoice),
             editing,
-            blank: isBlank(app.body)
+            blank: isBlank(app.body),
+            ...(workspace !== undefined && { workspace })
         });
     }
 
@@ -1126,7 +1147,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId)));
+        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await orgNameOf(place.orgId)));
         return true;
     }
 
@@ -1156,7 +1177,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId)));
+            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await orgNameOf(place.orgId)));
             return;
         }
         if (what === '/events' && method === 'GET') {
@@ -1234,6 +1255,22 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             }
             const grant = await grants.create(workspaceId, { id: appId, name: app.name }, right, userId);
             sendJson(response, 201, { id: grant.id, right: grant.right, url: linkOf(grant) });
+            return;
+        }
+        if (what === '/connections' && method === 'GET') {
+            // The editor's Connections panel: the workspace's connections and endpoints, never a secret; Manage for
+            // those who manage them (the person's own workspace, or an org's admins and owners)
+            const role = place.orgId === undefined ? undefined : await orgs.role(place.orgId, userId);
+            const manages = place.orgId === undefined || role === 'owner' || role === 'admin';
+            sendJson(response, 200, {
+                off: !(await connectionsAllowed(workspaceId)),
+                manage: manages ? `/settings/connections?w=${encodeURIComponent(workspaceId)}` : null,
+                connections: (await connections.list(workspaceId)).map((connection) => ({
+                    name: connection.name,
+                    host: new URL(connection.baseUrl).host,
+                    endpoints: connection.endpoints.map((endpoint) => ({ name: endpoint.name, method: endpoint.method, path: endpoint.path, params: paramsOf(endpoint) }))
+                }))
+            });
             return;
         }
         if (what !== undefined && INSPECT_ROUTES.has(what)) {

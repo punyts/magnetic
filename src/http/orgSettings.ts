@@ -236,6 +236,7 @@ ${form(
     `${check('personalWorkspaces', policy.personalWorkspaces, t['orgs.policy.personalWorkspaces'])}
 ${check('externalLinks', policy.externalLinks, t['orgs.policy.externalLinks'])}
 ${check('grantsInOrg', policy.grantsInOrg, t['orgs.policy.grantsInOrg'])}
+${check('connections', policy.connections, t['orgs.policy.connections'])}
 ${check('autoJoin', policy.autoJoin, t['orgs.policy.autoJoin'])}
 ${check('requireSso', policy.requireSso, t['orgs.policy.requireSso'], !owner)}
 <fieldset><legend>${e(t['orgs.policy.models'])}</legend>${models}</fieldset>

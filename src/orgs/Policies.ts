@@ -14,6 +14,8 @@ export interface OrgPolicy {
     readonly requireSso: boolean;
     /** Whether grants of the members' state in the org's apps may go only to people in the org; default off */
     readonly grantsInOrg: boolean;
+    /** Whether the org's apps may call outside APIs through its connections; default on */
+    readonly connections: boolean;
     /** The agent models the org's people may pick in its apps; absent for every model the server offers */
     readonly agentModels?: readonly string[];
     /** Days chats in the org's apps, and the state of people no longer in the org, are kept; absent to keep them */
@@ -22,12 +24,12 @@ export interface OrgPolicy {
     readonly monthlyBudget?: number;
 }
 
-export const DEFAULT_POLICY: OrgPolicy = { personalWorkspaces: true, externalLinks: false, autoJoin: false, requireSso: false, grantsInOrg: false };
+export const DEFAULT_POLICY: OrgPolicy = { personalWorkspaces: true, externalLinks: false, autoJoin: false, requireSso: false, grantsInOrg: false, connections: true };
 
 /** A change of policies: a value to set, or `null` to go back to the default */
 export type PolicyChange = { -readonly [K in keyof OrgPolicy]?: OrgPolicy[K] | null };
 
-const SWITCHES = ['personalWorkspaces', 'externalLinks', 'autoJoin', 'requireSso', 'grantsInOrg'] as const;
+const SWITCHES = ['personalWorkspaces', 'externalLinks', 'autoJoin', 'requireSso', 'grantsInOrg', 'connections'] as const;
 
 /** The policies stored for an org, over the defaults; anything unreadable is left at its default */
 function policyOf(stored: unknown): OrgPolicy {
@@ -43,7 +45,7 @@ function policyOf(stored: unknown): OrgPolicy {
 /**
  * Each org's policies (`org_policy`). Admins change them, except `requireSso`, which only owners change as they manage
  * the org's sign-in. Every change is written to the audit log. The policies are enforced where they apply: sign-in
- * (`requireSso`, `autoJoin`), share links (`externalLinks`), making apps (`personalWorkspaces`), agent turns
+ * (`requireSso`, `autoJoin`), share links (`externalLinks`), making apps (`personalWorkspaces`), calls to outside APIs (`connections`), agent turns
  * (`agentModels`, `monthlyBudget`) and the retention sweep (`retentionDays`)
  */
 export class OrgPolicies {

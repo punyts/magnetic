@@ -40,7 +40,8 @@ export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'showTheme', 'showLayout', 'showData', 'showLogic', 'showScreens',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
-    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'path', 'ask'
+    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'path', 'ask',
+    'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk'
 ] as const;
 
 const E = '$.data.editor';
@@ -48,13 +49,14 @@ const E = '$.data.editor';
 /** The fields of `$.data.editor` that are true until the page says otherwise: what starts hidden */
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
-    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus'
+    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
+    'connectionsHidden', 'noConnectionsStatus', 'cannotManage'
 ];
 
 /** The models of the editor's data */
 const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     'magnetic-editor': [
-        ...['appName', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
+        ...['appName', 'workspaceName', 'connectionsStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'size', type: 'string', default: 'desktop' },
         { op: 'set', field: 'tool', type: 'string', default: 'use' },
         { op: 'set', field: 'shareRight', type: 'string', default: 'use' },
@@ -75,6 +77,8 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'libraryTone', type: 'string', default: 'neutral' },
         { op: 'set', field: 'screensLook', type: 'string', default: 'ghost' },
         { op: 'set', field: 'screensTone', type: 'string', default: 'neutral' },
+        { op: 'set', field: 'connectionsLook', type: 'string', default: 'ghost' },
+        { op: 'set', field: 'connectionsTone', type: 'string', default: 'neutral' },
         // The Screens panel: the screen worked on, the names typed, and what the last change said
         ...['screenName', 'screenRename', 'screenNew', 'screensStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
@@ -98,6 +102,11 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'note', type: 'string' },
         { op: 'set', field: 'url', type: 'string' },
         { op: 'set', field: 'revoked', type: 'boolean' }
+    ],
+    'magnetic-connection': [
+        { op: 'set', field: 'id', type: 'string', required: true },
+        { op: 'set', field: 'title', type: 'string', required: true },
+        { op: 'set', field: 'subtitle', type: 'string' }
     ],
     'magnetic-screen': [
         { op: 'set', field: 'id', type: 'string', required: true },
@@ -141,6 +150,7 @@ export const EDITOR_ICONS = {
     fit: { outline: ['M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'] },
     components: { outline: ['M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z', 'M17 14v6M14 17h6'] },
     screens: { outline: ['M3 6h7v12H3zM14 6h7v12h-7z'] },
+    connections: { outline: ['M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z', 'M12 16v5'] },
     prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
 } as const;
 
@@ -202,6 +212,8 @@ function nameCorner(t: Texts): Record<string, unknown> {
         bar: row({
             home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, on: { press: emit('home') } },
             name: bound(`${E}.appName`, { textRole: 'heading', truncate: 1, placement: { grow: 1 } }),
+            // The workspace the app is in: the person's own, or an org's
+            workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }),
             size: {
                 component: 'selectField',
                 size: 'sm',
@@ -266,7 +278,8 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
                 select: tool('select', 'shell.selectKey', 'select'),
                 // Solid while the library shows, as a tool is while it is on
                 library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, on: { press: emit('library') } },
-                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], '<-variant': `${E}.screensLook`, '<-tone': `${E}.screensTone`, on: { press: emit('screensPanel') } }
+                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], '<-variant': `${E}.screensLook`, '<-tone': `${E}.screensTone`, on: { press: emit('screensPanel') } },
+                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], '<-variant': `${E}.connectionsLook`, '<-tone': `${E}.connectionsTone`, on: { press: emit('connectionsPanel') } }
             }
         },
         line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal' },
@@ -403,6 +416,34 @@ function propertiesTab(t: Texts): Record<string, unknown> {
             [EDITOR_KEYS.propertyFields]: { component: 'panel', padding: 'none', children: {} }
         }
     };
+}
+
+/**
+ * The Connections panel, in the library's place beside the rail (the three take turns): the outside APIs of the app's
+ * workspace and their endpoints, never a key. Pressing an endpoint asks the agent to show what it answers; Manage opens
+ * the Connections page for those who manage the workspace's connections
+ */
+function connectionsPanel(t: Texts): Record<string, unknown> {
+    return float(
+        LIBRARY,
+        {
+            head: row({
+                title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['connectionsPanel.title'] },
+                close: icon(t['connectionsPanel.close'], 'connectionsClose', 'x')
+            }),
+            hint: caption(t['connectionsPanel.hint']),
+            status: bound(`${E}.connectionsStatus`, { textRole: 'caption', muted: true, '<-hidden': `${E}.noConnectionsStatus` }),
+            list: {
+                component: 'list',
+                '<-items': '$.data.connections',
+                rowHeight: 'xl',
+                placement: { grow: 1 },
+                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', on: { press: emit('connectionAsk', '$row.id') } }
+            },
+            manage: button(t['connectionsPanel.manage'], 'connectionsManage', { variant: 'soft', '<-hidden': `${E}.cannotManage` })
+        },
+        { '<-hidden': `${E}.connectionsHidden` }
+    );
 }
 
 /**
@@ -645,6 +686,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     chatBar: chatBar(t),
                     library: library(t),
                     screens: screensPanel(t),
+                    connections: connectionsPanel(t),
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
@@ -665,6 +707,7 @@ function definition(): Record<string, unknown> {
         links: { model: 'magnetic-link', scope: 'persona' },
         components: { model: 'inspector-component', scope: 'persona' },
         screens: { model: 'magnetic-screen', scope: 'persona' },
+        connections: { model: 'magnetic-connection', scope: 'persona' },
         paths: { model: 'inspector-path', scope: 'persona' },
         feed: { model: 'inspector-change', scope: 'persona' }
     };

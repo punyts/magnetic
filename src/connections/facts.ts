@@ -1,6 +1,11 @@
-import type { Connections } from './Connections.js';
+import type { Connections, Endpoint } from './Connections.js';
 import { templateNames } from './Connections.js';
 import { HTTP_EFFECT } from './httpEffect.js';
+
+/** The params an endpoint takes: the `{names}` of its path, query and body */
+export function paramsOf(endpoint: Endpoint): string[] {
+    return [...new Set([...templateNames(endpoint.path), ...Object.values(endpoint.query ?? {}).flatMap(templateNames), ...templateNames(JSON.stringify(endpoint.body ?? ''))])];
+}
 
 /**
  * What the agent is told of a workspace's connections with each request, so it can write effects that call them:
@@ -13,7 +18,7 @@ export async function connectionFacts(connections: Connections, workspaceId: str
     const lines = list.map((connection) => {
         const host = new URL(connection.baseUrl).host;
         const endpoints = connection.endpoints.map((endpoint) => {
-            const params = [...new Set([...templateNames(endpoint.path), ...Object.values(endpoint.query ?? {}).flatMap(templateNames), ...templateNames(JSON.stringify(endpoint.body ?? ''))])];
+            const params = paramsOf(endpoint);
             return `  - ${endpoint.name}: ${endpoint.method} ${endpoint.path}${params.length > 0 ? `, params ${params.join(', ')}` : ''}${endpoint.records !== undefined ? `; answers records (at ${endpoint.records})` : '; answers a value'}`;
         });
         return [`- ${connection.name} (${host})${endpoints.length === 0 ? ': no endpoints yet' : ''}`, ...endpoints].join('\n');

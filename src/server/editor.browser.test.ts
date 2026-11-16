@@ -343,8 +343,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should keep the sizes of the old editor (41fa580): compact corners, a narrow rail, a 640px pill chat bar', async () => {
         // Arrange: what the old editor measured at a wide window, before it was a StateUI app. A change that makes the
         // editor drift from that design fails here (the panels' own looks are in stateui-components' screenshot tests)
-        // The rail is the old one with two more buttons under the tools, the library's (M8 N2) and the screens' (N4): 60px taller
-        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 60 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
+        // The rail is the old one with three more buttons under the tools, the library's (M8 N2), the screens' (N4) and the connections': 90px taller
+        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 90 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
         const answer = (await page.evaluate(`window.magneticShell.editor.inspect({ paths: ${JSON.stringify(Object.keys(OLD).map((key) => `${stage}.children.${key}`))} })`)) as { nodes: { path: string; rect: { width: number; height: number } }[] };
         const size = (key: string) => answer.nodes.find((node) => node.path.endsWith(`.${key}`))?.rect;
@@ -367,7 +367,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should space the top corners and the chat bar evenly: one gap between their parts, the same padding at both ends, one height', async () => {
         // Arrange: each floating bar with its parts, left to right
         const CORNERS: [string, string[]][] = [
-            ['nameCorner', ['home', 'name', 'size', 'open']],
+            ['nameCorner', ['home', 'name', 'workspace', 'size', 'open']],
             ['shareCorner', ['prefs', 'share']],
             ['chatBar', ['chat', 'input', 'model', 'send']]
         ];
@@ -395,7 +395,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
             expect(Math.abs(start - end), `padding ${start} and ${end}`).toBeLessThan(0.5);
         }
         // The frame size menu is as tall as Open beside it, and both corners are one height
-        expect((name.parts[2] as Rect).height).toBeCloseTo((name.parts[3] as Rect).height, 1);
+        expect((name.parts[3] as Rect).height).toBeCloseTo((name.parts[4] as Rect).height, 1);
         expect(name.corner.height).toBeCloseTo(share.corner.height, 1);
         // Every part of the chat bar is as tall as the request at one line
         for (const part of chat.parts) expect(part.height).toBeCloseTo((chat.parts[1] as Rect).height, 1);

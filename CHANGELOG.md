@@ -2,6 +2,21 @@
 
 ## 0.1.0 (unreleased)
 
+- **M8's gaps filled.**
+  - **An org can turn connections off.** A new policy, `connections` (on by default), on the org's settings page. While it is off:
+    - every call of the org's apps is refused, with the reason in the effect's status;
+    - the agent is not told of the org's connections;
+    - the Connections page says so and offers no Try.
+  - **The Connections page speaks four languages** (`http/connectionText.ts`), as the other pages do. The reasons a change was refused still come in English, as on the org pages.
+  - **A Connections panel in the editor** (rail button, key C), in the library's place:
+    - it lists the endpoints of the app's workspace, with their method, host, path and params, from `GET /edit/<id>/connections` (never a key or secret);
+    - pressing one asks the agent to show what it answers in the app;
+    - Manage connections opens the Connections page, for those who manage the workspace's connections.
+  - **The editor's top bar names the workspace** the app is in: "Yours", or the org's name.
+  - Tests:
+    - `appCalls.test.ts`: the panel's answer, and an org's calls refused while its policy is off and made again once it is on;
+    - `e2e/connections.spec.ts`: the page in German, the editor panel asking the agent, and an org with connections off.
+
 - **Connections: apps call outside APIs** (M8, N6).
   - **The page.** `/settings/connections` (Connections on Your apps) holds the connections of a workspace: the person's own, or an org's they are an admin or owner of. A connection has a name, an https base URL, how it signs in, and its endpoints.
     - **Sign-in:** none; a key in a header or the query; OAuth 2 client credentials; or OAuth 2 sign-in with refresh, through Connect (state and PKCE, `/connections/oauth/callback`).

@@ -9,6 +9,7 @@ import type { GuardOptions } from '../connections/guard.js';
 import { callEndpoint } from '../connections/httpEffect.js';
 import { connectionsPage } from '../http/connectionsPage.js';
 import type { ManagedWorkspace } from '../http/connectionsPage.js';
+import type { Said } from '../http/connectionText.js';
 import type { PageLook } from '../http/pages.js';
 import type { Orgs } from '../orgs/Orgs.js';
 
@@ -17,6 +18,8 @@ export interface ConnectionRouteContext {
     readonly connections: Connections;
     readonly orgs: Orgs;
     readonly guard: GuardOptions;
+    /** Whether a workspace's apps may call out: an org's `connections` policy may turn it off; default yes */
+    readonly allowed?: (workspaceId: string) => Promise<boolean>;
     readonly signedIn: (request: IncomingMessage) => Promise<{ readonly user: User } | undefined>;
     readonly readForm: (request: IncomingMessage) => Promise<URLSearchParams>;
     readonly lookOf: (request: IncomingMessage, userId: string) => Promise<PageLook>;
@@ -45,7 +48,7 @@ export function connectionRoutes(context: ConnectionRouteContext) {
 
     /** The workspaces whose connections a person manages: their own, then their orgs' where they are an admin or owner */
     async function managed(user: User): Promise<ManagedWorkspace[]> {
-        const own: ManagedWorkspace = { id: user.id, name: 'Yours' };
+        const own: ManagedWorkspace = { id: user.id, name: 'Yours', own: true };
         const theirs = (await orgs.of(user.id)).filter((org) => org.role === 'owner' || org.role === 'admin').map((org) => ({ id: org.workspaceId, name: org.name }));
         return [own, ...theirs];
     }
@@ -55,14 +58,15 @@ export function connectionRoutes(context: ConnectionRouteContext) {
         request: IncomingMessage,
         user: User,
         workspaceId: string,
-        extra: { notice?: string; error?: string; tried?: { connection: string; endpoint: string; status: string; body: string }; continueTo?: { url: string; host: string } } = {},
+        extra: { notice?: Said; error?: Said; tried?: { connection: string; endpoint: string; status: string; body: string }; continueTo?: { url: string; host: string } } = {},
         status = 200
     ): Promise<void> {
         const workspaces = await managed(user);
         const workspace = workspaces.find((each) => each.id === workspaceId) ?? (workspaces[0] as ManagedWorkspace);
+        const off = context.allowed !== undefined && !(await context.allowed(workspace.id));
         context.sendPage(
             response,
-            connectionsPage({ look: await context.lookOf(request, user.id), workspaces, workspace, connections: await connections.list(workspace.id), redirectUri: redirectUri(), ...extra }),
+            connectionsPage({ look: await context.lookOf(request, user.id), workspaces, workspace, connections: await connections.list(workspace.id), redirectUri: redirectUri(), off, ...extra }),
             status
         );
     }
@@ -121,7 +125,7 @@ export function connectionRoutes(context: ConnectionRouteContext) {
     }
 
     /** Makes the change a form asks for; what the page says after it */
-    async function change(user: User, form: URLSearchParams): Promise<{ notice?: string; tried?: { connection: string; endpoint: string; status: string; body: string }; continueTo?: { url: string; host: string } }> {
+    async function change(user: User, form: URLSearchParams): Promise<{ notice?: Said; tried?: { connection: string; endpoint: string; status: string; body: string }; continueTo?: { url: string; host: string } }> {
         const workspaceId = form.get('w') ?? user.id;
         const action = form.get('do') ?? '';
         if (action === 'create') {
@@ -129,29 +133,30 @@ export function connectionRoutes(context: ConnectionRouteContext) {
             const made = await connections.create(workspaceId, user.id, { name: (form.get('name') ?? '').trim(), baseUrl: form.get('baseUrl') ?? '', auth: authFrom(form) });
             const secret = (form.get('secret') ?? '').trim();
             if (secret !== '' && made.auth.kind !== 'none') await connections.setSecret(made.id, made.auth.kind === 'key' ? 'key' : 'clientSecret', secret);
-            return { notice: `The connection ${made.name} is made. Add its endpoints.` };
+            return { notice: { key: 'connections.made', values: { name: made.name } } };
         }
         const connection = await connectionFor(user, workspaceId, form.get('id') ?? '');
         switch (action) {
             case 'secret':
                 await connections.setSecret(connection.id, form.get('field') === 'clientSecret' ? 'clientSecret' : 'key', form.get('value') ?? '');
-                return { notice: 'Kept.' };
+                return { notice: { key: 'connections.kept' } };
             case 'update':
                 await connections.update(connection.id, { baseUrl: form.get('baseUrl') ?? '', auth: authFrom(form) });
-                return { notice: 'Saved.' };
+                return { notice: { key: 'connections.saved' } };
             case 'endpoint':
                 await connections.setEndpoint(connection.id, endpointFrom(form));
-                return { notice: 'The endpoint is added.' };
+                return { notice: { key: 'connections.endpointAdded' } };
             case 'removeEndpoint':
                 await connections.removeEndpoint(connection.id, form.get('endpoint') ?? '');
-                return { notice: 'The endpoint is removed.' };
+                return { notice: { key: 'connections.endpointRemoved' } };
             case 'remove':
                 if (form.get('confirm') !== 'yes') throw new CallRefused('Tick the box to delete it.');
                 await connections.remove(connection.id);
-                return { notice: `The connection ${connection.name} is deleted.` };
+                return { notice: { key: 'connections.deleted', values: { name: connection.name } } };
             case 'try': {
                 const endpoint = connection.endpoints.find((each) => each.name === form.get('endpoint'));
                 if (endpoint === undefined) throw new CallRefused('No such endpoint.');
+                if (context.allowed !== undefined && !(await context.allowed(workspaceId))) throw new CallRefused('This organisation has turned connections off.');
                 const params = Object.fromEntries(new URLSearchParams(form.get('params') ?? ''));
                 const started = Date.now();
                 let status = 'failed';
@@ -200,13 +205,13 @@ export function connectionRoutes(context: ConnectionRouteContext) {
         const connection = pending === undefined ? undefined : await connections.byId(pending.connection_id);
         const workspaceId = connection?.workspaceId ?? user.id;
         if (pending === undefined || pending.user_id !== user.id || pending.expires_at.getTime() < Date.now() || connection === undefined || connection.auth.kind !== 'oauth-code') {
-            await show(response, request, user, workspaceId, { error: 'That sign-in is not one this page started, or it took too long. Press Connect again.' }, 400);
+            await show(response, request, user, workspaceId, { error: { key: 'connections.stale' } }, 400);
             return;
         }
         const refused = url.searchParams.get('error');
         const code = url.searchParams.get('code');
         if (refused !== null || code === null) {
-            await show(response, request, user, workspaceId, { error: `The provider did not connect it (${refused ?? 'no code'}).` }, 400);
+            await show(response, request, user, workspaceId, { error: { key: 'connections.providerRefused', values: { reason: refused ?? 'no code' } } }, 400);
             return;
         }
         try {
@@ -236,9 +241,9 @@ export function connectionRoutes(context: ConnectionRouteContext) {
                 ...(expiresIn !== undefined && { expiresAt: new Date(Date.now() + Math.max(0, expiresIn - 30) * 1000).toISOString() })
             });
             context.report('Connection connected', { workspace: workspaceId, connection: connection.name });
-            await show(response, request, user, workspaceId, { notice: `${connection.name} is connected.` });
+            await show(response, request, user, workspaceId, { notice: { key: 'connections.connected', values: { name: connection.name } } });
         } catch (error) {
-            await show(response, request, user, workspaceId, { error: error instanceof CallRefused ? error.message : 'The sign-in could not be finished.' }, 400);
+            await show(response, request, user, workspaceId, { error: error instanceof CallRefused ? error.message : { key: 'connections.notFinished' } }, 400);
         }
     }
 

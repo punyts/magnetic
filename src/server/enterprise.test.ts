@@ -145,7 +145,7 @@ describe('Enterprise controls', () => {
         expect(ssoByAdmin.status).toBe(403);
         expect(badModel.status).toBe(400);
         expect(badPolicy.status).toBe(400);
-        expect(await cleared.json()).toEqual({ personalWorkspaces: true, externalLinks: false, autoJoin: false, requireSso: false, grantsInOrg: false });
+        expect(await cleared.json()).toEqual({ personalWorkspaces: true, externalLinks: false, autoJoin: false, requireSso: false, grantsInOrg: false, connections: true });
         expect((await magnetic.orgs.auditLog(aliceId, orgId)).filter((event) => event['action'] === 'policy.changed')).toHaveLength(2);
     });
 

@@ -21,6 +21,8 @@ export interface ShellPageOptions {
     readonly blank?: boolean;
     /** The person's language and mode */
     readonly look: PageLook;
+    /** The org whose workspace holds the app, shown beside its name; absent for the person's own */
+    readonly workspace?: string;
 }
 
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
@@ -58,7 +60,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}" data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="shadows" id="shadows" aria-hidden="true"></div>',
         '<div class="editor" id="editor"></div>',
         '<main class="board" id="board" tabindex="-1">',
@@ -440,9 +442,11 @@ async function loadLinks() {
  */
 let libraryOpen = null;
 let screensOpen = false;
+let connectionsOpen = false;
 function showLibraryPanel(open, remember) {
     libraryOpen = open;
     if (open && screensOpen) showScreensPanel(false);
+    if (open && connectionsOpen) showConnectionsPanel(false);
     ed({ libraryHidden: !open, libraryLook: open ? 'soft' : 'ghost', libraryTone: open ? 'accent' : 'neutral' });
     if (remember) { try { localStorage.setItem('magnetic.library', open ? '1' : '0'); } catch { /* storage may be blocked */ } }
     if (fittedRail !== null) setTimeout(() => fit(true), 50);
@@ -451,8 +455,46 @@ function showLibraryPanel(open, remember) {
 function showScreensPanel(open) {
     screensOpen = open;
     if (open && libraryOpen) showLibraryPanel(false, false);
+    if (open && connectionsOpen) showConnectionsPanel(false);
     ed({ screensHidden: !open, screensLook: open ? 'soft' : 'ghost', screensTone: open ? 'accent' : 'neutral' });
     if (fittedRail !== null) setTimeout(() => fit(true), 50);
+}
+/**
+ * The Connections panel, in the library's place too: the outside APIs the app's workspace has and their endpoints, from
+ * GET /edit/<id>/connections (never a key or secret). Pressing an endpoint asks the agent to show what it answers in
+ * the app; Manage opens the Connections page of the workspace, for those who manage it
+ */
+function showConnectionsPanel(open) {
+    connectionsOpen = open;
+    if (open && libraryOpen) showLibraryPanel(false, false);
+    if (open && screensOpen) showScreensPanel(false);
+    ed({ connectionsHidden: !open, connectionsLook: open ? 'soft' : 'ghost', connectionsTone: open ? 'accent' : 'neutral' });
+    if (open) void loadConnections();
+    if (fittedRail !== null) setTimeout(() => fit(true), 50);
+}
+let connectionsManage = null;
+const endpointsById = new Map();
+async function loadConnections() {
+    let answer = null;
+    try {
+        const response = await fetch(base + '/connections');
+        if (response.ok) answer = await response.json();
+    } catch { /* offline: the panel keeps what it had */ }
+    if (!answer) return;
+    connectionsManage = typeof answer.manage === 'string' ? answer.manage : null;
+    endpointsById.clear();
+    const rows = [];
+    for (const connection of Array.isArray(answer.connections) ? answer.connections : []) {
+        for (const endpoint of connection.endpoints) {
+            const id = connection.name + '_' + endpoint.name;
+            endpointsById.set(id, { connection: connection.name, endpoint: endpoint.name });
+            const params = endpoint.params.length > 0 ? ' · ' + endpoint.params.join(', ') : '';
+            rows.push({ id, title: connection.name + ' · ' + endpoint.name, subtitle: endpoint.method + ' ' + connection.host + endpoint.path + params });
+        }
+    }
+    list('connections', rows);
+    const status = answer.off ? T['connectionsPanel.off'] : (answer.connections || []).length === 0 ? T['connectionsPanel.none'] : '';
+    ed({ connectionsStatus: status, noConnectionsStatus: status === '', cannotManage: connectionsManage === null });
 }
 function libraryAtFirst() {
     let kept = null;
@@ -543,6 +585,14 @@ emitListeners.push((name, payload) => {
         case 'libraryClose': showLibraryPanel(false, true); return;
         case 'screensPanel': showScreensPanel(!screensOpen); return;
         case 'screensClose': showScreensPanel(false); return;
+        case 'connectionsPanel': showConnectionsPanel(!connectionsOpen); return;
+        case 'connectionsClose': showConnectionsPanel(false); return;
+        case 'connectionsManage': if (connectionsManage) window.open(connectionsManage, '_blank', 'noopener'); return;
+        case 'connectionAsk': {
+            const chosen = typeof value === 'string' ? endpointsById.get(value) : undefined;
+            if (chosen) void sendRequest(fill(T['connectionsPanel.askText'], chosen));
+            return;
+        }
     }
     const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
     if (show) {
@@ -605,7 +655,7 @@ function freeArea() {
     const zoomBox = box('zoom');
     const inspector = box('inspector');
     // The library beside the rail, when it shows down the side rather than as a sheet across the bottom
-    const library = libraryOpen ? box('library') : screensOpen ? box('screens') : null;
+    const library = libraryOpen ? box('library') : screensOpen ? box('screens') : connectionsOpen ? box('connections') : null;
     const left = library && library.height > innerHeight / 2 && library.x < innerWidth / 2 ? library.x + library.width + 24 : upright ? rail.x + rail.width + 24 : 24;
     const top = Math.max(corner ? corner.y + corner.height : 0, rail && !upright ? rail.y + rail.height : 0) + 32;
     const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
@@ -759,6 +809,7 @@ const TOOL_KEYS = {
     '1': () => fit(true),
     a: () => showLibraryPanel(!libraryOpen, true),
     p: () => showScreensPanel(!screensOpen),
+    c: () => showConnectionsPanel(!connectionsOpen),
     escape: () => { for (const listener of escapeListeners) if (listener()) return; if (chatOpen) showChat(false); }
 };
 /** What Escape lets go of first: inspect.js adds placing and the selection */
@@ -944,6 +995,7 @@ function showAll() {
     const blank = document.body.dataset.blank === 'true' && messages.length === 0;
     ed({
         appName: document.body.dataset.appName || '',
+        workspaceName: document.body.dataset.workspaceName || T['shell.ownWorkspace'],
         size,
         mode: document.documentElement.dataset.mode || 'system',
         language: document.documentElement.lang || 'en',
