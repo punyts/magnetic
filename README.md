@@ -432,6 +432,7 @@ The org settings, Shared by me and privacy pages are plain HTML.
 | `signin.spec.ts` | The sign-in choices; a dev user and a provider sign-in landing on Your apps; back to the page asked for; sign out; the privacy page without a session |
 | `home.spec.ts` | Making an app (and the name it needs); its card opening it; Orgs; appearance and language kept across a reload |
 | `editor.spec.ts` | The bars and tools; the ideas of a blank app; a turn of the agent and the chat; frame sizes; zoom and fit; selecting a part, its properties, and editing its text by hand; Ctrl+Shift+E; going home. The library: shown and hidden (button, `A`, phone), narrowed by letter and category, a component pressed then placed, dragged and dropped onto the app, and dropped outside it. Layout and placement: a column made a grid, a part spanning two columns, a setting kept across types |
+| `screens.spec.ts` | (Desktop only) The Screens panel and a frame per screen in order; pressing a preview to work on it in its place; copy, rename, open-on and delete; a bad name refused; previews out of view not running |
 | `share.spec.ts` | What each right means; a `use` link opened by another person, on their Your apps, then revoked; a remix becoming the other person's copy |
 | `orgs.spec.ts` | Making an org; a group; an invite accepted by the person with that verified email, with its role; an invite refused for another email; an app made in the org |
 

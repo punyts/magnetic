@@ -2,6 +2,25 @@
 
 ## 0.1.0 (unreleased)
 
+- **Screens: a panel to add and manage them, and every screen on the canvas** (M8, N4).
+  - **The Screens panel** takes the library's place beside the rail (the two take turns). The rail's new Screens button, or `P`, shows and hides it. It lists the app's screens, marks the one worked on and the one the app opens on, and can:
+    - add a screen by name (a blank column);
+    - rename the one worked on;
+    - copy it with its parts;
+    - make the app open on it;
+    - delete it (asking first; never the screen the app opens on).
+    A name that is not a screen name is refused with the rule.
+  - **The canvas** shows every screen as a frame, left to right in the app's order. The live frame (the app, synced, inspected and edited) is in the slot of the screen it shows, labelled with the app's and the screen's names. Every other screen is a preview: the app's document opened on that screen, given the live data and kept in step with it.
+  - **Choosing a screen.** Pressing a preview, or a screen in the panel, makes it the screen worked on: the live frame navigates there and takes the preview's place. When the app navigates by itself, the board moves so the live frame stays where it was.
+  - **Weight.** Only the previews in view run, at most six. One out of view shows its name.
+  - **Server:** `GET /edit/<id>/screens` lists the screens and the start screen. `POST` with `action` (`add`, `copy`, `rename`, `delete`, `home`) runs `ui_screen_create`, `ui_rename`, `ui_delete` or `ui_app_configure`, and answers with the list.
+  - **Script:** `/assets/screens.js` (`SCREENS_JS`).
+  - **Text:** the new words are in English, German, French and Spanish.
+  - Tests:
+    - `e2e/screens.spec.ts` (desktop): the panel and the frames in order, a preview pressed taking its place, copy, rename, open-on and delete, a bad name, previews out of view not running;
+    - `inspectRoutes.test.ts`: the screens route;
+    - `editor.browser.test.ts`: the rail with one more button.
+
 - **Set a layout and a part's place in it by hand** (M8, N3). The inspector's Properties tab opens with two new sections, above the component's own properties:
   - **Layout**, on a node that lays out parts (a panel, a card, a screen): its type (column, row, grid, region or free-form `adhoc`), then that type's settings, such as gap, align, wrap, columns and rows. The fields come from stateui-app's `LAYOUTS`, so they follow the closed list.
   - **Place in its parent**, on a node inside a layout: the fields that layout gives a child, such as grow and height in a column, column, row and span in a grid, the area in a region, or x, y and size in a free-form layout.

@@ -65,6 +65,14 @@ describe("The editor's inspector routes", () => {
         });
         return { status: response.status, body: (await response.json()) as Record<string, unknown> };
     };
+    const screens = async (change: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> => {
+        const response = await fetch(`${magnetic.origin}/edit/${appId}/screens`, {
+            method: 'POST',
+            headers: { Cookie: alice, Origin: magnetic.origin, 'Content-Type': 'application/json' },
+            body: JSON.stringify(change)
+        });
+        return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+    };
     const revision = async (): Promise<number> => (await (await magnetic.workspaces.get(aliceUser())).instanceViews.find(appId))?.revision as number;
     let aliceId = '';
     const aliceUser = (): string => aliceId;
@@ -185,6 +193,37 @@ describe("The editor's inspector routes", () => {
             { op: 'remove', path: '$.screens.home.children.list.layout' },
             { op: 'remove', path: '$.screens.home.children.list.children.a.placement' }
         ]);
+    });
+
+    it('should list the screens, and add, copy, rename, delete them and choose the one the app opens on', async () => {
+        // Act
+        const listed = await get('/screens');
+        const added = await screens({ action: 'add', name: 'about' });
+        const copied = await screens({ action: 'copy', name: 'home', to: 'home-copy' });
+        const renamed = await screens({ action: 'rename', name: 'about', to: 'info' });
+        const homed = await screens({ action: 'home', name: 'info' });
+        const startRefused = await screens({ action: 'delete', name: 'info' });
+        const deleted = await screens({ action: 'delete', name: 'home-copy' });
+        const taken = await screens({ action: 'add', name: 'home' });
+        const unknown = await screens({ action: 'paint', name: 'home' });
+        const back = await screens({ action: 'home', name: 'home' });
+        const removed = await screens({ action: 'delete', name: 'info' });
+
+        // Assert
+        expect(listed.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });
+        expect(added.body['screens']).toEqual([expect.objectContaining({ name: 'home' }), { name: 'about', title: 'About' }]);
+        expect((copied.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'about', 'home-copy']);
+        expect((renamed.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'info', 'home-copy']);
+        expect(homed.body['start']).toBe('info');
+        expect(startRefused.status).toBe(400);
+        expect((deleted.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'info']);
+        expect(taken.status).toBe(400);
+        expect(unknown.status).toBe(400);
+        expect(back.body['start']).toBe('home');
+        expect(removed.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });
+        // The copy had the home screen's nodes
+        const copy = (await get(`/node?path=${encodeURIComponent('$.screens.home')}`)).body;
+        expect(copy['children']).toEqual(['title', 'list']);
     });
 
     it('should add, set, move and remove nodes, each as one checked write that moves the revision on by one', async () => {

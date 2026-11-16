@@ -40,7 +40,7 @@ export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'showTheme', 'showLayout', 'showData', 'showLogic', 'showScreens',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
-    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'path', 'ask'
+    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'path', 'ask'
 ] as const;
 
 const E = '$.data.editor';
@@ -48,7 +48,7 @@ const E = '$.data.editor';
 /** The fields of `$.data.editor` that are true until the page says otherwise: what starts hidden */
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
-    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden'
+    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus'
 ];
 
 /** The models of the editor's data */
@@ -73,6 +73,10 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
         { op: 'set', field: 'libraryLook', type: 'string', default: 'ghost' },
         { op: 'set', field: 'libraryTone', type: 'string', default: 'neutral' },
+        { op: 'set', field: 'screensLook', type: 'string', default: 'ghost' },
+        { op: 'set', field: 'screensTone', type: 'string', default: 'neutral' },
+        // The Screens panel: the screen worked on, the names typed, and what the last change said
+        ...['screenName', 'screenRename', 'screenNew', 'screensStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
         // And their tone: the accent while on, the ink while off
         { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
@@ -94,6 +98,13 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'note', type: 'string' },
         { op: 'set', field: 'url', type: 'string' },
         { op: 'set', field: 'revoked', type: 'boolean' }
+    ],
+    'magnetic-screen': [
+        { op: 'set', field: 'id', type: 'string', required: true },
+        { op: 'set', field: 'name', type: 'string', required: true },
+        { op: 'set', field: 'title', type: 'string' },
+        { op: 'set', field: 'note', type: 'string' },
+        { op: 'set', field: 'current', type: 'boolean' }
     ],
     'inspector-component': [
         { op: 'set', field: 'id', type: 'string', required: true },
@@ -129,6 +140,7 @@ export const EDITOR_ICONS = {
     plus: { outline: ['M12 5v14M5 12h14'] },
     fit: { outline: ['M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'] },
     components: { outline: ['M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z', 'M17 14v6M14 17h6'] },
+    screens: { outline: ['M3 6h7v12H3zM14 6h7v12h-7z'] },
     prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
 } as const;
 
@@ -253,7 +265,8 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
                 move: tool('move', 'shell.moveKey', 'hand'),
                 select: tool('select', 'shell.selectKey', 'select'),
                 // Solid while the library shows, as a tool is while it is on
-                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, on: { press: emit('library') } }
+                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, on: { press: emit('library') } },
+                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], '<-variant': `${E}.screensLook`, '<-tone': `${E}.screensTone`, on: { press: emit('screensPanel') } }
             }
         },
         line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal' },
@@ -408,6 +421,51 @@ function library(t: Texts): Record<string, unknown> {
             body: libraryBody(t)
         },
         { '<-hidden': `${E}.libraryHidden` }
+    );
+}
+
+/**
+ * The Screens panel, in the library's place beside the rail (the two take turns): the app's screens, the one worked
+ * on marked, a new one by name, and what can be done to the one worked on. Each screen shows on the canvas as a frame
+ * of its own; pressing one here or there makes it the screen the editor works on
+ */
+function screensPanel(t: Texts): Record<string, unknown> {
+    const name = (target: string, label: string, valuePath: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+        component: 'textField',
+        size: 'sm',
+        _label: label,
+        '<-value': valuePath,
+        placement: { grow: 1 },
+        on: { change: emit(target) },
+        ...extra
+    });
+    return float(
+        LIBRARY,
+        {
+            head: row({
+                title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['screens.title'] },
+                close: icon(t['screens.close'], 'screensClose', 'x')
+            }),
+            hint: caption(t['screens.pick']),
+            list: {
+                component: 'list',
+                '<-items': '$.data.screens',
+                rowHeight: 'xl',
+                placement: { grow: 1 },
+                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-selected': '$row.current', '<-_title': '$row.title', '<-_subtitle': '$row.note', on: { press: emit('screenGo', '$row.name') } }
+            },
+            add: row({ name: name('screenNew', t['screens.new'], `${E}.screenNew`, { _placeholder: t['screens.newPlaceholder'] }), go: button(t['screens.add'], 'screenAdd', { variant: 'soft', tone: 'accent' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
+            thisTitle: { component: 'text', textRole: 'label', _text: t['screens.this'] },
+            rename: row({ name: name('screenRenameText', t['screens.rename'], `${E}.screenRename`), go: button(t['screens.rename'], 'screenRename', { variant: 'soft' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
+            actions: row({
+                copy: button(t['screens.copy'], 'screenCopy', { variant: 'soft' }),
+                home: button(t['screens.makeHome'], 'screenHome', { variant: 'soft', '<-hidden': `${E}.isHome` }),
+                isHome: caption(t['screens.isHome'], { muted: true, '<-hidden': `${E}.notHome` }),
+                remove: button(t['screens.delete'], 'screenDelete', { variant: 'soft', tone: 'danger', '<-hidden': `${E}.isHome` })
+            }, { layout: { type: 'row', gap: 'sm', align: 'center', wrap: true } }),
+            status: bound(`${E}.screensStatus`, { textRole: 'caption', tone: 'danger', '<-hidden': `${E}.noScreensStatus` })
+        },
+        { '<-hidden': `${E}.screensHidden` }
     );
 }
 
@@ -586,6 +644,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     chat: chatPanel(t),
                     chatBar: chatBar(t),
                     library: library(t),
+                    screens: screensPanel(t),
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
@@ -605,6 +664,7 @@ function definition(): Record<string, unknown> {
         calls: { model: 'magnetic-call', scope: 'persona' },
         links: { model: 'magnetic-link', scope: 'persona' },
         components: { model: 'inspector-component', scope: 'persona' },
+        screens: { model: 'magnetic-screen', scope: 'persona' },
         paths: { model: 'inspector-path', scope: 'persona' },
         feed: { model: 'inspector-change', scope: 'persona' }
     };

@@ -51,6 +51,21 @@ export function childPlacements(node: JsonRecord): Record<string, JsonRecord> {
     return Object.fromEntries(Object.entries(children).map(([key, child]) => [key, isRecord(child) && isRecord(child['placement']) ? child['placement'] : {}]));
 }
 
+/** A screen's title from its name: `order-details` is "Order details" */
+export function titleOf(name: string): string {
+    const words = name.replace(/-/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The screens of an assembled document in order, with their titles, and the one the app opens on */
+export function screensOf(document: JsonRecord): { start: string | null; screens: { name: string; title: string }[] } {
+    const screens = isRecord(document['screens']) ? document['screens'] : {};
+    return {
+        start: typeof document['start'] === 'string' ? document['start'] : null,
+        screens: Object.entries(screens).map(([name, screen]) => ({ name, title: isRecord(screen) && typeof screen['title'] === 'string' ? screen['title'] : titleOf(name) }))
+    };
+}
+
 /** The root node of a screen of the assembled document */
 function screenRoot(document: JsonRecord, screen: string): unknown {
     const screens = document['screens'];

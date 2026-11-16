@@ -24,7 +24,8 @@ import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Prefer
 import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
-import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, treeOf } from '../inspector/editInfo.js';
+import { SCREENS_JS } from '../http/screens.js';
+import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
 import { COMPONENT_CATEGORIES, SYSTEM_USER_ID } from '../inspector/constants.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
 import { DefaultEditor, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
@@ -79,7 +80,7 @@ const MAX_FORM_BYTES = 4096;
 const MAX_TURN_BYTES = 16_384;
 const MAX_REQUEST_CHARS = 4000;
 /** The routes of the editor's inspector under `/edit/<id>` */
-const INSPECT_ROUTES = new Set(['/node', '/nodes', '/components', '/state', '/trace']);
+const INSPECT_ROUTES = new Set(['/node', '/nodes', '/components', '/state', '/trace', '/screens']);
 /** The largest node write the inspector sends, and its most operations */
 const MAX_NODE_WRITE_BYTES = 65_536;
 const MAX_NODE_OPERATIONS = 20;
@@ -948,6 +949,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/javascript', SHELL_JS);
             return true;
         }
+        if (method === 'GET' && path === '/assets/screens.js') {
+            sendAsset(response, 'text/javascript', SCREENS_JS);
+            return true;
+        }
         if (method === 'GET' && path === '/assets/inspect.js') {
             sendAsset(response, 'text/javascript', INSPECT_JS);
             return true;
@@ -1020,7 +1025,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1201,7 +1206,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /**
      * What the editor's inspector reads and writes of an app, each with the person's own tools: a node and its
      * component (`/node`), one checked node write (`/nodes`), the component library (`/components`), the state with
-     * the nodes and logic that use each path (`/state`) and the latest logic runs (`/trace`)
+     * the nodes and logic that use each path (`/state`), the latest logic runs (`/trace`) and the screens (`/screens`)
      */
     async function inspectRoute(request: IncomingMessage, response: ServerResponse, method: string, services: Services, app: AppPart, what: string): Promise<void> {
         const tools = toolsOf(services);
@@ -1247,6 +1252,49 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const result = (outcome.body ?? {}) as Record<string, unknown>;
             if (outcome.isError) sendJson(response, result['error'] === 'conflict' ? 409 : 400, { message: typeof result['message'] === 'string' ? result['message'] : 'The change was refused.', errors: result['errors'] ?? [] });
             else sendJson(response, 200, { revision: result['revision'], added: result['added'] });
+            return;
+        }
+        // The app's screens, for the Screens panel: their names and titles in order, and the one the app opens on
+        if (what === '/screens' && method === 'GET') {
+            const { document } = await services.instanceViews.message(app, 'attach');
+            sendJson(response, 200, { revision: app.revision, ...screensOf(document as Record<string, unknown>) });
+            return;
+        }
+        // One change to the screens, through the same tools as the agent's: add (blank), copy, rename, delete, or home
+        if (what === '/screens' && method === 'POST') {
+            const body = await readJsonBody(request, MAX_FORM_BYTES);
+            const action = isRecord(body) && typeof body['action'] === 'string' ? body['action'] : '';
+            const name = isRecord(body) && typeof body['name'] === 'string' ? body['name'] : '';
+            const to = isRecord(body) && typeof body['to'] === 'string' ? body['to'] : '';
+            const expectedRevision = isRecord(body) && typeof body['revision'] === 'number' ? body['revision'] : app.revision;
+            const call = async (tool: string, args: Record<string, unknown>): Promise<void> => {
+                const found = tools.find((candidate) => candidate.name === tool);
+                if (found === undefined) throw new HttpError(500, `No tool ${tool}`, 'internal');
+                const outcome = await found.run({ ...args, expectedRevision } as never);
+                const result = (outcome.body ?? {}) as Record<string, unknown>;
+                if (outcome.isError) throw new HttpError(result['error'] === 'conflict' ? 409 : 400, typeof result['message'] === 'string' ? result['message'] : 'The change was refused.', 'invalid');
+            };
+            const { document } = await services.instanceViews.message(app, 'attach');
+            const screens = isRecord((document as Record<string, unknown>)['screens']) ? ((document as Record<string, unknown>)['screens'] as Record<string, unknown>) : {};
+            try {
+                if (action === 'add') await call('ui_screen_create', { app: app.name, name, title: titleOf(name), root: { component: 'panel', layout: { type: 'column', gap: 'md' }, children: {} } });
+                else if (action === 'copy') {
+                    const from = screens[name];
+                    if (!isRecord(from)) throw new HttpError(404, 'No such screen.', 'not_found');
+                    await call('ui_screen_create', { app: app.name, name: to, title: titleOf(to), ...(isRecord(from['params']) && { params: from['params'] }), root: from['root'] });
+                } else if (action === 'rename') await call('ui_rename', { kind: 'screens', app: app.name, name, to });
+                else if (action === 'delete') await call('ui_delete', { kind: 'screens', app: app.name, name });
+                else if (action === 'home') await call('ui_app_configure', { name: app.name, start: name });
+                else throw new HttpError(400, 'Say add, copy, rename, delete or home.', 'invalid');
+            } catch (error) {
+                if (error instanceof HttpError) {
+                    sendJson(response, error.status, { message: error.message });
+                    return;
+                }
+                throw error;
+            }
+            const after = await services.instanceViews.message(await services.parts.findById('apps', app.id).then((part) => part ?? app), 'attach');
+            sendJson(response, 200, screensOf(after.document as Record<string, unknown>));
             return;
         }
         if (what === '/components' && method === 'GET') {

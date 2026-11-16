@@ -70,6 +70,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<script type="module" src="/assets/host.js"></script>',
         '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/inspect.js"></script>',
+        '<script type="module" src="/assets/screens.js"></script>',
         '</body>',
         '</html>',
         ''
@@ -101,6 +102,15 @@ body.shell.editing.unfitted .world { visibility: hidden; }
 .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .world.glide { transition: transform 0.25s ease; }
 .artboard { position: relative; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
+/* Each screen of the app in a slot of its own, left to right: the live frame in the slot of the screen it shows, the
+   others as previews (screens.js) with a cover that makes the screen the one worked on */
+body.shell.editing .artboard { left: var(--slot-x, 0px); }
+.preview { position: absolute; top: 0; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
+.preview-frame, .preview-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; border-radius: inherit; overflow: hidden; }
+.preview-cover { position: absolute; inset: 0; z-index: 1; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: inherit; }
+.preview-cover:hover, .preview-cover:focus-visible { outline: calc(2px / var(--zoom, 1)) solid var(--accent, #3d5afe); }
+.preview-idle { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font: calc(14px / var(--zoom, 1)) system-ui, sans-serif; }
+body.shell:not(.editing) .preview { display: none; }
 body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: inherit; display: block; }
 .artboard-label { position: absolute; left: 0; bottom: 100%; margin: 0 0 calc(6px / var(--zoom, 1)); display: flex; gap: 0.5em; white-space: nowrap; font-size: calc(12px / var(--zoom, 1)); color: var(--muted); }
 .artboard-label span:first-child { color: var(--ink); font-weight: 600; }
@@ -429,10 +439,19 @@ async function loadLinks() {
  * last left it in this browser. The rail's button is soft while it shows. A fitted view fits again around it
  */
 let libraryOpen = null;
+let screensOpen = false;
 function showLibraryPanel(open, remember) {
     libraryOpen = open;
+    if (open && screensOpen) showScreensPanel(false);
     ed({ libraryHidden: !open, libraryLook: open ? 'soft' : 'ghost', libraryTone: open ? 'accent' : 'neutral' });
     if (remember) { try { localStorage.setItem('magnetic.library', open ? '1' : '0'); } catch { /* storage may be blocked */ } }
+    if (fittedRail !== null) setTimeout(() => fit(true), 50);
+}
+/** The Screens panel takes the library's place beside the rail: opening one closes the other */
+function showScreensPanel(open) {
+    screensOpen = open;
+    if (open && libraryOpen) showLibraryPanel(false, false);
+    ed({ screensHidden: !open, screensLook: open ? 'soft' : 'ghost', screensTone: open ? 'accent' : 'neutral' });
     if (fittedRail !== null) setTimeout(() => fit(true), 50);
 }
 function libraryAtFirst() {
@@ -522,6 +541,8 @@ emitListeners.push((name, payload) => {
         case 'tab': if (typeof value === 'string') editorState.tab = value; return;
         case 'library': showLibraryPanel(!libraryOpen, true); return;
         case 'libraryClose': showLibraryPanel(false, true); return;
+        case 'screensPanel': showScreensPanel(!screensOpen); return;
+        case 'screensClose': showScreensPanel(false); return;
     }
     const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
     if (show) {
@@ -584,7 +605,7 @@ function freeArea() {
     const zoomBox = box('zoom');
     const inspector = box('inspector');
     // The library beside the rail, when it shows down the side rather than as a sheet across the bottom
-    const library = libraryOpen ? box('library') : null;
+    const library = libraryOpen ? box('library') : screensOpen ? box('screens') : null;
     const left = library && library.height > innerHeight / 2 && library.x < innerWidth / 2 ? library.x + library.width + 24 : upright ? rail.x + rail.width + 24 : 24;
     const top = Math.max(corner ? corner.y + corner.height : 0, rail && !upright ? rail.y + rail.height : 0) + 32;
     const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
@@ -593,6 +614,9 @@ function freeArea() {
 }
 
 function frameWidth() { return artboard.offsetWidth; }
+/** How far right the live frame's slot is on the board (screens.js sets it), in the frame's pixels */
+function slotX() { return Number(artboard.dataset.slotX || 0); }
+const sizeListeners = [];
 function frameHeight() { return artboard.offsetHeight; }
 
 // The rail the last automatic fit went around, while the view is still that fit (no pan or zoom since): when the
@@ -606,7 +630,7 @@ function fit(glide) {
     fittedRail = railShown();
     const area = freeArea();
     view.zoom = clampZoom(Math.min(1, area.width / frameWidth(), area.height / frameHeight()));
-    view.x = area.left + (area.width - frameWidth() * view.zoom) / 2;
+    view.x = area.left + (area.width - frameWidth() * view.zoom) / 2 - slotX() * view.zoom;
     view.y = area.top + (area.height - frameHeight() * view.zoom) / 2;
     render(glide);
 }
@@ -635,6 +659,7 @@ function setSize(id, refit) {
     artboard.style.height = height + 'px';
     sizeLabel.textContent = width + ' × ' + height;
     ed({ size });
+    for (const listener of sizeListeners) listener();
     if (refit) fit(true);
 }
 
@@ -733,6 +758,7 @@ const TOOL_KEYS = {
     '0': () => zoomCentre(1),
     '1': () => fit(true),
     a: () => showLibraryPanel(!libraryOpen, true),
+    p: () => showScreensPanel(!screensOpen),
     escape: () => { for (const listener of escapeListeners) if (listener()) return; if (chatOpen) showChat(false); }
 };
 /** What Escape lets go of first: inspect.js adds placing and the selection */
@@ -871,6 +897,15 @@ const magneticShell = {
         if (open) showChat(true);
     },
     refit: () => render(false),
+    canvas: {
+        /** The frame size, in the frame's pixels */
+        size: () => SIZES[size],
+        /** Moves the board left by dx of the frame's pixels: the live frame stays where it is on the screen when its slot moves right by dx */
+        shift(dx) { view.x -= dx * view.zoom; render(false); },
+        onSize: (listener) => sizeListeners.push(listener),
+        fitted: () => fittedRail !== null,
+        fit: () => fit(false)
+    },
     editorChanged,
     onEscape: (listener) => escapeListeners.push(listener),
     showInspector: (open) => ed({ inspectorHidden: !open }),
