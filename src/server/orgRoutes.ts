@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Mailer } from '../mail/Mailer.js';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Database } from '@punyts/stateui-pg';
 import type { User } from '../accounts/Accounts.js';
@@ -13,7 +14,39 @@ import type { OrgSso } from '../orgs/Sso.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
 
 /** What the org routes work with, from the server */
+/**
+ * Emails a new invite when the server has a mailer, and says whether it went. A refused or failed send is reported (the
+ * address is not) and the invite still stands: its link is shown, as without a mailer
+ */
+export async function mailInvite(
+    context: Pick<OrgRouteContext, 'orgs' | 'mailer' | 'report'>,
+    inviter: User,
+    orgId: string,
+    invite: { readonly token: string; readonly expiresAt: string },
+    email: string,
+    role: string,
+    link: string
+): Promise<boolean> {
+    if (context.mailer === undefined) return false;
+    const org = await context.orgs.get(orgId);
+    if (org === undefined) return false;
+    try {
+        await context.mailer.invite({ to: email.trim().toLowerCase(), orgName: org.name, inviterName: inviter.name, role: ROLE_WORDS[role] ?? role, link, expiresAt: invite.expiresAt });
+        return true;
+    } catch (error) {
+        context.report?.('Invite email failed', { org: orgId, error: error instanceof Error ? error.message : String(error) });
+        return false;
+    }
+}
+
+/** A role as an invite email says it */
+const ROLE_WORDS: Readonly<Record<string, string>> = { owner: 'an owner', admin: 'an admin', builder: 'a builder', member: 'a member' };
+
 export interface OrgRouteContext {
+    /** Sends invites by email; without one, the invite's link is only shown to the person who made it */
+    readonly mailer?: Mailer;
+    /** Where a failed email is reported */
+    readonly report?: (message: string, fields?: Record<string, unknown>) => void;
     readonly db: Database;
     readonly orgs: Orgs;
     readonly access: AppAccess;
@@ -43,6 +76,8 @@ export interface OrgRouteContext {
 const UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const ROUTES = {
     orgs: /^\/orgs$/,
+    /** An invite waiting on the person's Your apps, joined or declined by its id */
+    waiting: new RegExp(`^/orgs/invites/${UUID}/(accept|decline)$`),
     members: new RegExp(`^/orgs/${UUID}/members$`),
     member: new RegExp(`^/orgs/${UUID}/members/${UUID}$`),
     groups: new RegExp(`^/orgs/${UUID}/groups$`),
@@ -180,7 +215,17 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
                 role,
                 groups: Array.isArray(groups) ? groups.filter((group): group is string => typeof group === 'string') : []
             });
-            sendJson(response, 201, { id: invite.id, link: `${context.origin()}/invites/${invite.token}`, expiresAt: invite.expiresAt });
+            const link = `${context.origin()}/invites/${invite.token}`;
+            const mailed = await mailInvite(context, user, match[1] as string, invite, text(body, 'email'), role, link);
+            sendJson(response, 201, { id: invite.id, link, expiresAt: invite.expiresAt, mailed });
+            return true;
+        }
+        if ((match = ROUTES.waiting.exec(path)) !== null && method === 'POST') {
+            if (match[2] === 'accept') sendJson(response, 200, await orgs.acceptInvite(match[1] as string, user.id));
+            else {
+                await orgs.decline(match[1] as string, user.id);
+                sendJson(response, 200, { ok: true });
+            }
             return true;
         }
         if ((match = ROUTES.accept.exec(path)) !== null && method === 'POST') {

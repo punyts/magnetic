@@ -1,5 +1,5 @@
-import type { Page } from '@playwright/test';
-import { expect, HomePage, mockPerson, signIn, test } from './fixtures.js';
+import type { Browser, Page } from '@playwright/test';
+import { expect, HomePage, mailSent, mockPerson, signIn, test } from './fixtures.js';
 
 /** A short name for an org, unique to this run */
 function slugOf(stem: string): string {
@@ -45,7 +45,7 @@ test.describe('Orgs', () => {
         await page.getByLabel('Email').fill(email);
         await page.getByLabel('Role').selectOption({ label: 'Builder' });
         await page.getByRole('button', { name: 'Make the invite link' }).click();
-        const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]+/.exec((await page.locator('body').textContent()) ?? '')?.[0];
+        const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]{43}/.exec((await page.getByRole('status').locator('code.link').textContent()) ?? '')?.[0];
         expect(link, 'the invite link, shown once').toBeDefined();
 
         // Ada signs in with the provider, with that email verified, and opens the link
@@ -72,7 +72,7 @@ test.describe('Orgs', () => {
         await makeOrg(page, `Wrong ${slug}`, slug);
         await page.getByLabel('Email').fill(`invited-${slug}@example.com`);
         await page.getByRole('button', { name: 'Make the invite link' }).click();
-        const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]+/.exec((await page.locator('body').textContent()) ?? '')?.[0] as string;
+        const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]{43}/.exec((await page.getByRole('status').locator('code.link').textContent()) ?? '')?.[0] as string;
         const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
         await signIn(context, 'bob');
         const bob = await context.newPage();
@@ -97,6 +97,80 @@ test.describe('Orgs', () => {
         const home = new HomePage(page);
         await home.goto();
         await home.app.getByRole('button', { name: 'Orgs' }).click();
+        await page.waitForURL(/\/settings\/orgs$/);
+    });
+});
+
+test.describe('Invites on Your apps', () => {
+    /** alice makes an org and invites the email as a builder; the page says so */
+    async function invited(page: Page, slug: string, email: string): Promise<void> {
+        await makeOrg(page, `Waiting ${slug}`, slug);
+        await page.getByLabel('Email').fill(email);
+        await page.getByLabel('Role').selectOption({ label: 'Builder' });
+        await page.getByRole('button', { name: 'Make the invite link' }).click();
+        await expect(page.getByText(`The invite was emailed to ${email}.`, { exact: false })).toBeVisible();
+        await expect(page.getByText('If they already use Magnetic, the invite also waits on their Your apps.')).toBeVisible();
+    }
+
+    /** A person of their own, signed in with the mock provider with a verified email, on Your apps */
+    async function personWith(browser: Browser, email: string, name: string): Promise<{ page: Page; home: HomePage }> {
+        await mockPerson({ sub: email, name, email });
+        const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+        const page = await context.newPage();
+        await page.goto('/signin');
+        await page.frameLocator('#page-app iframe').getByRole('button', { name: 'Sign in with the mock provider' }).click();
+        await page.waitForURL((url) => url.pathname === '/');
+        const home = new HomePage(page);
+        await expect(home.makeButton).toBeVisible();
+        return { page, home };
+    }
+
+    test('an invite is emailed, waits on the invited person\'s Your apps, and joining opens the org', async ({ browser, context, page }) => {
+        await signIn(context, 'alice');
+        const slug = slugOf('join');
+        const email = `joiner-${slug}@example.com`;
+        // They signed in once before, so they have an account
+        (await personWith(browser, email, 'Joan Joiner')).page.context().close();
+        await invited(page, slug, email);
+        const mail = (await mailSent()).filter((sent) => sent.to === email);
+        expect(mail).toEqual([expect.objectContaining({ orgName: `Waiting ${slug}`, role: 'a builder', link: expect.stringMatching(/\/invites\/[A-Za-z0-9_-]{43}$/) })]);
+        const joan = await personWith(browser, email, 'Joan Joiner');
+        await expect(joan.home.app.getByText(`Join Waiting ${slug}`)).toBeVisible();
+        await expect(joan.home.app.getByText(/As a builder · from/)).toBeVisible();
+        await joan.home.app.getByRole('button', { name: 'Join', exact: true }).click();
+        await joan.page.waitForURL(/\/settings\/orgs\/[0-9a-f-]+$/);
+        await expect(joan.page.getByText('You are a builder here.')).toBeVisible();
+        // Back on Your apps: the org is listed and the invite gone
+        await joan.home.goto();
+        await expect(joan.home.app.getByText(`Waiting ${slug}`, { exact: true })).toBeVisible();
+        await expect(joan.home.app.getByText(`Join Waiting ${slug}`)).toBeHidden();
+        await joan.page.context().close();
+    });
+
+    test('a declined invite goes from Your apps', async ({ browser, context, page }) => {
+        await signIn(context, 'alice');
+        const slug = slugOf('decline');
+        const email = `decliner-${slug}@example.com`;
+        await invited(page, slug, email);
+        const dee = await personWith(browser, email, 'Dee Decliner');
+        await expect(dee.home.app.getByText(`Join Waiting ${slug}`)).toBeVisible();
+        await dee.home.app.getByRole('button', { name: 'Decline', exact: true }).click();
+        await expect(dee.home.app.getByText(`Join Waiting ${slug}`)).toBeHidden();
+        await expect(dee.home.app.getByText('Invitations', { exact: true })).toBeHidden();
+        await dee.page.context().close();
+    });
+
+    test('Your apps lists the person\'s orgs; one opens its settings, and Make an org opens the org page', async ({ context, home, page }) => {
+        await signIn(context, 'alice');
+        const slug = slugOf('listed');
+        await makeOrg(page, `Listed ${slug}`, slug);
+        await home.goto();
+        await expect(home.app.getByText('Your orgs', { exact: true })).toBeVisible();
+        await home.app.getByRole('button', { name: new RegExp(`^Listed ${slug}`) }).click();
+        await page.waitForURL(/\/settings\/orgs\/[0-9a-f-]+$/);
+        await expect(page.getByText('You are an owner here.')).toBeVisible();
+        await home.goto();
+        await home.app.getByRole('button', { name: 'Make an org' }).click();
         await page.waitForURL(/\/settings\/orgs$/);
     });
 });

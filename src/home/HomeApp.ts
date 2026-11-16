@@ -22,10 +22,14 @@ export interface HomeCard {
     readonly note: string;
 }
 
-/** What the home app holds in `$.data`: the person's apps, and the apps shared with them, each by id */
+/** What the home app holds in `$.data`: the person's apps, the apps shared with them, their orgs and the invites waiting for them, each by id */
 export interface HomeData {
     readonly apps: readonly HomeCard[];
     readonly shared: readonly HomeCard[];
+    /** An org's id, its name, and the person's role in words */
+    readonly orgs?: readonly HomeCard[];
+    /** An invite's id, "Join <org>", and the role and who sent it */
+    readonly invites?: readonly HomeCard[];
 }
 
 /** The cards of a list, keyed by id in their order, as a record grid reads them */
@@ -43,8 +47,38 @@ function grid(records: string): Record<string, unknown> {
     };
 }
 
+/** A grid of invites, each with Join and Decline (`inviteJoin`, `inviteDecline` with the invite's id) */
+function inviteGrid(t: Texts): Record<string, unknown> {
+    return {
+        component: 'recordGrid',
+        theme: { recordgrid: { itemheight: 'calc({size.control.md} * 3.5)' } },
+        '<-records': '$.data.invites',
+        row: {
+            component: 'card',
+            elevation: 'flat',
+            '<-_title': '$row.name',
+            '<-_subtitle': '$row.note',
+            // The buttons under the title, where a grid cell has room for them
+            children: {
+                buttons: {
+                    component: 'panel',
+                    padding: 'none',
+                    layout: { type: 'row', gap: 'sm' },
+                    children: {
+                        join: { component: 'button', size: 'sm', _title: t['home.join'], on: { press: { command: 'emit', target: 'inviteJoin', from: '$row.id' } } },
+                        decline: { component: 'button', size: 'sm', variant: 'ghost', _title: t['home.decline'], on: { press: { command: 'emit', target: 'inviteDecline', from: '$row.id' } } }
+                    }
+                }
+            }
+        }
+    };
+}
+
 /** Where the home app keeps the name typed for a new app */
 const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.value';
+
+/** Whether the invites box hides: while no invite waits */
+const INVITES_HIDDEN = '$.screens.home.children.page.children.invitesBox.hidden';
 
 /** Where the home app keeps the person's choices of mode and language, which its menus show */
 const TOP = '$.screens.home.children.page.children.top.children';
@@ -86,6 +120,16 @@ function homeScreen(t: Texts): Record<string, unknown> {
                             signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
                         }
                     },
+                    // Shown only while invites wait (the page writes its hidden)
+                    invitesBox: {
+                        component: 'panel',
+                        bordered: true,
+                        hidden: true,
+                        _title: t['home.invitesTitle'],
+                        _description: t['home.invitesText'],
+                        layout: { type: 'column', gap: 'sm' },
+                        children: { invites: inviteGrid(t) }
+                    },
                     new: {
                         component: 'panel',
                         bordered: true,
@@ -103,6 +147,17 @@ function homeScreen(t: Texts): Record<string, unknown> {
                     sharedTitle: { component: 'text', textRole: 'heading', _text: t['home.sharedTitle'] },
                     sharedHint: { component: 'text', textRole: 'caption', _text: t['home.sharedText'] },
                     shared: grid('$.data.shared'),
+                    orgsHead: {
+                        component: 'panel',
+                        padding: 'none',
+                        layout: { type: 'row', gap: 'sm', align: 'center' },
+                        children: {
+                            title: { component: 'text', textRole: 'heading', placement: { grow: 1 }, _text: t['home.orgsTitle'] },
+                            make: { component: 'button', size: 'sm', variant: 'soft', _title: t['home.makeOrg'], on: { press: { command: 'emit', target: 'orgs' } } }
+                        }
+                    },
+                    orgsHint: { component: 'text', textRole: 'caption', _text: t['home.orgsText'] },
+                    orgs: { ...grid('$.data.orgs'), row: { ...(grid('$.data.orgs')['row'] as Record<string, unknown>), on: { press: { command: 'emit', target: 'openOrg', from: '$row.id' } } } },
                     editor: {
                         component: 'panel',
                         bordered: true,
@@ -130,7 +185,11 @@ const CARD_FIELDS = [
 /** The definition of the home app in a language, beside its name */
 function homeDefinition(language: Language): Record<string, unknown> {
     const t = textsOf(language);
-    return { title: t['home.appsTitle'], data: { apps: { model: CARD_MODEL, scope: 'persona' }, shared: { model: CARD_MODEL, scope: 'persona' } }, home: homeScreen(t) };
+    return {
+        title: t['home.appsTitle'],
+        data: { apps: { model: CARD_MODEL, scope: 'persona' }, shared: { model: CARD_MODEL, scope: 'persona' }, orgs: { model: CARD_MODEL, scope: 'persona' }, invites: { model: CARD_MODEL, scope: 'persona' } },
+        home: homeScreen(t)
+    };
 }
 
 /** Changes when the definition does, or its language, so a workspace made with another one gets the new one */
@@ -219,6 +278,9 @@ export class HomeApps {
         const tools = this.toolsOf(services);
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.apps', value: byId(data.apps), logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.shared', value: byId(data.shared), logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.orgs', value: byId(data.orgs ?? []), logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: '$.data.invites', value: byId(data.invites ?? []), logic: false });
+        await run(tools, 'ui_state_set', { app: HOME_APP, path: INVITES_HIDDEN, value: (data.invites ?? []).length === 0, logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: MAKE_VALUE, value: '', logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.mode.value`, value: prefs.mode, logic: false });
         await run(tools, 'ui_state_set', { app: HOME_APP, path: `${TOP}.language.value`, value: prefs.language, logic: false });

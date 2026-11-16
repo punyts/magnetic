@@ -27,6 +27,11 @@ export async function mockPerson(person: { sub: string; name: string; email: str
     expect(response.status).toBe(204);
 }
 
+/** The invites the test server has "emailed", oldest first */
+export async function mailSent(): Promise<Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>> {
+    return (await (await fetch(`${CONTROL}/mail`)).json()) as Array<{ to: string; orgName: string; inviterName: string; role: string; link: string }>;
+}
+
 /** The sign-in page */
 export class SignInPage {
     readonly app: FrameLocator;

@@ -25,6 +25,8 @@ import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { SCREENS_JS } from '../http/screens.js';
+import type { Mailer } from '../mail/Mailer.js';
+import { orgTextsOf } from '../http/orgText.js';
 import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
 import { COMPONENT_CATEGORIES, SYSTEM_USER_ID } from '../inspector/constants.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
@@ -191,6 +193,8 @@ export interface MagneticOptions {
      * 16 characters. Without it, orgs cannot set up their own sign-in
      */
     readonly secretKey?: string;
+    /** Sends invites by email (`sesMailer`); without one, an invite's link is only shown to the person who made it */
+    readonly mailer?: Mailer;
     /** Replaces the DNS lookup that verifies an org's domain, for tests */
     readonly resolveTxt?: TxtResolver;
     /**
@@ -577,6 +581,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
 
     const orgContext = {
         db,
+        ...(options.mailer !== undefined && { mailer: options.mailer }),
+        report: (message: string, fields?: Record<string, unknown>) => options.report.info(message, fields),
         orgs,
         access,
         instances,
@@ -750,7 +756,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
             .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt) }));
         const shared: HomeCard[] = (await sharedApps(user.id)).map((app) => ({ id: app.appId, name: app.name, note: fill(t[app.right === 'use' ? 'home.sharedUse' : 'home.sharedView'], { owner: app.ownerName }) }));
-        await homes.show(services, user.id, { apps, shared }, look);
+        // The person's orgs, and the invites waiting for their verified email
+        const orgWords = orgTextsOf(look.language);
+        const roleWords = (role: string): string => orgWords[`orgs.role.${role}` as keyof typeof orgWords] ?? role;
+        const memberships: HomeCard[] = (await orgs.of(user.id)).map((org) => ({ id: org.id, name: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }) }));
+        const invites: HomeCard[] = (await orgs.pendingFor(user.id)).map((invite) => ({ id: invite.id, name: fill(t['home.inviteName'], { org: invite.org.name }), note: fill(t['home.inviteNote'], { role: roleWords(invite.role), name: invite.invitedBy }) }));
+        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites }, look);
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHostPage(

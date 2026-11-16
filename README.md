@@ -434,7 +434,7 @@ The org settings, Shared by me and privacy pages are plain HTML.
 | `editor.spec.ts` | The bars and tools; the ideas of a blank app; a turn of the agent and the chat; frame sizes; zoom and fit; selecting a part, its properties, and editing its text by hand; Ctrl+Shift+E; going home. The library: shown and hidden (button, `A`, phone), narrowed by letter and category, a component pressed then placed, dragged and dropped onto the app, and dropped outside it. Layout and placement: a column made a grid, a part spanning two columns, a setting kept across types |
 | `screens.spec.ts` | (Desktop only) The Screens panel and a frame per screen in order; pressing a preview to work on it in its place; copy, rename, open-on and delete; a bad name refused; previews out of view not running |
 | `share.spec.ts` | What each right means; a `use` link opened by another person, on their Your apps, then revoked; a remix becoming the other person's copy |
-| `orgs.spec.ts` | Making an org; a group; an invite accepted by the person with that verified email, with its role; an invite refused for another email; an app made in the org |
+| `orgs.spec.ts` | Making an org; a group; an invite accepted by the person with that verified email, with its role; an invite refused for another email; an app made in the org. Invites emailed (the test server's memory mailer, `GET /mail` on the control port), joined and declined from Your apps; orgs listed there |
 
 The server can be started on its own for a look around, as the `magnetic-e2e` launch configuration does:
 `node e2e/server.mjs` serves http://127.0.0.1:4390.

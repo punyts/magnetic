@@ -52,6 +52,54 @@ describe('Orgs', () => {
         expect((await orgs.auditLog(ana, org.id)).map((event) => event['action'])).toEqual(['org.created']);
     });
 
+    it("should keep an invite waiting for the person it names, to join or decline from their own page", async () => {
+        // Arrange
+        const org = await orgs.create(ana, { name: 'Acme', slug: 'acme' });
+        const other = await orgs.create(ana, { name: 'Other', slug: 'other' });
+        await orgs.invite(ana, org.id, { email: 'Ben@Acme.test', role: 'builder' });
+        await orgs.invite(ana, other.id, { email: 'ben@acme.test', role: 'member' });
+        await orgs.invite(ana, org.id, { email: 'cai@acme.test', role: 'member' });
+
+        // Act
+        const waiting = await orgs.pendingFor(ben);
+        const unverified = await orgs.pendingFor(cai);
+        const byOthers = await status(orgs.acceptInvite(waiting[0]!.id, cai));
+        const declineByOthers = await status(orgs.decline(waiting[1]!.id, ana));
+        const joined = await orgs.acceptInvite(waiting.find((invite) => invite.org.id === org.id)!.id, ben);
+        await orgs.decline(waiting.find((invite) => invite.org.id === other.id)!.id, ben);
+        const after = await orgs.pendingFor(ben);
+        const again = await status(orgs.acceptInvite(waiting.find((invite) => invite.org.id === other.id)!.id, ben));
+
+        // Assert
+        expect(waiting.map((invite) => [invite.org.name, invite.role, invite.invitedBy])).toEqual([
+            ['Other', 'member', 'Ana'],
+            ['Acme', 'builder', 'Ana']
+        ]);
+        expect(unverified).toEqual([]);
+        expect(byOthers).toBe(403);
+        expect(declineByOthers).toBe(404);
+        expect(joined.id).toBe(org.id);
+        expect(await orgs.role(org.id, ben)).toBe('builder');
+        expect(after).toEqual([]);
+        expect(again).toBe(404);
+        expect(await orgs.role(other.id, ben)).toBeUndefined();
+    });
+
+    it('should not show an invite to an org the person is in already, and stop the link of a declined invite', async () => {
+        // Arrange
+        const org = await orgs.create(ana, { name: 'Acme', slug: 'acme' });
+        const declined = await orgs.invite(ana, org.id, { email: 'ben@acme.test', role: 'member' });
+        const waiting = await orgs.pendingFor(ben);
+        await orgs.decline(waiting[0]!.id, ben);
+        const self = await orgs.invite(ana, org.id, { email: 'ana@acme.test', role: 'member' });
+
+        // Act / Assert
+        expect(await status(orgs.accept(declined.token, ben))).toBe(404);
+        expect(await orgs.invitation(declined.token)).toBeUndefined();
+        expect(await orgs.pendingFor(ana)).toEqual([]);
+        expect(await orgs.invitation(self.token)).toBeDefined();
+    });
+
     it('should let an invite be accepted once, only by its verified email, before it expires', async () => {
         // Arrange
         const org = await orgs.create(ana, { name: 'Acme', slug: 'acme' });

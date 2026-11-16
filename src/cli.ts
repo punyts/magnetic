@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from 'node:fs/promises';
+import { sesMailer } from './mail/Mailer.js';
 import { join } from 'node:path';
 import { generateKeyPair } from '@punyts/statenet';
 import { SecretBox } from './auth/secrets.js';
@@ -153,6 +154,7 @@ async function main(): Promise<void> {
         providers,
         allowHttpProviders: mock !== undefined,
         ...(options.secretKey !== undefined && { secretKey: options.secretKey }),
+        ...(options.mail !== undefined && { mailer: sesMailer(options.mail) }),
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, monthly: options.monthlyBudget } }
     });

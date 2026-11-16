@@ -10,7 +10,7 @@ import { HOME_APP } from '../home/HomeApp.js';
 import { allows, isAppPermission, moveAppToOrg } from '../orgs/AppAccess.js';
 import { atLeast, isOrgRole, OrgError } from '../orgs/Orgs.js';
 import type { Org } from '../orgs/Orgs.js';
-import { closeLostViews, createOrgApp } from './orgRoutes.js';
+import { closeLostViews, createOrgApp, mailInvite } from './orgRoutes.js';
 import type { OrgRouteContext } from './orgRoutes.js';
 
 /** What the org settings pages work with, beyond the org routes' context */
@@ -108,7 +108,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
     }
 
     /** Makes the change a form of an org's page asks for; the invite's link when it made one */
-    async function change(form: URLSearchParams, user: User, org: Org): Promise<{ readonly invited?: { email: string; link: string }; readonly left?: true; readonly go?: string }> {
+    async function change(form: URLSearchParams, user: User, org: Org): Promise<{ readonly invited?: { email: string; link: string; mailed: boolean }; readonly left?: true; readonly go?: string }> {
         const action = text(form, 'do');
         const userId = text(form, 'userId');
         if (action === 'role') {
@@ -130,7 +130,9 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
             if (!isOrgRole(role)) throw new OrgError(400, 'A role is owner, admin, builder or member.');
             const email = text(form, 'email');
             const invite = await orgs.invite(user.id, org.id, { email, role, groups: form.getAll('groups') });
-            return { invited: { email: email.trim().toLowerCase(), link: `${context.origin()}/invites/${invite.token}` } };
+            const link = `${context.origin()}/invites/${invite.token}`;
+            const mailed = await mailInvite(context, user, org.id, invite, email, role, link);
+            return { invited: { email: email.trim().toLowerCase(), link, mailed } };
         } else if (action === 'access') {
             const appId = text(form, 'appId');
             const principal = PRINCIPAL.exec(text(form, 'principal'));

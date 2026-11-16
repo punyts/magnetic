@@ -2,6 +2,20 @@
 
 ## 0.1.0 (unreleased)
 
+- **Adding people to an org** (M8, N5).
+  - **Invites wait on Your apps.** An invite to the verified email of someone who uses Magnetic shows on their Your apps under Invitations ("Join Acme · As a builder · from Ana"), with Join and Decline.
+    - Joining opens the org.
+    - Declining takes the invite away and stops its link (`declined_at`, migration 0006).
+    - The page shows invites only to the person whose verified email they name, and not for an org they are in already (`Orgs.pendingFor`, `acceptInvite`, `decline`; `POST /orgs/invites/<id>/accept|decline`).
+  - **Invites are emailed.** With `MAGNETIC_MAIL_FROM` (and `MAGNETIC_MAIL_REGION`, default us-east-2), an invite is sent through Amazon SES (`sesMailer`, `@aws-sdk/client-sesv2`): who invited whom to what, the link and when it ends, in plain text and in HTML. The settings page says it was emailed, and still shows the link once. A send SES refuses (the sandbox, a missing permission) is reported, and the link is shown as before. The JSON invite answer has `mailed`.
+  - **Your apps lists your orgs** with your role. Each opens its settings, and Make an org opens the org page.
+  - **Not as planned:** the plan added an existing person straight into the org. It asks them instead. Org admins can look at a member's state in org apps, and an answer that said "added" would have told an admin whether an email has an account.
+  - **Text.** The new words are in English, German, French and Spanish.
+  - Tests:
+    - `orgs.test.ts`: waiting invites, joining and declining by id, a declined link;
+    - `mail.test.ts`: the email's words and escaping, mailed and failed sends;
+    - `e2e/orgs.spec.ts`: emailed, joined and declined from Your apps, and orgs listed.
+
 - **Screens: a panel to add and manage them, and every screen on the canvas** (M8, N4).
   - **The Screens panel** takes the library's place beside the rail (the two take turns). The rail's new Screens button, or `P`, shows and hides it. It lists the app's screens, marks the one worked on and the one the app opens on, and can:
     - add a screen by name (a blank column);

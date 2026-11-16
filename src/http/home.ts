@@ -90,6 +90,17 @@ async function editor(path) {
     } catch { say(T['home.notMade']); }
 }
 
+// An invite waiting here: joined, it opens the org; declined, it goes
+async function answerInvite(id, join) {
+    try {
+        const response = await fetch('/orgs/invites/' + encodeURIComponent(id) + (join ? '/accept' : '/decline'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const answer = await response.json().catch(() => ({}));
+        if (!response.ok) { say(answer.message || T['home.joinFailed']); return; }
+        if (join && typeof answer.id === 'string' && APP_ID.test(answer.id)) location.assign('/settings/orgs/' + encodeURIComponent(answer.id));
+        else location.reload();
+    } catch { say(T['home.joinFailed']); }
+}
+
 async function choose(change) {
     if (document.documentElement.dataset.mode === change.mode || document.documentElement.lang === change.language) return;
     try {
@@ -107,6 +118,8 @@ addEventListener('stateui:emit', (event) => {
     else if (name === 'editEditor') void editor('/editor');
     else if (name === 'resetEditor') { if (confirm(T['home.resetConfirm'])) void editor('/editor/reset'); }
     else if (name === 'orgs') location.assign('/settings/orgs');
+    else if (name === 'openOrg' && typeof payload === 'string' && APP_ID.test(payload)) location.assign('/settings/orgs/' + encodeURIComponent(payload));
+    else if ((name === 'inviteJoin' || name === 'inviteDecline') && typeof payload === 'string' && APP_ID.test(payload)) void answerInvite(payload, name === 'inviteJoin');
     else if (name === 'signout') void fetch('/signout', { method: 'POST' }).finally(() => location.assign('/signin'));
 });
 `;

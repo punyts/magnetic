@@ -7,6 +7,8 @@ export type OrgRole = (typeof ORG_ROLES)[number];
 
 /** How far each role reaches: a role can do what the roles below it can */
 const RANK: Record<OrgRole, number> = { member: 0, builder: 1, admin: 2, owner: 3 };
+/** An invite id: a UUID */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function isOrgRole(value: unknown): value is OrgRole {
     return typeof value === 'string' && (ORG_ROLES as readonly string[]).includes(value);
@@ -29,6 +31,16 @@ export interface Org {
 /** An org seen by one of its members */
 export interface Membership extends Org {
     readonly role: OrgRole;
+}
+
+/** An invite waiting for the person it is for, as their Your apps shows it */
+export interface PendingInvite {
+    readonly id: string;
+    readonly org: Org;
+    readonly role: OrgRole;
+    /** The name of the person who invited them */
+    readonly invitedBy: string;
+    readonly expiresAt: string;
 }
 
 export interface OrgMember {
@@ -309,14 +321,61 @@ export class Orgs {
      */
     async accept(token: string, userId: string): Promise<Org> {
         if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new OrgError(404, 'This invite is not valid.');
+        return this.acceptWhere('token_hash', hashOf(token), userId);
+    }
+
+    /** Accepts an invite waiting on the person's Your apps, by its id: as `accept`, for the person whose verified email it names */
+    async acceptInvite(inviteId: string, userId: string): Promise<Org> {
+        if (!UUID_PATTERN.test(inviteId)) throw new OrgError(404, 'This invite is not valid.');
+        return this.acceptWhere('id', inviteId, userId);
+    }
+
+    /** Declines an invite waiting on the person's Your apps: it is not shown again, and its link stops working */
+    async decline(inviteId: string, userId: string): Promise<void> {
+        if (!UUID_PATTERN.test(inviteId)) throw new OrgError(404, 'This invite is not valid.');
+        await this.db.transaction(async (tx) => {
+            const invite = (await tx.query<{ org_id: string; email: string }>('SELECT org_id, email FROM org_invite WHERE id = $1 AND accepted_at IS NULL AND declined_at IS NULL FOR UPDATE', [inviteId])).rows[0];
+            const user = (await tx.query<{ email: string | null; email_verified: boolean }>('SELECT email, email_verified FROM app_user WHERE id = $1', [userId])).rows[0];
+            if (invite === undefined || user?.email?.toLowerCase() !== invite.email || !user.email_verified) throw new OrgError(404, 'This invite is not valid any more.');
+            await tx.query('UPDATE org_invite SET declined_at = $2 WHERE id = $1', [inviteId, this.now()]);
+            await audit(tx, { orgId: invite.org_id, actorId: userId, action: 'invite.declined', targetKind: 'invite', targetId: inviteId, detail: {} });
+        });
+    }
+
+    /**
+     * The invites waiting for a person: to their verified email, not yet accepted, declined or out of date, to orgs they
+     * are not in already. Newest first
+     */
+    async pendingFor(userId: string): Promise<PendingInvite[]> {
+        const user = (await this.db.query<{ email: string | null; email_verified: boolean }>('SELECT email, email_verified FROM app_user WHERE id = $1', [userId])).rows[0];
+        if (user?.email === null || user?.email === undefined || !user.email_verified) return [];
+        const rows = (
+            await this.db.query<{ id: string; org_id: string; role: OrgRole; expires_at: Date; invited_by: string }>(
+                `SELECT i.id, i.org_id, i.role, i.expires_at, u.name AS invited_by
+                   FROM org_invite i JOIN app_user u ON u.id = i.created_by
+                  WHERE i.email = $1 AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.expires_at > $2
+                    AND NOT EXISTS (SELECT 1 FROM org_member m WHERE m.org_id = i.org_id AND m.user_id = $3)
+                  ORDER BY i.created_at DESC`,
+                [user.email.toLowerCase(), this.now(), userId]
+            )
+        ).rows;
+        const invites: PendingInvite[] = [];
+        for (const row of rows) {
+            const org = await this.get(row.org_id);
+            if (org !== undefined) invites.push({ id: row.id, org, role: row.role, invitedBy: row.invited_by, expiresAt: row.expires_at.toISOString() });
+        }
+        return invites;
+    }
+
+    private async acceptWhere(column: 'token_hash' | 'id', value: string, userId: string): Promise<Org> {
         const orgId = await this.db.transaction(async (tx) => {
             const invite = (
-                await tx.query<{ id: string; org_id: string; email: string; role: OrgRole; groups: string[]; expires_at: Date; accepted_at: Date | null }>(
-                    'SELECT id, org_id, email, role, groups, expires_at, accepted_at FROM org_invite WHERE token_hash = $1 FOR UPDATE',
-                    [hashOf(token)]
+                await tx.query<{ id: string; org_id: string; email: string; role: OrgRole; groups: string[]; expires_at: Date; accepted_at: Date | null; declined_at: Date | null }>(
+                    `SELECT id, org_id, email, role, groups, expires_at, accepted_at, declined_at FROM org_invite WHERE ${column} = $1 FOR UPDATE`,
+                    [value]
                 )
             ).rows[0];
-            if (invite === undefined || invite.accepted_at !== null || invite.expires_at.getTime() <= this.now().getTime()) throw new OrgError(404, 'This invite is not valid any more.');
+            if (invite === undefined || invite.accepted_at !== null || invite.declined_at !== null || invite.expires_at.getTime() <= this.now().getTime()) throw new OrgError(404, 'This invite is not valid any more.');
             const user = (await tx.query<{ email: string | null; email_verified: boolean }>('SELECT email, email_verified FROM app_user WHERE id = $1', [userId])).rows[0];
             if (user?.email?.toLowerCase() !== invite.email || !user.email_verified) throw new OrgError(403, 'This invite is for another email address. Sign in with the one it was sent to.');
             const current = await this.lockedRole(tx, invite.org_id, userId);
@@ -333,8 +392,8 @@ export class Orgs {
     /** What an invite is for, to show before it is accepted; `undefined` when it is not valid any more */
     async invitation(token: string): Promise<{ readonly org: Org; readonly email: string; readonly role: OrgRole } | undefined> {
         if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
-        const invite = (await this.db.query<{ org_id: string; email: string; role: OrgRole; expires_at: Date; accepted_at: Date | null }>('SELECT org_id, email, role, expires_at, accepted_at FROM org_invite WHERE token_hash = $1', [hashOf(token)])).rows[0];
-        if (invite === undefined || invite.accepted_at !== null || invite.expires_at.getTime() <= this.now().getTime()) return undefined;
+        const invite = (await this.db.query<{ org_id: string; email: string; role: OrgRole; expires_at: Date; accepted_at: Date | null; declined_at: Date | null }>('SELECT org_id, email, role, expires_at, accepted_at, declined_at FROM org_invite WHERE token_hash = $1', [hashOf(token)])).rows[0];
+        if (invite === undefined || invite.accepted_at !== null || invite.declined_at !== null || invite.expires_at.getTime() <= this.now().getTime()) return undefined;
         const org = await this.get(invite.org_id);
         return org === undefined ? undefined : { org, email: invite.email, role: invite.role };
     }

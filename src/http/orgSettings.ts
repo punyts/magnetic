@@ -45,7 +45,7 @@ export interface OrgPageView {
     readonly notice?: string;
     readonly error?: string;
     /** An invite just made: its link is shown once */
-    readonly invited?: { readonly email: string; readonly link: string };
+    readonly invited?: { readonly email: string; readonly link: string; readonly mailed?: boolean };
     /** The org's enterprise controls, for admins and owners */
     readonly enterprise?: EnterpriseView;
 }
@@ -161,7 +161,7 @@ ${admin ? form(org.id, 'makeGroup', {}, `<label>${e(t['orgs.groupName'])} <input
     const invitesSection = !admin
         ? ''
         : `<h2>${e(t['orgs.invitesTitle'])}</h2><p class="muted">${e(t['orgs.invitesText'])}</p>
-${view.invited === undefined ? '' : `<p class="notice" role="status">${e(fill(t['orgs.inviteLink'], { email: view.invited.email }))}<br><code class="link">${e(view.invited.link)}</code></p>`}
+${view.invited === undefined ? '' : `<p class="notice" role="status">${e(fill(t[view.invited.mailed === true ? 'orgs.inviteSent' : 'orgs.inviteLink'], { email: view.invited.email }))}<br><code class="link">${e(view.invited.link)}</code><br>${e(t['orgs.inviteWaits'])}</p>`}
 ${form(
     org.id,
     'invite',

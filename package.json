@@ -37,6 +37,7 @@
     "license": "MIT",
     "dependencies": {
         "@anthropic-ai/sdk": "^1.7.0",
+        "@aws-sdk/client-sesv2": "^3.1169.0",
         "@punyts/core": "^1.0.0",
         "@punyts/state-sync": "^0.8.0",
         "@punyts/statenet": "^0.1.0",

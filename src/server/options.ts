@@ -29,6 +29,8 @@ export interface CliOptions {
     linkedIn: { clientId: string; clientSecret: string; pkce: boolean } | undefined;
     /** The server's secret key, from the environment only: it seals the sign-in secrets orgs keep here */
     secretKey: string | undefined;
+    /** Invites are emailed through Amazon SES from this verified address, in this region; undefined sends none */
+    mail: { from: string; region: string } | undefined;
     /** Plays a scripted agent instead of calling the Claude API, to try the editor without a key */
     mockAgent: boolean;
     /** The agent's model, such as claude-opus-5-5 */
@@ -102,6 +104,11 @@ Orgs' own sign-in (environment only):
   MAGNETIC_SECRET_KEY              A random secret of 16 or more characters that seals the client secret of each
                                    org's own OpenID Connect provider. Without it, orgs cannot set one up.
                                    Their redirect URI is <origin>/auth/sso/callback
+
+Email (environment only):
+  MAGNETIC_MAIL_FROM               A verified Amazon SES address invites are emailed from. Without it, an
+                                   invite's link is only shown to the person who made it
+  MAGNETIC_MAIL_REGION             The SES region (default us-east-2); credentials come from the machine
 
   --mock-provider        Also run a mock OpenID Connect provider on loopback that signs anyone in
                          as a test person, to try the provider flow (env MAGNETIC_MOCK_PROVIDER=true).
@@ -236,6 +243,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     const privacy = operator !== undefined && contactEmail !== undefined ? { operator, email: contactEmail } : undefined;
     const linkedIn = parseLinkedIn(env);
     const secretKey = env['MAGNETIC_SECRET_KEY']?.trim() || undefined;
+    const mailFrom = env['MAGNETIC_MAIL_FROM']?.trim() || undefined;
+    if (mailFrom !== undefined && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailFrom)) throw new UsageError(`Invalid MAGNETIC_MAIL_FROM: ${mailFrom} (an email address)`);
+    const mail = mailFrom === undefined ? undefined : { from: mailFrom, region: env['MAGNETIC_MAIL_REGION']?.trim() || 'us-east-2' };
     if (secretKey !== undefined && secretKey.length < 16) throw new UsageError('MAGNETIC_SECRET_KEY must be at least 16 characters');
     let mockProvider = env['MAGNETIC_MOCK_PROVIDER'] === 'true';
     let mockAgent = env['MAGNETIC_MOCK_AGENT'] === 'true';
@@ -373,5 +383,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, monthlyBudget, statenet, nodeId, out, help };
 }

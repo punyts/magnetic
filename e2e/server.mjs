@@ -7,10 +7,13 @@ import { createServer } from 'node:http';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
 import { MockAgentModel, startMagnetic, startMockOidcProvider } from '../dist/index.js';
 import { ALL_MIGRATIONS } from '../dist/storage/db.js';
+import { memoryMailer } from '../dist/mail/Mailer.js';
 
 const port = Number(process.env.MAGNETIC_E2E_PORT ?? 4390);
 const test = await createTestDatabase(ALL_MIGRATIONS);
 const mock = await startMockOidcProvider();
+// Invites are "emailed" into memory; GET /mail on the control port lists them
+const mailer = memoryMailer();
 const magnetic = await startMagnetic({
     database: test.db,
     host: '127.0.0.1',
@@ -23,16 +26,20 @@ const magnetic = await startMagnetic({
     providers: [{ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret }],
     allowHttpProviders: true,
     secretKey: 'e2e-secret-key-of-enough-length',
+    mailer,
     privacy: { operator: 'The test operator', email: 'operator@example.com' },
     agent: { model: new MockAgentModel(), budgets: { perUserTotal: 5, monthly: 100 } }
 });
 
-// For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims)
+// For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims), and
+// the invites emailed so far (GET /mail)
 const control = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => (body += chunk));
     request.on('end', () => {
-        if (request.method === 'POST' && request.url === '/person') {
+        if (request.method === 'GET' && request.url === '/mail') {
+            response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(mailer.sent));
+        } else if (request.method === 'POST' && request.url === '/person') {
             mock.person = JSON.parse(body);
             response.writeHead(204).end();
         } else response.writeHead(404).end();
