@@ -2,6 +2,27 @@
 
 ## 0.1.0 (unreleased)
 
+- **Connections: apps call outside APIs** (M8, N6).
+  - **The page.** `/settings/connections` (Connections on Your apps) holds the connections of a workspace: the person's own, or an org's they are an admin or owner of. A connection has a name, an https base URL, how it signs in, and its endpoints.
+    - **Sign-in:** none; a key in a header or the query; OAuth 2 client credentials; or OAuth 2 sign-in with refresh, through Connect (state and PKCE, `/connections/oauth/callback`).
+    - **Endpoints:** a name, a method, a path with `{params}`, query values, a JSON body, and where the records are in the answer.
+    - **Try** calls an endpoint and shows its answer.
+  - **Secrets stay on the server.** Keys, client secrets and tokens are sealed with the server's key (`SecretBox`, migration 0007). The page shows only whether each is set. Nothing goes into a document, an app's state, a page or the agent.
+  - **Apps call through a logic effect.** `logic.effects.<name> = { request, run: "http", status, value | records }`, with `{ connection, endpoint, params }` written at the request path. Each running app gets its own effect, bound to its workspace through stateui-mcp's new per-instance `logicFunctions`. The answer lands where effects put it; a refusal lands in the status with its reason.
+  - **Guarded** (`connections/guard.ts`):
+    - https only, and no user or password in a URL;
+    - only the connection's own host, and a param cannot leave the path;
+    - every address the name resolves to is checked as the call connects, so no private, loopback, link-local (169.254.169.254), CGNAT or reserved address, in IPv4 or IPv6, can be reached;
+    - no redirect is followed;
+    - 10 s, 1 MB, and 60 calls a minute per app;
+    - each call is reported with its workspace, app, connection, endpoint, status and time, and never a secret or a body.
+  - **The agent is told** each connection's name and host, and its endpoints with their params, with every request. It writes effects that call them, and never makes connections.
+  - **Sharing.** The Share panel says that a use link calls the app's outside APIs with the owner's connections.
+  - Tests:
+    - `connections.test.ts`: the guard's ranges and URLs, a name resolving to loopback, no redirect, the 1 MB cap; keys, client credentials, bodies, refusals, the rate limit, staying on the host; the agent's facts with no key;
+    - `appCalls.test.ts`: an app's own logic calling a connection through the server, the answer in its state and the key nowhere in it;
+    - `e2e/connections.spec.ts`: a key connection tried, a bad URL refused, OAuth connected through a stand-in provider and called, deletion.
+
 - **Adding people to an org** (M8, N5).
   - **Invites wait on Your apps.** An invite to the verified email of someone who uses Magnetic shows on their Your apps under Invitations ("Join Acme · As a builder · from Ana"), with Join and Decline.
     - Joining opens the org.

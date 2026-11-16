@@ -26,6 +26,12 @@ import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { SCREENS_JS } from '../http/screens.js';
 import type { Mailer } from '../mail/Mailer.js';
+import { Connections } from '../connections/Connections.js';
+import { connectionFacts } from '../connections/facts.js';
+import type { GuardOptions } from '../connections/guard.js';
+import { CallLimits, HTTP_EFFECT, httpEffect } from '../connections/httpEffect.js';
+import { connectionRoutes } from './connectionRoutes.js';
+import type { LogicInstance } from '@punyts/stateui-mcp';
 import { orgTextsOf } from '../http/orgText.js';
 import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
 import { COMPONENT_CATEGORIES, SYSTEM_USER_ID } from '../inspector/constants.js';
@@ -195,6 +201,11 @@ export interface MagneticOptions {
     readonly secretKey?: string;
     /** Sends invites by email (`sesMailer`); without one, an invite's link is only shown to the person who made it */
     readonly mailer?: Mailer;
+    /**
+     * What an app's calls to outside APIs may reach, for tests and a development server on loopback: http, and private
+     * addresses. Refused on any other host
+     */
+    readonly connectionGuard?: GuardOptions;
     /** Replaces the DNS lookup that verifies an org's domain, for tests */
     readonly resolveTxt?: TxtResolver;
     /**
@@ -229,6 +240,8 @@ export interface RunningMagnetic {
     readonly signIn: OidcSignIn;
     readonly turns: AgentTurns;
     readonly budgets: Budgets;
+    /** Each workspace's connections to outside APIs */
+    readonly connections: Connections;
     readonly grants: Grants;
     /** Each person's "Your apps" */
     readonly homes: HomeApps;
@@ -340,6 +353,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const policies: OrgPolicies = new OrgPolicies(db, (): readonly string[] => turns.models);
     const domains = new OrgDomains(db, orgs, options.resolveTxt);
     const box = options.secretKey === undefined ? undefined : new SecretBox(options.secretKey);
+    if (options.connectionGuard !== undefined && (options.connectionGuard.allowHttp === true || options.connectionGuard.allowPrivate === true) && !LOOPBACK.has(options.host.toLowerCase()))
+        throw new Error('Calls to http or private addresses are only allowed on a loopback host');
+    const connectionGuard = options.connectionGuard ?? {};
+    // Outside APIs: each workspace's connections, the calls each app made this minute, and the facts the agent is told
+    const connections = new Connections(db, box, connectionGuard);
+    const callLimits = new CallLimits();
     const sso = new OrgSso(db, orgs, box);
     /** Each owner's signing key and the grants of state (docs/design/statenet-relays.md, S4); grants need the server's key */
     const keys = new OwnerKeys(db, box);
@@ -417,6 +436,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     report: options.report,
                     origin: () => origin,
                     agentAnswers: false,
+                    // The http effect of each running app, bound to its workspace and app
+                    logicFunctions: (instance: LogicInstance) => ({
+                        effects: {
+                            [HTTP_EFFECT]: httpEffect({ connections, workspaceId, appId: instance.appId, limits: callLimits, report: (message, fields) => options.report.info(message, fields), guard: connectionGuard })
+                        }
+                    }),
                     logicLimits: options.logicLimits ?? DEFAULT_LOGIC_LIMITS,
                     ...(catalogMeanings !== undefined && { catalogMeanings }),
                     ...(similarity !== undefined && { procedures: { [SIMILAR_PROCEDURE]: similarProcedure(similarity, workspaceId, () => storage.parts) } }),
@@ -475,6 +500,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         models: options.agent?.models ?? AGENT_MODELS.map((model) => model.id),
         effort: options.agent?.effort ?? 'high',
         budgets,
+        connectionFacts: (workspaceId: string) => connectionFacts(connections, workspaceId),
         // An org's monthly budget, which every turn in its workspace spends
         workspaceRefusal: async (workspaceId: string): Promise<string | undefined> => {
             const org = await orgs.byWorkspace(workspaceId);
@@ -607,6 +633,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const handleOrgRoute = orgRoutes(orgContext);
     const handleGrants = grantRoutes({ db, grants: stateGrants, keys, orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
     const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location), models: () => turns.models });
+    const handleConnections = connectionRoutes({
+        db,
+        connections,
+        orgs,
+        guard: connectionGuard,
+        signedIn,
+        readForm,
+        lookOf,
+        sendPage,
+        redirect: (response, location) => redirect(response, location),
+        origin: () => publicOrigin ?? origin,
+        report: (message, fields) => options.report.info(message, fields)
+    });
 
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
@@ -1043,6 +1082,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (await handleOrgRoute(request, response, method, path)) return true;
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
+        if (await handleConnections(request, response, method, path)) return true;
         if (await handleGrants(request, response, method, path, url.searchParams)) return true;
         if (method === 'GET' && path === '/search') {
             const who = await signedIn(request);
@@ -1368,6 +1408,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         signIn,
         turns,
         budgets,
+        connections,
         grants,
         homes,
         ...(statenet !== undefined && { statenet }),

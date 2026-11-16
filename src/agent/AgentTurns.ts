@@ -57,6 +57,8 @@ export interface AgentTurnsOptions {
     readonly budgets: Budgets;
     /** Why a turn in a workspace other than the person's own (an org's) may not run now, such as its spent monthly budget */
     readonly workspaceRefusal?: (workspaceId: string) => Promise<string | undefined>;
+    /** What the agent is told of the outside APIs an app's workspace has (names, endpoints, params, never a secret) */
+    readonly connectionFacts?: (workspaceId: string) => Promise<string | undefined>;
     readonly chats: Chats;
     readonly limits?: TurnLimits;
     readonly report: { info(message: string, details?: Record<string, unknown>): void };
@@ -286,7 +288,8 @@ export class AgentTurns {
         let cost = 0;
 
         try {
-            const facts = [...(await this.facts(byName, app.name, toggles)), ...(await this.focusFacts(byName, app.name, focus))];
+            const connections = this.options.connectionFacts === undefined ? undefined : await this.options.connectionFacts(app.workspaceId ?? userId).catch(() => undefined);
+            const facts = [...(await this.facts(byName, app.name, toggles)), ...(await this.focusFacts(byName, app.name, focus)), ...(connections === undefined ? [] : [connections])];
             const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: 'user', content: this.firstMessage(history, app.name, facts, text) }];
             let toolCalls = 0;
             let jsonRetries = 0;

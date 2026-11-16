@@ -2,7 +2,7 @@
 // dev users, the mock OIDC provider and the scripted agent, so no test needs an API key or LinkedIn. The schema is
 // dropped when Playwright stops the server.
 //   node e2e/server.mjs   (Playwright's webServer starts it. MAGNETIC_E2E_PORT, default 4390: the pages; +1 the
-//                          runtime; +2 the test control)
+//                          runtime; +2 the test control; +3 a stand-in outside API with an OAuth provider)
 import { createServer } from 'node:http';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
 import { MockAgentModel, startMagnetic, startMockOidcProvider } from '../dist/index.js';
@@ -27,6 +27,8 @@ const magnetic = await startMagnetic({
     allowHttpProviders: true,
     secretKey: 'e2e-secret-key-of-enough-length',
     mailer,
+    // Connections may call the stand-in API on loopback, over http
+    connectionGuard: { allowHttp: true, allowPrivate: true },
     privacy: { operator: 'The test operator', email: 'operator@example.com' },
     agent: { model: new MockAgentModel(), budgets: { perUserTotal: 5, monthly: 100 } }
 });
@@ -46,6 +48,39 @@ const control = createServer((request, response) => {
     });
 });
 await new Promise((resolve) => control.listen(port + 2, '127.0.0.1', resolve));
+// A stand-in outside API for the Connections tests: a key-protected endpoint, and an OAuth 2 provider whose sign-in
+// sends the person straight back with a code (the code and the PKCE verifier are checked at /token)
+const challenges = new Map();
+const api = createServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', async () => {
+        const url = new URL(request.url ?? '/', 'http://localhost');
+        const json = (status, value) => response.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
+        const today = /^\/today\/([a-z]+)$/.exec(url.pathname);
+        if (today !== null) return request.headers['x-api-key'] === 'k-e2e' ? json(200, { city: today[1], today: 'snow' }) : json(401, { error: 'no key' });
+        if (url.pathname === '/authorize') {
+            const code = 'code-' + Math.random().toString(36).slice(2);
+            challenges.set(code, url.searchParams.get('code_challenge'));
+            const back = new URL(url.searchParams.get('redirect_uri') ?? '');
+            back.searchParams.set('code', code);
+            back.searchParams.set('state', url.searchParams.get('state') ?? '');
+            return response.writeHead(302, { Location: back.toString() }).end();
+        }
+        if (url.pathname === '/token') {
+            const form = new URLSearchParams(body);
+            const { createHash } = await import('node:crypto');
+            const expected = challenges.get(form.get('code') ?? '');
+            const verifier = form.get('code_verifier') ?? '';
+            if (expected === undefined || createHash('sha256').update(verifier).digest('base64url') !== expected || form.get('client_secret') !== 'cs-e2e') return json(400, { error: 'invalid_grant' });
+            challenges.delete(form.get('code'));
+            return json(200, { access_token: 'at-e2e', refresh_token: 'rt-e2e', expires_in: 3600 });
+        }
+        if (url.pathname === '/me') return request.headers.authorization === 'Bearer at-e2e' ? json(200, { name: 'Ada' }) : json(401, { error: 'no token' });
+        json(404, { error: 'not found' });
+    });
+});
+await new Promise((resolve) => api.listen(port + 3, '127.0.0.1', resolve));
 process.stderr.write(`magnetic e2e: ${magnetic.origin} (schema ${test.schema})\n`);
 
 let stopping = false;
@@ -55,6 +90,7 @@ const stop = () => {
     void magnetic
         .stop()
         .then(() => new Promise((resolve) => control.close(resolve)))
+        .then(() => new Promise((resolve) => api.close(resolve)))
         .then(() => mock.stop())
         .then(() => test.drop())
         .finally(() => process.exit(0));
