@@ -197,6 +197,23 @@ describe('several Magnetic servers on one database', () => {
         expect(authority.get('$.app.after')).toBe('the deploy');
     });
 
+    it("should make a person's editor again after a deploy at one server while the old one is open at the other", async () => {
+        // Arrange: alice's editor, open at server one, and a deploy that shipped a new editor
+        const editorAt = async (at: RunningMagnetic): Promise<{ id: string; fallback?: boolean }> => (await fetch(`${at.origin}/assets/editor.json`, { headers: { Cookie: cookie } })).json() as Promise<{ id: string; fallback?: boolean }>;
+        const before = await editorAt(one);
+        const old = (await (await one.workspaces.get(aliceId)).parts.findById('apps', before.id)) as UiPart<'apps'>;
+        const view = await viewAt(one, old);
+        await two.database.query("UPDATE workspace_stamp SET value = jsonb_set(value::jsonb, '{stamp}', '\"before-the-deploy\"') WHERE workspace_id = $1 AND name = 'editor'", [aliceId]);
+
+        // Act: the page asks server two for it
+        const after = await editorAt(two);
+
+        // Assert
+        expect(after.fallback).toBeUndefined();
+        expect(after.id).not.toBe(before.id);
+        view.ws.close();
+    });
+
     it('should let another server take over the instances of a server that stops, at once', async () => {
         // Arrange
         const app = await newApp(one, 'diary');
