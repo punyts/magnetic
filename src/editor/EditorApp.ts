@@ -40,7 +40,7 @@ export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'showTheme', 'showLayout', 'showData', 'showLogic', 'showScreens',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
-    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'path', 'ask',
+    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'screenColumns', 'path', 'ask',
     'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk',
     'feedback', 'feedbackClose', 'feedbackKind', 'feedbackText', 'feedbackSend'
 ] as const;
@@ -85,6 +85,8 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'sharedTone', type: 'string', default: 'neutral' },
         // The Screens panel: the screen worked on, the names typed, and what the last change said
         ...['screenName', 'screenRename', 'screenNew', 'screensStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
+        // How many screens the canvas lays side by side before it starts a new row
+        { op: 'set', field: 'screenColumns', type: 'string', default: 'n5' },
         { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
         // And their tone: the accent while on, the ink while off
         { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
@@ -505,6 +507,9 @@ function library(t: Texts): Record<string, unknown> {
     );
 }
 
+/** The choices of how many screens the canvas lays side by side in a row */
+export const SCREEN_COLUMNS = [1, 2, 3, 4, 5, 6, 8, 10] as const;
+
 /**
  * The Screens panel, in the library's place beside the rail (the two take turns): the app's screens, the one worked
  * on marked, a new one by name, and what can be done to the one worked on. Each screen shows on the canvas as a frame
@@ -528,6 +533,15 @@ function screensPanel(t: Texts): Record<string, unknown> {
                 close: icon(t['screens.close'], 'screensClose', 'x')
             }),
             hint: caption(t['screens.pick']),
+            columns: {
+                component: 'selectField',
+                size: 'sm',
+                _label: t['screens.columns'],
+                // keyed n1, n2…: a key may not be integer-like
+                options: Object.fromEntries(SCREEN_COLUMNS.map((count) => [`n${count}`, { _label: String(count) }])),
+                '<-value': `${E}.screenColumns`,
+                on: { change: emit('screenColumns') }
+            },
             list: {
                 component: 'list',
                 '<-items': '$.data.screens',

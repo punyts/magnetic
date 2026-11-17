@@ -104,9 +104,9 @@ body.shell.editing.unfitted .world { visibility: hidden; }
 .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .world.glide { transition: transform 0.25s ease; }
 .artboard { position: relative; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
-/* Each screen of the app in a slot of its own, left to right: the live frame in the slot of the screen it shows, the
+/* Each screen of the app in a slot of its own, in rows left to right: the live frame in the slot of the screen it shows, the
    others as previews (screens.js) with a cover that makes the screen the one worked on */
-body.shell.editing .artboard { left: var(--slot-x, 0px); }
+body.shell.editing .artboard { left: var(--slot-x, 0px); top: var(--slot-y, 0px); }
 .preview { position: absolute; top: 0; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
 .preview-frame, .preview-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; border-radius: inherit; overflow: hidden; }
 .preview-cover { position: absolute; inset: 0; z-index: 1; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: inherit; }
@@ -753,8 +753,9 @@ function freeArea() {
 }
 
 function frameWidth() { return artboard.offsetWidth; }
-/** How far right the live frame's slot is on the board (screens.js sets it), in the frame's pixels */
+/** How far right and down the live frame's slot is on the board (screens.js sets them), in the frame's pixels */
 function slotX() { return Number(artboard.dataset.slotX || 0); }
+function slotY() { return Number(artboard.dataset.slotY || 0); }
 const sizeListeners = [];
 function frameHeight() { return artboard.offsetHeight; }
 
@@ -770,7 +771,7 @@ function fit(glide) {
     const area = freeArea();
     view.zoom = clampZoom(Math.min(1, area.width / frameWidth(), area.height / frameHeight()));
     view.x = area.left + (area.width - frameWidth() * view.zoom) / 2 - slotX() * view.zoom;
-    view.y = area.top + (area.height - frameHeight() * view.zoom) / 2;
+    view.y = area.top + (area.height - frameHeight() * view.zoom) / 2 - slotY() * view.zoom;
     render(glide);
 }
 
@@ -1041,8 +1042,8 @@ const magneticShell = {
     canvas: {
         /** The frame size, in the frame's pixels */
         size: () => SIZES[size],
-        /** Moves the board left by dx of the frame's pixels: the live frame stays where it is on the screen when its slot moves right by dx */
-        shift(dx) { view.x -= dx * view.zoom; render(false); },
+        /** Moves the board left by dx and up by dy of the frame's pixels: the live frame stays where it is on the screen when its slot moves by them */
+        shift(dx, dy = 0) { view.x -= dx * view.zoom; view.y -= dy * view.zoom; render(false); },
         onSize: (listener) => sizeListeners.push(listener),
         fitted: () => fittedRail !== null,
         fit: () => fit(false)

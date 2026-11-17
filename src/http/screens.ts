@@ -1,3 +1,4 @@
+import { SCREEN_COLUMNS } from '../editor/EditorApp.js';
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
@@ -6,7 +7,8 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **The Screens panel** (the editor app's `screens`, beside the rail in the library's place) lists the screens from
  *   `GET /edit/<id>/screens`, marks the one worked on, and adds, renames, copies, deletes one and chooses the one the
  *   app opens on with `POST /edit/<id>/screens`, through the same tools as the agent's.
- * - **The canvas** shows every screen as a frame, left to right, in the order of the app's screens, 160px apart. The
+ * - **The canvas** shows every screen as a frame, in the order of the app's screens, in rows of five (Screens in a row
+ *   on the panel changes it, kept in this browser), 160px apart. The
  *   live frame (the app itself, synced, inspected and edited) sits in the slot of the screen it shows. Every other
  *   screen is a preview: a panel of the host (`stateuiHost.mount`) loaded with the app's document opened on that
  *   screen, given the live frame's data and kept in step with it from `stateui:change`. A preview runs nothing of its
@@ -26,6 +28,17 @@ const world = document.getElementById('world');
 const artboard = document.getElementById('artboard');
 const GAP = 160;
 const MAX_LIVE = 6;
+const COLUMNS_KEY = 'magnetic.screenColumns';
+const COLUMN_CHOICES = ${JSON.stringify(SCREEN_COLUMNS)};
+
+/** How many screens a row holds: what this browser chose, five at first */
+function storedColumns() {
+    try {
+        const kept = Number(localStorage.getItem(COLUMNS_KEY));
+        return COLUMN_CHOICES.includes(kept) ? kept : 5;
+    } catch { return 5; }
+}
+let columns = storedColumns();
 const NAME = /^[a-z][a-z0-9-]*$/;
 
 let screens = [];
@@ -77,10 +90,13 @@ function show() {
         current: screen.name === current
     })));
     if (current !== renameFor) { renameFor = current; typedRename = current || ''; }
-    editor.set({ screenName: current || '', screenRename: current || '', isHome: current === start, notHome: current !== start });
+    editor.set({ screenName: current || '', screenRename: current || '', isHome: current === start, notHome: current !== start, screenColumns: 'n' + columns });
 }
 
 function slotOf(name) { return Math.max(0, screens.findIndex((screen) => screen.name === name)); }
+
+/** Where a slot is on the board, in the frame's pixels: across its row, and down the rows */
+function placeOf(index, width, height) { return { x: (index % columns) * (width + GAP), y: Math.floor(index / columns) * (height + GAP) }; }
 
 /**
  * Puts the live frame in its screen's slot and a preview in every other. With keep, the board moves so the live frame
@@ -90,11 +106,14 @@ function slotOf(name) { return Math.max(0, screens.findIndex((screen) => screen.
 function layout(keep) {
     if (!current) return;
     const [width, height] = shell.canvas.size();
-    const before = Number(artboard.dataset.slotX || 0);
-    const slotX = slotOf(current) * (width + GAP);
-    artboard.dataset.slotX = String(slotX);
-    artboard.style.setProperty('--slot-x', slotX + 'px');
-    if (keep && slotX !== before && document.body.classList.contains('editing')) shell.canvas.shift(slotX - before);
+    const beforeX = Number(artboard.dataset.slotX || 0);
+    const beforeY = Number(artboard.dataset.slotY || 0);
+    const slot = placeOf(slotOf(current), width, height);
+    artboard.dataset.slotX = String(slot.x);
+    artboard.dataset.slotY = String(slot.y);
+    artboard.style.setProperty('--slot-x', slot.x + 'px');
+    artboard.style.setProperty('--slot-y', slot.y + 'px');
+    if (keep && (slot.x !== beforeX || slot.y !== beforeY) && document.body.classList.contains('editing')) shell.canvas.shift(slot.x - beforeX, slot.y - beforeY);
     const label = artboard.querySelector('.artboard-label span');
     if (label) label.textContent = (document.body.dataset.appName || '') + (screens.length > 1 ? ' · ' + titleOf(current) : '');
     for (const [name, preview] of previews) {
@@ -104,7 +123,9 @@ function layout(keep) {
         if (screen.name === current) return;
         let preview = previews.get(screen.name);
         if (!preview) preview = makePreview(screen.name);
-        preview.element.style.left = index * (width + GAP) + 'px';
+        const place = placeOf(index, width, height);
+        preview.element.style.left = place.x + 'px';
+        preview.element.style.top = place.y + 'px';
         preview.element.style.width = width + 'px';
         preview.element.style.height = height + 'px';
         preview.label.textContent = screen.title;
@@ -247,6 +268,16 @@ async function onEmit(name, payload) {
             return;
         }
         case 'screenHome': if (current) await change({ action: 'home', name: current }); return;
+        case 'screenColumns': {
+            const chosen = Number(String(valueOf(payload) || '').replace(/^n/, ''));
+            if (!COLUMN_CHOICES.includes(chosen) || chosen === columns) return;
+            columns = chosen;
+            try { localStorage.setItem(COLUMNS_KEY, String(chosen)); } catch { /* not kept: this page still uses it */ }
+            show();
+            // The live frame keeps its place on the screen; the others move around it
+            layout(true);
+            return;
+        }
         case 'screenDelete': {
             if (!current || current === start) return;
             if (!confirm(fill(T['screens.deleteConfirm'], { name: titleOf(current) }))) return;

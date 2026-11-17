@@ -93,6 +93,28 @@ test.describe('Screens', () => {
         await expect(editor.editor.getByText('A screen name is lower-case letters, digits and dashes, starting with a letter.')).toBeVisible();
     });
 
+    test('the screens are laid out in rows of five, and of as many as chosen', async ({ page }) => {
+        for (const name of ['one', 'two', 'three', 'four', 'five']) await addScreen(editor, name);
+        await preview(page, 'home').locator('.preview-cover').click();
+        const columns = editor.editor.getByRole('combobox', { name: 'Screens in a row', exact: true });
+        await expect(columns).toHaveValue('n5');
+        const at = async (screen: string) => (await page.locator(`.preview[data-screen="${screen}"]`).evaluate((element) => ({ left: element.style.left, top: element.style.top })));
+        // Six screens: five in the first row, the sixth under the first
+        expect(await at('four')).toEqual({ left: expect.not.stringMatching(/^0px$/), top: '0px' });
+        expect((await at('five')).left).toBe('0px');
+        expect((await at('five')).top).not.toBe('0px');
+
+        // Act
+        await columns.selectOption({ label: '2' });
+
+        // Assert: two to a row, the live frame where it was, and the choice kept for the next editor
+        expect((await at('two')).left).toBe('0px');
+        expect((await at('two')).top).toBe((await at('three')).top);
+        await page.reload();
+        await editor.button('Screens (P)').click();
+        await expect(editor.editor.getByRole('combobox', { name: 'Screens in a row', exact: true })).toHaveValue('n2');
+    });
+
     test('only the previews in view run; one out of view shows its name', async ({ page }) => {
         for (const name of ['one', 'two', 'three']) await addScreen(editor, name);
         await preview(page, 'home').locator('.preview-cover').click();
