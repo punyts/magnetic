@@ -102,7 +102,7 @@ describe('Signing in with an OpenID Connect provider', () => {
 
         // Assert
         expect(html).toContain(`"go":"/auth/{id}?next=%2Fapps%2Fabc"`);
-        expect(html).toContain('"target":"provider","value":"mock"');
+        expect(html).toContain('"providers":{"p0":{"id":"mock","label":"Sign in with Mock"}}');
         expect(html).toContain('Sign in with Mock');
     });
 

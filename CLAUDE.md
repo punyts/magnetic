@@ -44,13 +44,16 @@ $0.15, so allowances move.
 - Options: `src/server/options.ts` parses flags and `MAGNETIC_*` variables; update `HELP_TEXT`, `options.test.ts` and
   the README with a new one. Development-only switches (dev users, HTTP providers, `--mock-agent`, `--seed`) refuse a
   non-loopback host.
-- Pages are StateUI apps, not server HTML: sign-in and link pages are built with the agent's own tools in a system
-  workspace (`src/pages/PageApps.ts`), and each person's home and editor are apps too (`src/home`, `src/editor`). They
-  are rebuilt when a hash of their definition and texts changes, under an advisory lock (`src/storage/exclusive.ts`)
-  because two servers race to make them.
+- Pages are StateUI apps, not server HTML (`docs/design/magnetic-editable.md`). Sign-in, the link page, Your apps
+  and the editor are each a `PageSpec` (`src/pages/PageSpec.ts`): an English definition with de/fr/es locales and a
+  contract of emits a copy must keep. Magnetic's code version is made with the agent's own tools in the system
+  workspace (`src/pages/PageApps.ts`); admins edit drafts in the pages workspace and publish them to `magnetic_page`
+  (`src/pages/SitePages.ts`); each person's Your apps and editor are copies they may change (`src/pages/PersonPages.ts`).
+  A page talks to its server only through `$.data` and emits, never by node path. Versions are remade when a hash of
+  their definition and texts changes, under an advisory lock (`src/storage/exclusive.ts`) because two servers race.
 - Text: `src/http/text.ts` has `EN` and `DE`/`FR`/`ES` typed against it (a missing key fails the typecheck), and pages
   have their own `*Text.ts` files (billing, connections, data, orgs). Admin pages are English only.
-- Database: Magnetic's tables are in `migrations/NNNN_name.sql` (next is 0011); StateUI's workspace tables come from
+- Database: Magnetic's tables are in `migrations/NNNN_name.sql` (next is 0012); StateUI's workspace tables come from
   `@punyts/stateui-pg`. Only stateui-pg's workspace tables have row-level security; a new workspace-scoped table must
   copy that policy and be queried through `db.transaction(…, { workspaceIds })`. The server connects as
   `magnetic_app`, granted every table by `migrate --app-role`; the development `magnetic` user is a superuser and

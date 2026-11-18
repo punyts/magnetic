@@ -169,7 +169,7 @@ describe('Signing up in the beta', () => {
         const make = await fetch(`${magnetic.origin}/settings/orgs`, { method: 'POST', redirect: 'manual', headers: { Cookie: bob.cookie, Origin: magnetic.origin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Mine&slug=mine' });
 
         // Assert
-        expect(signInPage).not.toContain('Sign in with your work email');
+        expect(signInPage).toContain('"noSso":true');
         expect(byEmail.status).toBe(404);
         expect(make.status).toBe(403);
         expect(await make.text()).toContain('Making an org is not open yet.');

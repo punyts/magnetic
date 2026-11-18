@@ -198,7 +198,7 @@ describe('Agent turns', () => {
         expect(editor).toContain('<body class="view shell editing" data-host-keys="mod+shift+e"');
     });
 
-    it('should make an app for the home page with a JSON answer, refuse a bad name and keep the agent off Your apps', async () => {
+    it('should make an app for the home page with a JSON answer, refuse a bad name and open Your apps in the editor', async () => {
         // Arrange
         const post = (name: string): Promise<Response> =>
             fetch(`${magnetic.origin}/new`, { method: 'POST', redirect: 'manual', headers: { Cookie: alice, Origin: magnetic.origin, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ name }).toString() });
@@ -219,10 +219,9 @@ describe('Agent turns', () => {
         expect((await services.instanceViews.find(id))?.name).toBe('reading-list');
         expect(bad.status).toBe(400);
         expect(((await bad.json()) as { message: string }).message).toMatch(/starts with a letter/);
-        expect(homeEditor.status).toBe(303);
-        expect(homeEditor.headers.get('location')).toBe('/');
+        expect(homeEditor.status).toBe(200);
         expect(homeApp.headers.get('location')).toBe('/');
-        expect(homeTurn.status).toBe(404);
+        expect(homeTurn.status).toBe(202);
         expect((await magnetic.homes.read(services, aliceId)).apps.map((app) => app.id)).not.toContain(home);
     });
 

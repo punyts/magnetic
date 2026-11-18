@@ -1,5 +1,6 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
 import type { FeedbackFilter, FeedbackRow, Overview, PersonRow } from '../admin/Admin.js';
+import type { PageStatus } from '../pages/SitePages.js';
 import { usd } from './billingPage.js';
 import { htmlOpen } from './pages.js';
 import type { PageLook } from './pages.js';
@@ -33,7 +34,7 @@ const time = (at: Date): string => `${at.toISOString().slice(0, 16).replace('T',
 const KIND_WORDS = { bug: 'Bug', comment: 'Comment', feature: 'Feature request' } as const;
 
 /** The admin pages' frame: a title, the sections, and what was just done or refused */
-function adminPage(look: PageLook, title: string, at: 'overview' | 'feedback' | 'people', body: string, said?: { readonly notice?: string; readonly error?: string }): string {
+function adminPage(look: PageLook, title: string, at: 'overview' | 'feedback' | 'people' | 'pages', body: string, said?: { readonly notice?: string; readonly error?: string }): string {
     const link = (href: string, name: string, key: typeof at): string => `<a class="button"${key === at ? ' aria-current="page"' : ''} href="${href}">${e(name)}</a>`;
     return [
         '<!doctype html>',
@@ -42,7 +43,7 @@ function adminPage(look: PageLook, title: string, at: 'overview' | 'feedback' | 
         `<title>${e(title)} · Magnetic admin</title>`,
         '<link rel="stylesheet" href="/assets/magnetic.css"></head>',
         '<body><main class="settings admin">',
-        `<header><h1>${e(title)}</h1><nav aria-label="Admin">${link('/admin', 'Overview', 'overview')}${link('/admin/feedback', 'Feedback', 'feedback')}${link('/admin/people', 'People', 'people')}<a class="button" href="/">Your apps</a></nav></header>`,
+        `<header><h1>${e(title)}</h1><nav aria-label="Admin">${link('/admin', 'Overview', 'overview')}${link('/admin/feedback', 'Feedback', 'feedback')}${link('/admin/people', 'People', 'people')}${link('/admin/pages', 'Pages', 'pages')}<a class="button" href="/">Your apps</a></nav></header>`,
         said?.notice === undefined ? '' : `<p class="notice" role="status">${e(said.notice)}</p>`,
         said?.error === undefined ? '' : `<p class="error" role="alert">${e(said.error)}</p>`,
         body,
@@ -163,6 +164,39 @@ export function adminPeoplePage(look: PageLook, people: readonly PersonRow[], al
         [
             `<p class="muted">In the order they first signed in. ${allowance.betaOrg === undefined ? 'That is the order free agent use goes by.' : 'Free agent use goes by place in the beta org, in the order people joined it.'} Giving adds agent use to what they have, as a payment would.</p>`,
             `<div class="table"><table><thead><tr><th>#</th><th>Person</th><th>Joined</th><th>Free</th><th>Paid</th><th>Given</th><th>Used</th><th>Left</th><th>Give agent use</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        ].join('\n'),
+        said
+    );
+}
+
+/**
+ * `GET /admin/pages`: Magnetic's own pages (docs/design/magnetic-editable.md), each with what is served, whether its
+ * draft has changes not published, and Edit, Publish and Reset
+ */
+export function adminPagesPage(look: PageLook, pages: readonly PageStatus[], names: ReadonlyMap<string, string>, said?: { readonly notice?: string; readonly error?: string; readonly reasons?: readonly string[] }): string {
+    const rows = pages
+        .map((page) => {
+            const served = page.published === undefined ? "Magnetic's own" : `Published by ${names.get(page.published.by) ?? 'an admin'}, ${time(page.published.at)}`;
+            const notes = [page.unpublished ? 'The draft has changes not published.' : undefined, page.newer ? "Magnetic shipped a newer version since this one's draft was made: Reset takes it." : undefined].filter((note) => note !== undefined);
+            const action = (what: string, label: string, kind = ''): string => `<form method="post" action="/admin/pages/${e(page.name)}/${what}" class="inline"><button${kind === '' ? '' : ` class="${kind}"`}>${e(label)}</button></form>`;
+            return [
+                `<li data-page="${e(page.name)}">`,
+                `<div class="row"><strong>${e(page.title)}</strong><span class="muted">${e(served)}</span></div>`,
+                ...notes.map((note) => `<p class="muted small">${e(note)}</p>`),
+                `<div class="row">${action('edit', 'Edit', 'primary')}${page.draftId === undefined ? '' : action('publish', 'Publish')}${action('reset', "Reset to Magnetic's", 'link')}</div>`,
+                '</li>'
+            ].join('');
+        })
+        .join('\n');
+    const refused = said?.reasons === undefined || said.reasons.length === 0 ? '' : `<ul class="error">${said.reasons.map((reason) => `<li>${e(reason)}</li>`).join('')}</ul>`;
+    return adminPage(
+        look,
+        'Pages',
+        'pages',
+        [
+            "<p class=\"muted\">Magnetic's own pages, as every visitor and every new person gets them. Edit opens a draft in the editor, where you change it by hand or with the agent; nobody else sees it until you publish it. People who changed their own Your apps or editor keep theirs. Reset puts a page back to Magnetic's at once.</p>",
+            refused,
+            `<ul class="list pages">${rows}</ul>`
         ].join('\n'),
         said
     );

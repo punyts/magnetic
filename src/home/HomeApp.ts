@@ -1,18 +1,22 @@
-import { createHash } from 'node:crypto';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
-import type { Language, Preferences } from '../prefs/Preferences.js';
+import type { Preferences } from '../prefs/Preferences.js';
 import { textsOf } from '../http/text.js';
 import type { Texts } from '../http/text.js';
+import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
+import type { PageSource } from '../pages/PersonPages.js';
+import type { PageSpec } from '../pages/PageSpec.js';
 import { run } from '../stateui/run.js';
 import type { Stamps } from '../storage/Stamps.js';
-import { alone, userAppsLock } from '../storage/exclusive.js';
+import { alone } from '../storage/exclusive.js';
 import type { Exclusive } from '../storage/exclusive.js';
 
 /** The name of each person's "Your apps" app, which Magnetic makes in their workspace and shows at `/` */
 export const HOME_APP = 'your-apps';
 /** The model of an app's card on the home app */
 const CARD_MODEL = 'app-card';
+/** The model of the home app's one record of the page's choices (`$.data.home`) */
+const HOME_MODEL = 'magnetic-home';
 
 /** One app as the home app shows it */
 export interface HomeCard {
@@ -51,13 +55,15 @@ function valueAt(state: unknown, path: string): unknown {
     return at;
 }
 
-/** A grid of app cards; pressing one raises `open` with the app's id */
-function grid(records: string): Record<string, unknown> {
+const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+
+/** A grid of cards; pressing one raises `target` with the card's id */
+function grid(records: string, target = 'open'): Record<string, unknown> {
     return {
         component: 'recordGrid',
         theme: { recordgrid: { itemheight: 'calc({size.control.md} * 2)' } },
         '<-records': records,
-        row: { component: 'card', elevation: 'flat', interactive: true, '<-_title': '$row.name', '<-_subtitle': '$row.note', on: { press: { command: 'emit', target: 'open', from: '$row.id' } } }
+        row: { component: 'card', elevation: 'flat', interactive: true, '<-_title': '$row.name', '<-_subtitle': '$row.note', on: { press: emit(target, '$row.id') } }
     };
 }
 
@@ -79,8 +85,8 @@ function inviteGrid(t: Texts): Record<string, unknown> {
                     padding: 'none',
                     layout: { type: 'row', gap: 'sm' },
                     children: {
-                        join: { component: 'button', size: 'sm', _title: t['home.join'], on: { press: { command: 'emit', target: 'inviteJoin', from: '$row.id' } } },
-                        decline: { component: 'button', size: 'sm', variant: 'ghost', _title: t['home.decline'], on: { press: { command: 'emit', target: 'inviteDecline', from: '$row.id' } } }
+                        join: { component: 'button', size: 'sm', _title: t['home.join'], on: { press: emit('inviteJoin', '$row.id') } },
+                        decline: { component: 'button', size: 'sm', variant: 'ghost', _title: t['home.decline'], on: { press: emit('inviteDecline', '$row.id') } }
                     }
                 }
             }
@@ -88,24 +94,15 @@ function inviteGrid(t: Texts): Record<string, unknown> {
     };
 }
 
-/** Where the home app keeps the name typed for a new app */
-const MAKE_VALUE = '$.screens.home.children.page.children.new.children.make.value';
-
-/** Whether the invites box hides: while no invite waits */
-const INVITES_HIDDEN = '$.screens.home.children.page.children.invitesBox.hidden';
-/** Admin, among the links at the top: shown only to those who run the server (the page writes its hidden) */
-const ADMIN_HIDDEN = '$.screens.home.children.page.children.top.children.admin.hidden';
-
-/** Make an org, beside the orgs' heading: hidden while making orgs is closed (the page writes its hidden) */
-const MAKE_ORG_HIDDEN = '$.screens.home.children.page.children.orgsHead.children.make.hidden';
-
-/** Where the home app keeps the person's choices of mode and language, which its menus show */
-const TOP = '$.screens.home.children.page.children.top.children';
+/** The page's record: what it shows and hides, the person's choices, and the name typed for a new app */
+const H = '$.data.home';
 
 /**
- * The home screen, in a centred column: Magnetic, the menus of mode and language (`mode`, `language`), the org
- * settings (`orgs`) and Sign out (`signout`), a field and a button that make an app (`create`, with the name), the person's apps, the apps shared
- * with them, and their editor (`editEditor`, `resetEditor`). Each `emit` reaches the page (`stateui:emit`), whose script acts on it
+ * The home screen, in a centred column: Magnetic, the menus of mode and language (`mode`, `language`), the settings
+ * pages and Sign out (`signout`), a field and a button that make an app (`create`, with the name), the person's apps,
+ * the apps shared with them, their orgs, and their own pages (`editHome`, `resetHome`, `editEditor`, `resetEditor`).
+ * Each `emit` reaches the page (`stateui:emit`), whose script acts on it. The page writes only `$.data`, so any node
+ * can move
  */
 function homeScreen(t: Texts): Record<string, unknown> {
     const menu = (target: string, label: string, options: Record<string, { _label: string }>): Record<string, unknown> => ({
@@ -113,9 +110,10 @@ function homeScreen(t: Texts): Record<string, unknown> {
         size: 'sm',
         _label: label,
         options,
-        value: '',
-        on: { change: { command: 'emit', target, from: `${TOP}.${target}.value` } }
+        '<-value': `${H}.${target}`,
+        on: { change: emit(target, `${H}.${target}`) }
     });
+    const link = (target: string, title: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', variant: 'ghost', size: 'sm', _title: title, ...more, on: { press: emit(target) } });
     return {
         component: 'panel',
         padding: 'lg',
@@ -135,19 +133,19 @@ function homeScreen(t: Texts): Record<string, unknown> {
                             title: { component: 'text', textRole: 'title', placement: { grow: 1 }, _text: 'Magnetic' },
                             mode: menu('mode', t['prefs.mode'], Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }]))),
                             language: menu('language', t['prefs.language'], Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }]))),
-                            orgs: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.orgs'], on: { press: { command: 'emit', target: 'orgs' } } },
-                            connections: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.connections'], on: { press: { command: 'emit', target: 'connections' } } },
-                            data: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.data'], on: { press: { command: 'emit', target: 'data' } } },
-                            billing: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.billing'], on: { press: { command: 'emit', target: 'billing' } } },
-                            admin: { component: 'button', variant: 'ghost', size: 'sm', hidden: true, _title: t['home.admin'], on: { press: { command: 'emit', target: 'admin' } } },
-                            signout: { component: 'button', variant: 'ghost', size: 'sm', _title: t['home.signOut'], on: { press: { command: 'emit', target: 'signout' } } }
+                            orgs: link('orgs', t['home.orgs']),
+                            connections: link('connections', t['home.connections']),
+                            data: link('data', t['home.data']),
+                            billing: link('billing', t['home.billing']),
+                            admin: link('admin', t['home.admin'], { '<-hidden': `${H}.notAdmin` }),
+                            signout: link('signout', t['home.signOut'])
                         }
                     },
-                    // Shown only while invites wait (the page writes its hidden)
+                    // Shown only while invites wait
                     invitesBox: {
                         component: 'panel',
                         bordered: true,
-                        hidden: true,
+                        '<-hidden': `${H}.noInvites`,
                         _title: t['home.invitesTitle'],
                         _description: t['home.invitesText'],
                         layout: { type: 'column', gap: 'sm' },
@@ -160,8 +158,8 @@ function homeScreen(t: Texts): Record<string, unknown> {
                         _description: t['home.makeText'],
                         layout: { type: 'row', align: 'end', gap: 'sm' },
                         children: {
-                            make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], value: '' },
-                            create: { component: 'button', _title: t['home.make'], on: { press: { command: 'emit', target: 'create', from: MAKE_VALUE } } }
+                            make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], '<-value': `${H}.make` },
+                            create: { component: 'button', _title: t['home.make'], on: { press: emit('create', `${H}.make`) } }
                         }
                     },
                     appsTitle: { component: 'text', textRole: 'heading', _text: t['home.appsTitle'] },
@@ -176,20 +174,22 @@ function homeScreen(t: Texts): Record<string, unknown> {
                         layout: { type: 'row', gap: 'sm', align: 'center' },
                         children: {
                             title: { component: 'text', textRole: 'heading', placement: { grow: 1 }, _text: t['home.orgsTitle'] },
-                            make: { component: 'button', size: 'sm', variant: 'soft', _title: t['home.makeOrg'], on: { press: { command: 'emit', target: 'orgs' } } }
+                            make: { component: 'button', size: 'sm', variant: 'soft', '<-hidden': `${H}.noMakeOrg`, _title: t['home.makeOrg'], on: { press: emit('orgs') } }
                         }
                     },
                     orgsHint: { component: 'text', textRole: 'caption', _text: t['home.orgsText'] },
-                    orgs: { ...grid('$.data.orgs'), row: { ...(grid('$.data.orgs')['row'] as Record<string, unknown>), on: { press: { command: 'emit', target: 'openOrg', from: '$row.id' } } } },
+                    orgs: grid('$.data.orgs', 'openOrg'),
                     editor: {
                         component: 'panel',
                         bordered: true,
-                        _title: t['home.editorTitle'],
-                        _description: t['home.editorText'],
+                        _title: t['home.pagesTitle'],
+                        _description: t['home.pagesText'],
                         layout: { type: 'row', gap: 'sm', align: 'center', wrap: true },
                         children: {
-                            edit: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editEditor'], on: { press: { command: 'emit', target: 'editEditor' } } },
-                            reset: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetEditor'], on: { press: { command: 'emit', target: 'resetEditor' } } }
+                            editHome: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editHome'], on: { press: emit('editHome') } },
+                            edit: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editEditor'], on: { press: emit('editEditor') } },
+                            resetHome: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetHome'], on: { press: emit('resetHome') } },
+                            reset: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetEditor'], on: { press: emit('resetEditor') } }
                         }
                     }
                 }
@@ -205,84 +205,64 @@ const CARD_FIELDS = [
     { op: 'set', field: 'note', type: 'string' }
 ];
 
-/** The definition of the home app in a language, beside its name */
-function homeDefinition(language: Language): Record<string, unknown> {
-    const t = textsOf(language);
-    return {
-        title: t['home.appsTitle'],
-        data: { apps: { model: CARD_MODEL, scope: 'persona' }, shared: { model: CARD_MODEL, scope: 'persona' }, orgs: { model: CARD_MODEL, scope: 'persona' }, invites: { model: CARD_MODEL, scope: 'persona' } },
-        home: homeScreen(t)
-    };
-}
+/** The fields of the page's record, `$.data.home`: the flags start as Your apps shows to someone with nothing waiting */
+const HOME_FIELDS = [
+    ...['noInvites', 'notAdmin', 'noMakeOrg'].map((field) => ({ op: 'set', field, type: 'boolean', default: field !== 'noMakeOrg' })),
+    { op: 'set', field: 'mode', type: 'string', default: 'system' },
+    { op: 'set', field: 'language', type: 'string', default: 'en' },
+    { op: 'set', field: 'make', type: 'string', default: '' }
+];
 
-/** Changes when the definition does, or its language, so a workspace made with another one gets the new one */
-function homeStamp(language: Language): string {
-    return createHash('sha256').update(JSON.stringify({ CARD_FIELDS, definition: homeDefinition(language) })).digest('hex').slice(0, 16);
-}
+/** Your apps as a page of Magnetic's: made in English, with the other languages as locales */
+export const HOME: PageSpec = {
+    name: HOME_APP,
+    title: 'Your apps',
+    themed: false,
+    required: ['open', 'create', 'signout', 'editHome', 'resetHome'],
+    sample: {
+        '$.data.apps': { 'app-one': { id: 'app-one', name: 'An app of theirs', note: 'Changed 18 Nov 2026' } },
+        '$.data.shared': { 'app-two': { id: 'app-two', name: 'An app shared with them', note: 'Shared by someone' } },
+        '$.data.orgs': { 'org-one': { id: 'org-one', name: 'An org of theirs', note: 'Builder' } },
+        '$.data.invites': { 'invite-one': { id: 'invite-one', name: 'Join an org', note: 'As a builder, from someone' } },
+        [H]: { noInvites: false, notAdmin: false, noMakeOrg: false, mode: 'system', language: 'en', make: '' }
+    },
+    models: { [CARD_MODEL]: CARD_FIELDS, [HOME_MODEL]: HOME_FIELDS },
+    definition: () => {
+        const t = textsOf('en');
+        return {
+            title: t['home.appsTitle'],
+            data: {
+                home: { model: HOME_MODEL, scope: 'persona' },
+                apps: { model: CARD_MODEL, scope: 'persona' },
+                shared: { model: CARD_MODEL, scope: 'persona' },
+                orgs: { model: CARD_MODEL, scope: 'persona' },
+                invites: { model: CARD_MODEL, scope: 'persona' }
+            },
+            home: homeScreen(t)
+        };
+    }
+};
 
 /**
- * Each person's "Your apps": a StateUI app in their own workspace, built with the same tools the agent uses. It is made
- * the first time it is needed, and made again when Magnetic ships a new definition or the person changes language (the
- * stamp kept for the workspace differs); each visit writes the lists of apps and the person's choices into
- * its data, so it is never stale
+ * Each person's "Your apps": a StateUI app in their own workspace, made from Magnetic's version and kept when they change
+ * it (`PersonPages`). Each visit writes the lists of apps and the person's choices into its data, so it is never
+ * stale; one copy serves every language, as its texts are locales
  */
-export class HomeApps {
-    /** The id of each workspace's home app, once known, and the language it was made in */
-    private readonly ids = new WeakMap<Services, { readonly language: Language; readonly id: Promise<string> }>();
-
+export class HomeApps extends PersonPages {
     constructor(
-        private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
+        toolsOf: (services: Services) => readonly UiToolDefinition[],
         /** Where the version of the home app made in each workspace is kept */
-        private readonly stamps: Stamps,
+        stamps: Stamps,
         /** Keeps two servers from making the same person's home app at once */
-        private readonly exclusive: Exclusive = alone
-    ) {}
-
-    /** The id of the home app of a person's workspace in a language, making it first when it has none in that language */
-    id(services: Services, userId: string, language: Language = 'en'): Promise<string> {
-        const known = this.ids.get(services);
-        if (known !== undefined && known.language === language) return known.id;
-        const id = (known?.id.catch(() => undefined) ?? Promise.resolve()).then(() => this.ensure(services, userId, language));
-        id.catch(() => this.ids.delete(services));
-        this.ids.set(services, { language, id });
-        return id;
-    }
-
-    private async ensure(services: Services, userId: string, language: Language): Promise<string> {
-        const HOME_STAMP = homeStamp(language);
-        const current = async () => ({
-            stamp: (await this.stamps.get<{ stamp?: string }>(userId, 'home'))?.stamp,
-            existing: (await services.instanceViews.list()).find((app) => app.name === HOME_APP)
-        });
-        const first = await current();
-        if (first.existing !== undefined && first.stamp === HOME_STAMP) return first.existing.id;
-        return this.exclusive(userAppsLock(userId), async () => {
-            // Another server may have made it meanwhile, past what this server's index of the parts has heard
-            services.resyncParts();
-            const { stamp, existing } = await current();
-            if (existing !== undefined && stamp === HOME_STAMP) return existing.id;
-            return this.make(services, userId, language, HOME_STAMP, existing?.revision);
-        });
-    }
-
-    /** Makes the home app again, in place of the one at `replacing` */
-    private async make(services: Services, userId: string, language: Language, HOME_STAMP: string, replacing: number | undefined): Promise<string> {
-        const existing = replacing === undefined ? undefined : { revision: replacing };
-        const tools = this.toolsOf(services);
-        if (existing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: HOME_APP, expectedRevision: existing.revision });
-        const models = await run(tools, 'ui_list', { kind: 'models' }).catch(() => ({}));
-        if (!JSON.stringify(models).includes(`"${CARD_MODEL}"`)) {
-            await run(tools, 'ui_model_write', { model: CARD_MODEL, operations: CARD_FIELDS });
-        }
-        const created = await run(tools, 'ui_app_create', { name: HOME_APP, ...homeDefinition(language) });
-        if (typeof created['id'] !== 'string') throw new Error('ui_app_create gave no id');
-        await this.stamps.set(userId, 'home', { stamp: HOME_STAMP });
-        return created['id'];
+        exclusive: Exclusive = alone,
+        source: () => PageSource = () => CODE_SOURCE
+    ) {
+        super(HOME, 'home', toolsOf, stamps, source, exclusive);
     }
 
     /** The lists the home app holds now, in their order */
-    async read(services: Services, userId: string, language: Language = 'en'): Promise<HomeData> {
-        await this.id(services, userId, language);
+    async read(services: Services, userId: string): Promise<HomeData> {
+        await this.id(services, userId);
         const tools = this.toolsOf(services);
         const list = async (path: string): Promise<HomeCard[]> => {
             const body = await run(tools, 'ui_state_get', { app: HOME_APP, path, full: true });
@@ -294,29 +274,24 @@ export class HomeApps {
 
     /**
      * Writes the lists into the home app's data, which its open views follow at once, sets its menus to the person's
-     * choices and empties the name field
+     * choices and empties the name field. A write the person's copy refuses (they took its data out) is left out
      */
-    async show(services: Services, userId: string, data: HomeData, prefs: Preferences = { mode: 'system', language: 'en' }): Promise<void> {
-        await this.id(services, userId, prefs.language);
+    async show(services: Services, userId: string, data: HomeData, prefs: Preferences = { mode: 'system', language: 'en' }, report?: (message: string, fields: Record<string, unknown>) => void): Promise<void> {
+        await this.id(services, userId);
         const tools = this.toolsOf(services);
         const wanted: Array<[string, unknown]> = [
             ['$.data.apps', byId(data.apps)],
             ['$.data.shared', byId(data.shared)],
             ['$.data.orgs', byId(data.orgs ?? [])],
             ['$.data.invites', byId(data.invites ?? [])],
-            [INVITES_HIDDEN, (data.invites ?? []).length === 0],
-            [ADMIN_HIDDEN, data.admin !== true],
-            [MAKE_ORG_HIDDEN, data.makeOrgs === false],
-            [MAKE_VALUE, ''],
-            [`${TOP}.mode.value`, prefs.mode],
-            [`${TOP}.language.value`, prefs.language]
+            [H, { noInvites: (data.invites ?? []).length === 0, notAdmin: data.admin !== true, noMakeOrg: data.makeOrgs === false, mode: prefs.mode, language: prefs.language, make: '' }]
         ];
         // Each write assembles the app again, so the state is read once and only what differs is written: most
         // loads of the page change nothing
         const state = (await run(tools, 'ui_state_get', { app: HOME_APP, path: '$', full: true }).catch((): Record<string, unknown> => ({})))['value'];
         for (const [path, value] of wanted) {
             if (JSON.stringify(valueAt(state, path)) === JSON.stringify(value)) continue;
-            await run(tools, 'ui_state_set', { app: HOME_APP, path, value, logic: false });
+            await run(tools, 'ui_state_set', { app: HOME_APP, path, value, logic: false }).catch((error: unknown) => report?.('Your apps refused a write', { path, error: error instanceof Error ? error.message.slice(0, 200) : String(error) }));
         }
     }
 }

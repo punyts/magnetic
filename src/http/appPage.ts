@@ -20,6 +20,11 @@ export interface AppPageOptions {
     readonly data: Readonly<Record<string, unknown>>;
     /** What each emit of the app does */
     readonly actions: Readonly<Record<string, PageAction>>;
+    /**
+     * True when the app is an admin's published version: a page whose app is not ready in time loads again at
+     * `?page=default`, Magnetic's own
+     */
+    readonly fallback?: boolean;
 }
 
 /** JSON in a page, never run: `<` is escaped so nothing in it can close the block */
@@ -44,7 +49,7 @@ export function appPage(options: AppPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/app-page.css">',
         '</head>',
-        `<body class="view app-page" data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-mode="${options.look.mode}" data-locale="${options.look.language}">`,
+        `<body class="view app-page" data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.fallback === true ? ' data-fallback="default"' : ''}>`,
         '<div class="page-app" id="page-app"></div>',
         block('page-app-document', options.app),
         block('page-app-data', options.data),
@@ -90,7 +95,18 @@ holder.addEventListener('stateui:emit', (event) => {
 });
 
 const panel = window.stateuiHost.mount(holder, app, document.title);
+let ready = false;
+// A published page that does not load gives way to Magnetic's own, so a bad publish locks nobody out
+if (document.body.dataset.fallback === 'default') {
+    setTimeout(() => {
+        if (ready) return;
+        const url = new URL(location.href);
+        url.searchParams.set('page', 'default');
+        location.replace(url.href);
+    }, 10000);
+}
 holder.addEventListener('stateui:ready', () => {
+    ready = true;
     panel.write(Object.entries(data).map(([path, value]) => ({ path, value })));
 });
 `;

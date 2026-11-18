@@ -48,6 +48,7 @@ export const HOME_CSS = `${schemeCss('--paper: #ffffff;', '--paper: #15171c;')}
 html, body.home { height: 100%; margin: 0; overflow: hidden; background: var(--paper); }
 .notice { position: fixed; z-index: 2; left: 50%; top: 1rem; transform: translateX(-50%); margin: 0; padding: 0.5rem 0.9rem; border-radius: 0.75rem; background: #c0392b; color: #fff; font: 0.9rem system-ui, sans-serif; box-shadow: 0 8px 24px rgba(20, 24, 40, 0.2); }
 .notice[hidden] { display: none; }
+.notice .reset { margin-left: 0.5rem; font: inherit; padding: 0.2rem 0.6rem; border-radius: 0.5rem; border: 1px solid #fff; background: transparent; color: inherit; cursor: pointer; }
 `;
 
 /**
@@ -79,16 +80,29 @@ async function create(name) {
     finally { busy = false; }
 }
 
-// The person's editor is an app of theirs: open it in the editor, or put it back to Magnetic's
+// The person's editor and this page are apps of theirs: open one in the editor, or put it back to Magnetic's
 async function editor(path) {
     try {
         const response = await fetch(path, { method: 'POST' });
         const answer = await response.json().catch(() => ({}));
         if (!response.ok || typeof answer.id !== 'string' || !APP_ID.test(answer.id)) throw new Error('refused');
-        if (path === '/editor') location.assign('/edit/' + encodeURIComponent(answer.id));
+        if (path === '/editor' || path === '/home') location.assign('/edit/' + encodeURIComponent(answer.id));
+        else if (path === '/home/reset') location.reload();
         else say(T['home.resetDone']);
     } catch { say(T['home.notMade']); }
 }
+
+// A changed Your apps that does not load leaves the person a way back: Reset, on the page itself
+setTimeout(() => {
+    if (document.body.dataset.status === 'ready') return;
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'reset';
+    reset.textContent = T['home.resetHome'];
+    reset.addEventListener('click', () => void editor('/home/reset'));
+    notice.replaceChildren(document.createTextNode(T['home.broken'] + ' '), reset);
+    notice.hidden = false;
+}, 10000);
 
 // An invite waiting here: joined, it opens the org; declined, it goes
 async function answerInvite(id, join) {
@@ -117,6 +131,8 @@ addEventListener('stateui:emit', (event) => {
     else if ((name === 'mode' || name === 'language') && typeof payload === 'string') void choose({ [name]: payload });
     else if (name === 'editEditor') void editor('/editor');
     else if (name === 'resetEditor') { if (confirm(T['home.resetConfirm'])) void editor('/editor/reset'); }
+    else if (name === 'editHome') void editor('/home');
+    else if (name === 'resetHome') { if (confirm(T['home.resetHomeConfirm'])) void editor('/home/reset'); }
     else if (name === 'orgs') location.assign('/settings/orgs');
     else if (name === 'connections') location.assign('/settings/connections');
     else if (name === 'data') location.assign('/settings/data');

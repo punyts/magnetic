@@ -289,6 +289,12 @@ The commands are:
   open, done or all, by kind, with the sender's email to reply to; Done and Reopen. People: in sign-in order, with
   what each got free, paid, was given, used and has left, and a form to give agent use (up to $500 at a time, kept in
   `agent_credit` as a gift, shown to the person as Given by Magnetic). English only.
+- **Editable pages** (`docs/design/magnetic-editable.md`). Sign-in, the share-link page, Your apps and the editor are
+  StateUI apps. On **Pages** (`/admin/pages`) an admin edits a draft of each in the editor and publishes it to every
+  visitor and to everyone who has not changed their own copy; a draft that does not validate, or no longer raises an
+  emit the page needs, is refused with the reasons. Reset serves Magnetic's own again. `?page=default` always shows
+  Magnetic's own sign-in or link page, and a published one that does not load falls back to it. Each person can edit
+  and reset their own Your apps and editor from "Your pages" on Your apps.
 - **Buying agent use after the allowance** (`docs/design/magnetic-payments.md`). With `MAGNETIC_STRIPE_SECRET_KEY`
   and `MAGNETIC_STRIPE_WEBHOOK_SECRET`, a person adds agent use on **Agent use** (`/settings/billing`) through
   Stripe Checkout, in the amounts of `--top-ups` (default $10, $25, $50). Each dollar adds a dollar, spent at the
@@ -530,6 +536,7 @@ The org settings, Shared by me, Data, Agent use and privacy pages are plain HTML
 | `connections.spec.ts` | The Connections page from Your apps; a key connection made, its endpoint added and tried, with the key never on the page; a URL that is not https refused; an OAuth connection connected through the stand-in provider (port + 3) and called with its token; deleting only with the box ticked; the page in German for someone who chose no language; the editor's Connections panel listing an endpoint and asking the agent, with "Yours" in the top bar; an org with connections turned off: its page says so with no Try, and its app's editor names the org and says so too |
 | `feedback.spec.ts` | The editor's bug button: a feature request sent and emailed to the operator with the frame size, the box cleared; an empty one refused, and the sheet closed by its button |
 | `admin.spec.ts` | No Admin on Your apps for someone who is not one; an admin (a verified email listed in `admins`) reading a bug sent from the editor, marking it done and opening it again, and giving another person $3 of agent use |
+| `pages.spec.ts` | (Publish at desktop only) An admin editing sign-in, publishing it, a stranger seeing it and Magnetic's own at `?page=default`, a draft without the development sign-in refused, and Reset; a person editing Your apps, keeping the change in German, and resetting it |
 | `data.spec.ts` | The Data page from Your apps; a dataset shared by email, listed under Shared with this workspace for the other person with the `uses.external` that reads it, then stopped and gone from their page; the editor's Shared data panel listing a dataset shared with the workspace and asking the agent; an email nobody has refused with the reason |
 | `billing.spec.ts` | The Agent use page from Your apps; $10 bought through the stand-in Stripe's checkout page (the API port) and its signed webhook, then refunded; a cancelled checkout charging nothing |
 | `share.spec.ts` | What each right means; a `use` link opened by another person, on their Your apps, then revoked; a remix becoming the other person's copy |

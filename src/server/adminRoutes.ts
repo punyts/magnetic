@@ -3,10 +3,11 @@ import type { User } from '../accounts/Accounts.js';
 import type { Admin, AdminList, FeedbackFilter } from '../admin/Admin.js';
 import type { Beta } from '../beta/Beta.js';
 import { FEEDBACK_KINDS } from '../feedback/Feedback.js';
-import { adminFeedbackPage, adminOverviewPage, adminPeoplePage } from '../http/adminPage.js';
+import { adminFeedbackPage, adminOverviewPage, adminPagesPage, adminPeoplePage } from '../http/adminPage.js';
 import type { AllowanceInfo, BetaInfo } from '../http/adminPage.js';
 import { usd } from '../http/billingPage.js';
 import type { PageLook } from '../http/pages.js';
+import type { SitePages } from '../pages/SitePages.js';
 
 /** The most an admin may give at once, in dollars: a typo of a few zeros stays small */
 export const MAX_GIFT = 500;
@@ -14,6 +15,8 @@ export const MAX_GIFT = 500;
 export interface AdminRouteContext {
     readonly admin: Admin;
     readonly admins: AdminList;
+    /** Magnetic's own pages, which admins edit and publish */
+    readonly pages: SitePages;
     readonly allowance: AllowanceInfo;
     /** The beta, when the server runs one (`--beta-org`) */
     readonly beta?: Beta;
@@ -38,12 +41,13 @@ const backTo = (value: string | null): string => (value !== null && /^\/admin\/f
 
 /**
  * The operator's admin pages (docs/design/magnetic-admin.md): `/admin` (the numbers), `/admin/feedback` (what people
- * sent from the editor, with Done and Reopen) and `/admin/people` (everyone in sign-in order, with Give). Only people
+ * sent from the editor, with Done and Reopen), `/admin/people` (everyone in sign-in order, with Give) and `/admin/pages`
+ * (Magnetic's own pages, with Edit, Publish and Reset). Only people
  * whose verified email is in `MAGNETIC_ADMIN_EMAILS` reach them; to anyone else there are no such pages. Answers true
  * when it handled the request
  */
 export function adminRoutes(context: AdminRouteContext) {
-    const { admin, admins, beta } = context;
+    const { admin, admins, beta, pages } = context;
 
     async function betaInfo(): Promise<BetaInfo | undefined> {
         if (beta === undefined) return undefined;
@@ -109,6 +113,40 @@ export function adminRoutes(context: AdminRouteContext) {
             await admin.give({ userId, dollars, note, by: who.user.id });
             context.report('Agent use given', { user: userId, dollars, by: who.user.id });
             context.redirect(response, `/admin/people?gave=${userId}&dollars=${dollars}`);
+            return true;
+        }
+        if (method === 'GET' && path === '/admin/pages') {
+            const statuses = await pages.status();
+            const names = new Map<string, string>();
+            for (const page of statuses) if (page.published !== undefined) names.set(page.published.by, (await admin.personName(page.published.by)) ?? 'an admin');
+            const done = query.get('done');
+            const notice = done === 'published' ? 'Published: every visitor gets it now.' : done === 'reset' ? "Back to Magnetic's own." : undefined;
+            context.sendPage(response, adminPagesPage(look, statuses, names, notice === undefined ? undefined : { notice }));
+            return true;
+        }
+        const page = /^\/admin\/pages\/([a-z0-9-]{1,63})\/(edit|publish|reset)$/.exec(path);
+        if (method === 'POST' && page !== null) {
+            const spec = pages.spec(page[1] as string);
+            if (spec === undefined) return false;
+            const what = page[2] as 'edit' | 'publish' | 'reset';
+            if (what === 'edit') {
+                context.redirect(response, `/edit/${encodeURIComponent(await pages.draft(spec))}`);
+                return true;
+            }
+            if (what === 'reset') {
+                await pages.reset(spec);
+                context.report('Page reset to Magnetic\'s', { page: spec.name, by: who.user.id });
+                context.redirect(response, '/admin/pages?done=reset');
+                return true;
+            }
+            const published = await pages.publish(spec, who.user.id);
+            if ('refused' in published) {
+                const statuses = await pages.status();
+                context.sendPage(response, adminPagesPage(look, statuses, new Map(), { error: `${spec.title} was not published:`, reasons: published.refused }), 400);
+                return true;
+            }
+            context.report('Page published', { page: spec.name, by: who.user.id });
+            context.redirect(response, '/admin/pages?done=published');
             return true;
         }
         return false;

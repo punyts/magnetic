@@ -19,7 +19,7 @@ import { privacyPage } from '../http/privacy.js';
 import type { PrivacyContact } from '../http/privacy.js';
 import { databaseExclusive } from '../storage/exclusive.js';
 import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
-import { HOME_APP, HomeApps } from '../home/HomeApp.js';
+import { HOME, HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
 import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
@@ -47,10 +47,13 @@ import type { StripeOptions } from '../billing/Stripe.js';
 import type { LogicInstance } from '@punyts/stateui-mcp';
 import { orgTextsOf } from '../http/orgText.js';
 import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
-import { COMPONENT_CATEGORIES, SYSTEM_USER_ID } from '../inspector/constants.js';
+import { COMPONENT_CATEGORIES, PAGES_WORKSPACE_ID, SYSTEM_USER_ID } from '../inspector/constants.js';
+import { SitePages } from '../pages/SitePages.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
-import { DefaultEditor, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
+import { EDITOR, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
 import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
+import type { PageAppDocument } from '../pages/PageApps.js';
+import type { PageSpec } from '../pages/PageSpec.js';
 import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
 import { run } from '../stateui/run.js';
 import type { HomeCard } from '../home/HomeApp.js';
@@ -437,25 +440,46 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const look: PageLook = { language: languageOf(request.headers['accept-language']), mode: 'system' };
         const t = textsOf(look.language);
         const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
+        const app = await pageOf(request, PAGE_APPS.signIn);
+        const work = sso.available && !inBeta;
         return appPage({
             look,
             title: t['signin.title'],
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
-            app: await pageApps.document(PAGE_APPS.signIn),
-            data: { '$.data.signin': { error: error ?? '', noError: error === undefined, ...(await betaNotice(t)), labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name })])) } },
+            app,
+            fallback: app.published,
+            data: {
+                '$.data.signin': {
+                    error: error ?? '',
+                    noError: error === undefined,
+                    ...(await betaNotice(t)),
+                    providers: Object.fromEntries(providerButtons.map((provider, index) => [`p${index}`, { id: provider.name, label: provider.label }])),
+                    noProviders: providerButtons.length === 0,
+                    devUsers: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, { id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }])),
+                    noDevUsers: devUsers.length === 0,
+                    noSso: !work,
+                    noNone: providerButtons.length > 0 || devUsers.length > 0 || work
+                }
+            },
             actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
     };
     /** A share link's page, a StateUI app: why the link does not open an app, or the offer to remix it */
-    const linkPageOf = async (request: IncomingMessage, look: PageLook, title: string, message: string, remix?: string): Promise<string> =>
-        appPage({
+    const linkPageOf = async (request: IncomingMessage, look: PageLook, title: string, message: string, remix?: string): Promise<string> => {
+        const app = await pageOf(request, PAGE_APPS.link);
+        return appPage({
             look,
             title,
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
-            app: await pageApps.document(PAGE_APPS.link),
+            app,
+            fallback: app.published,
             data: { '$.data.link': { title, message, noRemix: remix === undefined } },
             actions: { home: { go: '/' }, ...(remix !== undefined && { remix: { post: `/s/${encodeURIComponent(remix)}/remix` } }) }
         });
+    };
+    /** A page as a visitor gets it: what an admin published, or Magnetic's own at `?page=default` and until one is */
+    const pageOf = async (request: IncomingMessage, spec: PageSpec): Promise<PageAppDocument & { readonly published: boolean }> =>
+        new URL(request.url ?? '/', 'http://magnetic').searchParams.get('page') === 'default' ? { ...(await sitePages.codeDocument(spec)), published: false } : sitePages.served(spec);
     if (options.statenet !== undefined && box === undefined) throw new Error('A server of several (statenet) needs the secret key, which keeps the statenet\'s certificate authority');
     let workspacesRef: Workspaces | undefined;
     /** This server's node of the statenet, when it is one of several on the database */
@@ -478,7 +502,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             open: async (workspaceId) => {
                 const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined, embedRecords: index !== undefined, ...(statenet !== undefined && { announceAs: statenet.announceAs }) });
                 // A person's own workspace starts with the showcase; an org's starts empty
-                if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
+                if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && workspaceId !== PAGES_WORKSPACE_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
                 }
                 const services = createServices({
@@ -523,26 +547,28 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         return found;
     };
-    /** Each person's "Your apps", made with the tools the agent uses */
-    const homes = new HomeApps(toolsOf, stamps, exclusive);
+
     const preferences = new PreferenceStore(db);
     /** How Magnetic looks and speaks to a signed-in person */
     const lookOf = (request: IncomingMessage, userId: string): Promise<Preferences> => preferences.read(userId, request.headers['accept-language']);
-    /** Each person's editor, an app of their own made with the tools the agent uses */
-    const editors = new EditorApps(toolsOf, stamps, exclusive);
-    /** Magnetic's own editor, in the system workspace: what a person gets when theirs does not load */
-    const systemWorkspace = async (): Promise<{ services: Services; release: () => void }> => {
-        const release = workspaces.retain(SYSTEM_USER_ID);
+    /** A workspace no person owns, held open while it is used */
+    const fixedWorkspace = (workspaceId: string) => async (): Promise<{ services: Services; release: () => void }> => {
+        const release = workspaces.retain(workspaceId);
         try {
-            return { services: await workspaces.get(SYSTEM_USER_ID), release };
+            return { services: await workspaces.get(workspaceId), release };
         } catch (error) {
             release();
             throw error;
         }
     };
-    const defaultEditor = new DefaultEditor(systemWorkspace, toolsOf, stamps, exclusive);
-    /** Magnetic's own pages before a person's workspace (sign in, share links), as StateUI apps */
-    const pageApps = new PageApps(systemWorkspace, toolsOf, stamps, { providers: providerButtons, devUsers, sso: sso.available && !inBeta }, exclusive);
+    /** Magnetic's own pages as its code makes them, in the system workspace */
+    const pageApps = new PageApps(fixedWorkspace(SYSTEM_USER_ID), toolsOf, stamps, exclusive);
+    /** Magnetic's own pages as admins edit and publish them (docs/design/magnetic-editable.md) */
+    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR], exclusive);
+    /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
+    const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
+    /** Each person's editor, made from Magnetic's version and kept when they change it */
+    const editors = new EditorApps(toolsOf, stamps, exclusive, () => sitePages);
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
@@ -638,7 +664,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const app = await own.instanceViews.find(appId);
         if (app !== undefined) return { services: own, app, workspaceId: userId, permission: 'manage' };
         const place = await access.locate(userId, appId);
-        if (place?.orgId === undefined) return undefined;
+        if (place?.orgId === undefined) {
+            // An admin's draft of one of Magnetic's own pages (docs/design/magnetic-editable.md): admins only
+            if (!(await admins.is(userId))) return undefined;
+            const pages = await workspaces.get(PAGES_WORKSPACE_ID);
+            const draft = await pages.instanceViews.find(appId);
+            return draft === undefined ? undefined : { services: pages, app: draft, workspaceId: PAGES_WORKSPACE_ID, permission: 'manage' };
+        }
         const services = await workspaces.get(place.workspaceId);
         const found = await services.instanceViews.find(appId);
         return found === undefined ? undefined : { services, app: found, workspaceId: place.workspaceId, orgId: place.orgId, permission: place.permission };
@@ -656,6 +688,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** The name of an org, shown in the editor beside the app's name; undefined for a person's own workspace */
     async function orgNameOf(orgId: string | undefined): Promise<string | undefined> {
         return orgId === undefined ? undefined : (await orgs.get(orgId))?.name;
+    }
+
+    /** The workspace an app is in, as the editor's top bar names it: an org's name, Magnetic's pages, or undefined for the person's own */
+    async function workspaceNameOf(place: { readonly orgId?: string; readonly workspaceId: string }): Promise<string | undefined> {
+        return place.workspaceId === PAGES_WORKSPACE_ID ? "Magnetic's pages" : orgNameOf(place.orgId);
     }
 
     /** Whether a share link to an app of this workspace opens for the person: an org's reach only its members, unless it allows outside people */
@@ -762,6 +799,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const handleAdmin = adminRoutes({
         admin: new Admin(db),
         admins,
+        pages: sitePages,
         allowance: { ...(budgetLimits.perUserTotal !== undefined && { dollars: budgetLimits.perUserTotal }), ...(budgetLimits.allowanceUsers !== undefined && { people: budgetLimits.allowanceUsers }), monthly: budgetLimits.monthly, ...(beta !== undefined && { betaOrg: beta.slug }) },
         ...(beta !== undefined && { beta }),
         origin: () => publicOrigin ?? origin,
@@ -941,7 +979,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const services = await workspaces.get(user.id);
         const look = await lookOf(request, user.id);
         const t = textsOf(look.language);
-        const homeId = await homes.id(services, user.id, look.language);
+        const homeId = await homes.id(services, user.id);
         const all = await services.instanceViews.list();
         const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
         const apps: HomeCard[] = [...all]
@@ -954,7 +992,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const roleWords = (role: string): string => orgWords[`orgs.role.${role}` as keyof typeof orgWords] ?? role;
         const memberships: HomeCard[] = (await orgs.of(user.id)).map((org) => ({ id: org.id, name: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }) }));
         const invites: HomeCard[] = (await orgs.pendingFor(user.id)).map((invite) => ({ id: invite.id, name: fill(t['home.inviteName'], { org: invite.org.name }), note: fill(t['home.inviteNote'], { role: roleWords(invite.role), name: invite.invitedBy }) }));
-        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites, admin: await admins.is(user.id), makeOrgs: !inBeta }, look);
+        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites, admin: await admins.is(user.id), makeOrgs: !inBeta }, look, (message, fields) => options.report.info(message, fields));
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHostPage(
@@ -1175,15 +1213,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (method === 'GET' && path === '/assets/editor.json') {
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
-            if (url.searchParams.get('editor') === 'default') {
-                sendJson(response, 200, { ...(await defaultEditor.document()), fallback: true });
+            // Magnetic's own: what an admin published (`default`), or the code's (`code`), the last to fall back to
+            const which = url.searchParams.get('editor');
+            if (which === 'default' || which === 'code') {
+                sendJson(response, 200, { ...(which === 'code' ? await sitePages.codeDocument(EDITOR) : await sitePages.served(EDITOR)), fallback: true });
                 return true;
             }
             try {
                 sendJson(response, 200, await editors.document(await workspaces.get(who.user.id), who.user.id));
             } catch (error) {
                 options.report.info('A person\'s editor did not load', { error: error instanceof Error ? error.message : String(error) });
-                sendJson(response, 200, { ...(await defaultEditor.document()), fallback: true });
+                sendJson(response, 200, { ...(await sitePages.served(EDITOR)), fallback: true });
             }
             return true;
         }
@@ -1192,6 +1232,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
             const services = await workspaces.get(who.user.id);
             const id = path === '/editor' ? await editors.id(services, who.user.id) : await editors.reset(services, who.user.id);
+            sendJson(response, 200, { id });
+            return true;
+        }
+        if (method === 'POST' && (path === '/home' || path === '/home/reset')) {
+            const who = await signedIn(request);
+            if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const services = await workspaces.get(who.user.id);
+            const id = path === '/home' ? await homes.id(services, who.user.id) : await homes.reset(services, who.user.id);
             sendJson(response, 200, { id });
             return true;
         }
@@ -1305,7 +1353,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await orgNameOf(place.orgId)));
+        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place)));
         return true;
     }
 
@@ -1327,15 +1375,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const { services, app, workspaceId } = place;
         const persona = place.orgId === undefined ? undefined : who.user.id;
-        // "Your apps" is Magnetic's own: the agent does not change it
-        if (app.name === HOME_APP) {
-            if (what === undefined && method === 'GET') redirect(response, '/');
-            else sendJson(response, 404, { message: 'No app with this id.' });
-            return;
-        }
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await orgNameOf(place.orgId)));
+            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await workspaceNameOf(place)));
             return;
         }
         if (what === '/events' && method === 'GET') {

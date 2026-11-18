@@ -271,10 +271,13 @@ function valueOf(payload) {
     return payload;
 }
 
-async function mountEditor(useDefault) {
+// Which editor loads when one does not: the person's own, then Magnetic's (what an admin published), then the code's
+const NEXT_EDITOR = { own: 'default', default: 'code' };
+
+async function mountEditor(which) {
     if (panel) { panel.dispose(); panel = null; }
     ready = false;
-    const response = await fetch('/assets/editor.json' + (useDefault ? '?editor=default' : ''));
+    const response = await fetch('/assets/editor.json' + (which === 'own' ? '' : '?editor=' + which));
     if (!response.ok) throw new Error('The editor could not load');
     const editor = await response.json();
     editorDocument = editor.document;
@@ -282,7 +285,7 @@ async function mountEditor(useDefault) {
     holder.replaceChildren();
     for (const name of Object.keys(editorState)) delete editorState[name];
     panel = host.mount(holder, { document: editor.document, icons: editor.icons, keys: ['mod+shift+e', ...Object.keys(TOOL_KEYS)] }, T['editor.title']);
-    const timer = setTimeout(() => { if (!ready && !useDefault) void mountEditor(true); }, READY_MS);
+    const timer = setTimeout(() => { if (!ready && NEXT_EDITOR[which]) void mountEditor(NEXT_EDITOR[which]); }, READY_MS);
     holder.onstateuiready = null;
     return new Promise((resolve) => {
         const onReady = () => {
@@ -1059,7 +1062,7 @@ let reloadTimer = null;
 function editorChanged() {
     if (appId !== editorId) return;
     clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(() => void mountEditor(false).then(showAll), 800);
+    reloadTimer = setTimeout(() => void mountEditor('own').then(showAll), 800);
 }
 
 // What /assets/inspect.js uses of the editor: the tools, the editor and the paths the next turn is about
@@ -1176,7 +1179,8 @@ if (document.body.classList.contains('editing')) document.body.classList.add('un
 })();
 
 if (host) {
-    const useDefault = new URLSearchParams(location.search).get('editor') === 'default';
-    mountEditor(useDefault).then(showAll, () => { if (!useDefault) void mountEditor(true).then(showAll); });
+    const asked = new URLSearchParams(location.search).get('editor');
+    const which = asked === 'default' || asked === 'code' ? asked : 'own';
+    mountEditor(which).then(showAll, () => { if (NEXT_EDITOR[which]) void mountEditor(NEXT_EDITOR[which]).then(showAll); });
 }
 `;
