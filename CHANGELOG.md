@@ -2,6 +2,7 @@
 
 ## 0.1.0 (unreleased)
 
+- **Tips and menus in the editor show whole.** The editor's frame is clipped to its panels, so a tip that reached past the rail or the chat bar ("Shared data (D)", "Show the chat") was cut off. The clip now adds the box of every open popover the runtime reports, grown by 8 px, and drops it when the popover closes. Test: `e2e/editor.spec.ts`, "a tip that reaches past its panel is shown whole: the clip takes its box while it is open".
 - **No light flash before a dark app.** The live frame and the previews had a white background, which an app's own page and the editor showed until the app drew; they now take the page's colour. With StateUI's host now loading each frame in the person's mode and language and hiding it until it is ready, an app opens straight in its theme.
 - **Screens show only their names when many are in view.** With more than four screens in view, or below a zoom of 0.15, nothing renders: no preview mounts and the live frame hides, every screen a tile with its name inside. Pressing a tile selects it and shows it live in its slot; its ×, Escape or a click on the empty board goes back to names. Escape on the page now runs the same turn as from the editor's frame (inspector, selected screen, chat). Test: `e2e/screens.spec.ts` (2).
 - **Ordering screens by name.** While names show, a tile is dragged to another slot; the board moves at once and `POST /edit/<app>/screens` `{ action: 'order' }` follows, put back on a refusal. Tests: `e2e/screens.spec.ts` (1), `server/inspectRoutes.test.ts` (1).

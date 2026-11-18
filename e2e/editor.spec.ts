@@ -94,6 +94,23 @@ test.describe('The editor', () => {
         await expect(page.locator('body')).toHaveClass(/(^| )editing( |$)/);
     });
 
+    test('a tip that reaches past its panel is shown whole: the clip takes its box while it is open', async ({ page }) => {
+        // Arrange
+        const shapes = async (): Promise<number> =>
+            page.locator('#editor').evaluate((holder) => ((holder as HTMLElement).style.clipPath.match(/M /g) ?? []).length);
+        await expect.poll(shapes).toBeGreaterThan(0);
+        const closed = await shapes();
+
+        // Act
+        await editor.button('Select a part of the app (S)').hover();
+
+        // Assert
+        await expect(editor.editor.locator('.tip:popover-open')).toHaveText('Select a part of the app (S)');
+        await expect.poll(shapes).toBe(closed + 1);
+        await page.mouse.move(700, 450);
+        await expect.poll(shapes).toBe(closed);
+    });
+
     test('All your apps goes home', async ({ page }) => {
         await editor.button('All your apps').click();
         await page.waitForURL((url) => url.pathname === '/');

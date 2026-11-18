@@ -964,8 +964,9 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('keyup', (event) => { if (event.key === ' ' && spaceHeld) { event.preventDefault(); spaceHeld = false; showTool(); } });
 addEventListener('blur', () => { if (spaceHeld) { spaceHeld = false; showTool(); } });
 
-// The editor's frame shows only its floating panels: each child of the stage, where the frame says it is now. A click
-// anywhere else falls through to the canvas
+// The editor's frame shows only its floating panels: each child of the stage, where the frame says it is now, and the
+// popovers open in it (a button's tip, a menu, an option list), which may reach past every panel. A click anywhere else
+// falls through to the canvas
 const panels = new Map();
 const RADIUS = 12;
 /** The corner radius of a panel: a pill is round at its ends, every other panel has the theme's 12px */
@@ -995,7 +996,9 @@ function roundedRect(rect, r) {
         'H' + (x + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + x + ' ' + (bottom - r) + 'V' + (y + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + 'Z';
 }
 const shadows = document.getElementById('shadows');
-function clipEditor(nodes) {
+/** How far past a popover's box the clip reaches, so its own shadow shows */
+const POPOVER_MARGIN = 8;
+function clipEditor(nodes, floating) {
     panels.clear();
     const shapes = [];
     const casts = [];
@@ -1014,6 +1017,11 @@ function clipEditor(nodes) {
         casts.push(cast);
     }
     shadows.replaceChildren(...casts);
+    for (const rect of floating || []) {
+        if (rect.width < 1 || rect.height < 1) continue;
+        const grown = { x: rect.x - POPOVER_MARGIN, y: rect.y - POPOVER_MARGIN, width: rect.width + 2 * POPOVER_MARGIN, height: rect.height + 2 * POPOVER_MARGIN };
+        shapes.push(roundedRect(grown, POPOVER_MARGIN));
+    }
     holder.style.clipPath = shapes.length === 0 ? '' : "path('" + shapes.join(' ') + "')";
     if (!fitted && panels.size > 0) { fitted = true; fit(false); }
     else if (fittedRail !== null && panels.size > 0 && railShown() !== fittedRail) fit(true);
