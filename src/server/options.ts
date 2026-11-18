@@ -292,7 +292,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     const operator = env['MAGNETIC_OPERATOR']?.trim() || undefined;
     const contactEmail = env['MAGNETIC_CONTACT_EMAIL']?.trim() || undefined;
     if ((operator === undefined) !== (contactEmail === undefined)) throw new UsageError('MAGNETIC_OPERATOR and MAGNETIC_CONTACT_EMAIL go together, for the privacy page');
-    if (contactEmail !== undefined && !/^[^s@<>"]+@[^s@<>"]+.[^s@<>"]+$/.test(contactEmail)) throw new UsageError('MAGNETIC_CONTACT_EMAIL is not an email address');
+    if (contactEmail !== undefined && !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(contactEmail)) throw new UsageError('MAGNETIC_CONTACT_EMAIL is not an email address');
     const privacy = operator !== undefined && contactEmail !== undefined ? { operator, email: contactEmail } : undefined;
     const linkedIn = parseLinkedIn(env);
     const secretKey = env['MAGNETIC_SECRET_KEY']?.trim() || undefined;

@@ -4,9 +4,18 @@ Magnetic is an AI app builder on StateUI. People sign in, describe an app, and w
 StateUI app. They can look at its state, edit it by hand, and share it. The design is in
 `docs/design/magnetic-v1.md` in the workspace.
 
-Built so far: the multi-user server (M1), sign-in through LinkedIn or any OpenID Connect provider (M2), the editor
-and the agent (M3), the state view and the hand editor (M4, M5: the inspector), and sharing (M6). Each person gets a
-workspace of their own, and their apps run live behind their session. Hosting (M7) comes next.
+Built so far, each with its design doc in the workspace's `docs/design/`:
+- the multi-user server (M1), sign-in through LinkedIn or any OpenID Connect provider (M2), the editor and the agent
+  (M3), the state view and the hand editor (M4, M5: the inspector), and sharing (M6): `magnetic-v1.md`;
+- everything in Postgres, with orgs, roles, enterprise controls and semantic search: `magnetic-postgres.md`;
+- several servers as nodes of the statenet, with relays and grants of state: `statenet-relays.md`;
+- hosting on AWS (M7): `magnetic-hosting.md`;
+- the library, layout, screens, connections to outside APIs and the Playwright suite (M8): `magnetic-m8.md`;
+- buying agent use, feedback, the admin pages and the beta: `magnetic-payments.md`, `magnetic-feedback.md`,
+  `magnetic-admin.md`, `magnetic-beta.md`.
+
+Each person gets a workspace of their own, and their apps run live behind their session. Magnetic's own pages
+(sign-in, Your apps, the editor) are StateUI apps.
 
 The logo is in `brand/`: `logo.svg`, and PNGs at 512, 300 and 100 pixels. Every page has it as its icon, the sign-in
 page and the editor show it, and the server serves the file at `/assets/logo.svg` (`src/http/logo.ts` holds a copy;
@@ -21,6 +30,21 @@ npm run magnetic:db      # Postgres 16 with pgvector in Docker, on 127.0.0.1:543
 npm run magnetic:build   # the libraries Magnetic uses, Magnetic itself and the runtime bundle
 npm run magnetic         # http://127.0.0.1:4300/, with the development users alice and bob, a mock provider and the mock agent
 ```
+
+The other ways to run it, from the workspace:
+
+```bash
+npm run magnetic:dev        # builds the UI libraries, then npm run magnetic
+npm run magnetic:live       # the real Claude API, with ANTHROPIC_API_KEY from the workspace .env; costs money
+npm run magnetic:beta       # the beta as the host runs it (beta.dev.env: org beta, $5 each for 100 places, $500 a month), seeded with people to sign in as (--seed beta)
+npm run magnetic:beta-full  # the same with all 100 places taken (--seed beta-full)
+npm run magnetic:reset      # deletes the local database volume and starts Postgres again, empty
+```
+
+The beta's seed (`src/testing/betaPersonas.ts`, `docs/design/magnetic-beta.md`) offers a sign-in button for each of
+its people: Avery, the admin; Nell, who has never signed in; Hana ($2.40 of $5 used); Nico ($4.90); Uma (all $5 used);
+Gia ($3 more given by the admin); and Theo (bought $10). Testers hold the other places, leaving 3 open, or none with
+`beta-full`. The seed runs on every start and adds only what is missing.
 
 Magnetic keeps everything in Postgres (`docs/design/magnetic-postgres.md` in the workspace): people, links, spend,
 chats and preferences in its own tables, and each workspace's parts, instances, persona records, uploaded files with
@@ -64,11 +88,20 @@ node dist/cli.js migrate --database-url postgres://magnetic:magnetic@127.0.0.1:5
 node dist/cli.js --database-url postgres://magnetic:magnetic@127.0.0.1:5433/magnetic --dev-user alice --dev-user bob
 ```
 
-The commands are `serve` (the default), `migrate` (apply the migrations, then exit) and `import` (copy the people of an
-earlier, file-based Magnetic's `--data-dir` into the database: `accounts.json`, live sessions, `grants.json`,
-`budgets.json` as ledger rows, every chat, and each user's workspace folder with its parts, instances, persona
-records, files and preview errors; rows already there are left alone and a workspace that has parts is skipped, so it
-can run twice).
+The commands are:
+- `serve` (the default);
+- `migrate`: apply the migrations, then exit;
+- `import`: copy the people of an earlier, file-based Magnetic's `--data-dir` into the database (`accounts.json`, live
+  sessions, `grants.json`, `budgets.json` as ledger rows, every chat, and each user's workspace folder with its parts,
+  instances, persona records, files and preview errors); rows already there are left alone and a workspace that has
+  parts is skipped, so it can run twice;
+- `reindex`: queue every part, chat and embedded record field to be embedded again with the current model, embed them,
+  then exit (after changing `--embedding`);
+- `feedback`: print the latest hundred bugs, comments and feature requests sent from the editor, then exit;
+- `relay-certificate`: write a key pair and a node certificate for a `statenet-relay` (`--node-id`) to `--out`, and
+  print the authority key the relay checks its parents with. Needs `MAGNETIC_SECRET_KEY`.
+
+`magnetic --help` prints the same options as this table (`HELP_TEXT` in `src/server/options.ts`).
 
 | Option | Environment | Default | What |
 |---|---|---|---|
@@ -82,21 +115,44 @@ can run twice).
 | `--runtime-port <n>` | `MAGNETIC_RUNTIME_PORT` | the next port | Port of the runtime origin, which serves only the app frame |
 | `--host <address>` | `MAGNETIC_HOST` | `127.0.0.1` | Address to bind |
 | `--dev-user <name>` | `MAGNETIC_DEV_USERS` (comma-separated) | none | A test user who signs in with a button and no provider; repeat for more. Loopback hosts only |
+| `--seed <scenario>` | `MAGNETIC_SEED` | none | Seeds the beta's people to sign in as, for development: `beta` (3 places left) or `beta-full`. Needs `--beta-org`. Loopback hosts only |
 | `--starter <kind>` | `MAGNETIC_STARTER` | `showcase` | What a new workspace holds: the component showcase, or `none` |
 | `--runtime-dir <dir>` | `MAGNETIC_RUNTIME_DIR` | the bundle in `@punyts/stateui-app` | The built StateUI runtime bundle |
 | `--public-origin <url>` | `MAGNETIC_PUBLIC_ORIGIN` | the address it listens on | The origin people reach the server at. Redirect URIs are `<origin>/auth/<provider>/callback`, and cookies are `Secure` when it is HTTPS |
-| | `MAGNETIC_OPERATOR`, `MAGNETIC_CONTACT_EMAIL` | none | Who runs the server and where privacy requests go. Both set: `/privacy` says, without a sign-in, what Magnetic keeps, why, who else sees it and how to have it deleted |
 | `--runtime-origin <url>` | `MAGNETIC_RUNTIME_ORIGIN` | `http://<host>:<runtime port>` | The origin people reach the app frame at behind a proxy, such as `https://run.magnetic.example`. Needs `--public-origin` on another host; with both, the server answers only to those two host names (and loopback, for health checks) |
 | `--mock-provider` | `MAGNETIC_MOCK_PROVIDER=true` | off | Also runs a mock OpenID Connect provider that signs anyone in as a test person. Loopback hosts only |
+| `--mock-agent` | `MAGNETIC_MOCK_AGENT=true` | off | A scripted agent that adds each request as a text on the app's first screen, to try the editor without an API key. Loopback hosts only |
+| `--model <id>` | `MAGNETIC_MODEL` | `claude-haiku-5-5` | The model a turn uses unless the person picks another |
+| `--models <ids>` | `MAGNETIC_MODELS` (comma-separated) | `claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5` | The models people may pick |
+| `--effort <level>` | `MAGNETIC_EFFORT` | `high` | `low`, `medium`, `high`, `xhigh` or `max` |
+| `--daily-budget <usd>` | `MAGNETIC_DAILY_BUDGET` | `1` | Dollars each person may spend per UTC day, or `off` |
+| `--user-allowance <usd>` | `MAGNETIC_USER_ALLOWANCE` | none | Dollars each person may spend ever, a one-time allowance such as the beta's |
+| `--allowance-users <n>` | `MAGNETIC_ALLOWANCE_USERS` | everyone | Only the first n people (by first sign-in) get the allowance; the others may buy agent use |
+| `--beta-org <slug>` | `MAGNETIC_BETA_ORG` | none | The beta org: people join it through the beta link on Admin, and only its first `--allowance-users` members get the allowance. Needs `MAGNETIC_SECRET_KEY` |
+| `--monthly-budget <usd>` | `MAGNETIC_MONTHLY_BUDGET` | `100` | Dollars the server may spend per UTC month |
+| `--top-ups <usd,...>` | `MAGNETIC_TOP_UPS` | `10,25,50` | The amounts of agent use people may buy after their allowance |
+| `--mesh-port <n>` | `MAGNETIC_MESH_PORT` | none: the server runs alone | Runs as one of several servers on one database, linking to the others and to relays on this port (`0` for any free port). Needs `MAGNETIC_SECRET_KEY` |
+| `--mesh-host <address>` | `MAGNETIC_MESH_HOST` | `--host` | Address the mesh binds |
+| `--mesh-url <url>` | `MAGNETIC_MESH_URL` | the address it listens on | The URL the other servers and relays reach this one's mesh at, such as `ws://magnetic-2:4310` |
+| `--node-id <id>` | `MAGNETIC_NODE_ID` | its host name and a random suffix | This server's node id; for `relay-certificate`, the relay's |
+| `--region <name>` | `MAGNETIC_REGION` | none | Where it runs |
+| `--out <dir>` | | `.` | For `relay-certificate`: the folder to write the relay's files to |
+| | `ANTHROPIC_API_KEY` | none | The Claude API key of the agent |
 | | `MAGNETIC_LINKEDIN_CLIENT_ID`, `MAGNETIC_LINKEDIN_CLIENT_SECRET` | none | LinkedIn's client. Environment only, so the secret stays out of the process list |
 | | `MAGNETIC_LINKEDIN_PKCE` | `false` | `true` sends a PKCE challenge to LinkedIn, which takes it only from apps it enabled as native; a web app's sign-in then fails with `invalid_client` |
+| | `MAGNETIC_SECRET_KEY` | none | A random secret of 16 or more characters. It seals each org's own OpenID Connect client secret and every owner's signing key, and keeps the statenet's certificate authority. Without it there is no org sign-in, no grants of state, no mesh and no beta org |
+| | `MAGNETIC_MAIL_FROM` | none | A verified Amazon SES address that invites and feedback are emailed from. Without it, an invite's link is only shown to the person who made it |
+| | `MAGNETIC_MAIL_REGION` | `us-east-2` | The SES region; credentials come from the machine |
+| | `MAGNETIC_OPERATOR`, `MAGNETIC_CONTACT_EMAIL` | none | Who runs the server and where privacy requests go; both or neither. Both set: `/privacy` says, without a sign-in, what Magnetic keeps, why, who else sees it and how to have it deleted |
+| | `MAGNETIC_ADMIN_EMAILS` (comma-separated) | none | People whose verified email is listed are admins (`/admin`) |
+| | `MAGNETIC_STRIPE_SECRET_KEY`, `MAGNETIC_STRIPE_WEBHOOK_SECRET` | none | Stripe's secret key and the signing secret of the webhook `<origin>/billing/stripe`; both, or no buying of agent use |
 
 ## How it works
 
 - **The server is stateui-mcp's browser endpoint.** `startMagnetic` runs `startHttpServer` of `@punyts/stateui-mcp`
   with a `tenant` function. It serves the app pages, the runtime origin, the view sockets in Full mode, uploads and
   reports, and adds Magnetic's own routes: `/signin`, `/signin/dev`, `/signout`, `/` and `/assets/magnetic.css`.
-  There is no `/mcp`: the agent will run in the server.
+  There is no `/mcp`: the agent runs in the server.
 - **One workspace per user.** Each signed-in user gets their own stateui-mcp `Services`. These are over their own
   workspace in the database (`pgWorkspaceStorage(db, userId)`), with their user id as the owner (`Workspaces`). One user's parts, instances, files
   and live authorities never meet another's: an app id of another user is not found, by page, route or socket.
@@ -413,8 +469,6 @@ The options also take:
 
 ## Not yet
 
-- **Hosting** (M7): the AWS stack and the deploy (`docs/design/magnetic-hosting.md`). The server side is in:
-  `--runtime-origin`, the host check behind a proxy, `--app-role`, and `docker/magnetic.compose.yml` with Caddy.
 - **The agent cannot see the page.** The browser tools are withheld: each workspace would open its own Chromium,
   and its headless page cannot sign in to reach the app. One shared browser with a context per user, and a way for
   it to sign in, come before the agent gets them back.
@@ -422,8 +476,6 @@ The options also take:
   - Deleting an app does not delete the instances of the people it was shared with, nor its links.
   - A person who moves from a `use` link to a `view` link keeps their `use` data in their browser.
   - The page of a revoked app still shows its name.
-- **The shell is a server page**, not a StateUI app as the design has it. The state view (M4) and the editor overlay
-  (M5) will show whether it needs to be one.
 
 ## Develop
 
@@ -438,8 +490,8 @@ npm run e2e:report   # the last run's report, with a trace and a screenshot of e
 
 **The Playwright suite** (`e2e/`, `playwright.config.ts`) starts its own server, `e2e/server.mjs`:
 - Magnetic from `dist` on a fresh schema of the test database, dropped when the run ends;
-- the dev users alice, bob, carol and dan, the mock OIDC provider, and the scripted agent, so no test needs an API
-  key or LinkedIn;
+- the dev users alice to gina (erin is the admin once the control port gives her a verified email), the mock OIDC
+  provider, and the scripted agent, so no test needs an API key or LinkedIn;
 - the beta's budget ($5 per person);
 - a control port (the page port + 2) that sets who the mock provider signs in next, so a test can sign in as a
   person with a verified email.

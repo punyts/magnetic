@@ -58,6 +58,12 @@ describe('parseOptions', () => {
         expect(() => parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator', MAGNETIC_CONTACT_EMAIL: 'not an email' })).toThrow(UsageError);
     });
 
+    it('should take a contact email with an s in it, and refuse one with a space or no dot', () => {
+        expect(parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator', MAGNETIC_CONTACT_EMAIL: 'support@sales.example.com' }).privacy?.email).toBe('support@sales.example.com');
+        expect(() => parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator', MAGNETIC_CONTACT_EMAIL: 'a b@example.com' })).toThrow(UsageError);
+        expect(() => parseOptions([], { MAGNETIC_OPERATOR: 'Example Operator', MAGNETIC_CONTACT_EMAIL: 'someone@localhost' })).toThrow(UsageError);
+    });
+
     it('should run the agent on Haiku 5.5 at high effort with $1 a day and $100 a month by default', () => {
         expect(parseOptions([], {})).toMatchObject({ model: 'claude-haiku-5-5', models: undefined, effort: 'high', dailyBudget: 1, monthlyBudget: 100 });
     });

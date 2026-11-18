@@ -4,12 +4,11 @@ An AI app builder on StateUI: people sign in, describe an app, and an agent buil
 git repo (`punyts/magnetic`) inside the punyts workspace; read `../CLAUDE.md` first. Design docs are in the workspace,
 `../docs/design/magnetic-*.md`: `magnetic-v1.md` (M1–M7), `magnetic-postgres.md`, `statenet-relays.md`,
 `magnetic-hosting.md`, `magnetic-m8.md`, then payments, feedback, admin and `magnetic-beta.md`. `src/server/options.ts`
-(`HELP_TEXT`) is the full list of options; the README's table is partial.
+(`HELP_TEXT`) is the list of options, and the README's table follows it.
 
 ## Run it locally (from the workspace root)
 1. `npm run magnetic:db`: Postgres in Docker on `127.0.0.1:5433` (start Docker Desktop first).
-2. `npm run magnetic:build` after changing Magnetic or a library it uses (plus `node bin/workspace.mjs run build
-   statenet` for statenet): the server runs from `dist/`.
+2. `npm run magnetic:build` after changing Magnetic or a library it uses: the server runs from `dist/`.
 3. Then one of:
    - `npm run magnetic:beta`: the beta as the host runs it (`beta.dev.env`: $5 each for 100 places, $500 a month),
      seeded with people to sign in as. Launch config `magnetic-beta`.
