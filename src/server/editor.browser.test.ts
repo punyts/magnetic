@@ -343,8 +343,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should keep the sizes of the old editor (41fa580): compact corners, a narrow rail, a 640px pill chat bar', async () => {
         // Arrange: what the old editor measured at a wide window, before it was a StateUI app. A change that makes the
         // editor drift from that design fails here (the panels' own looks are in stateui-components' screenshot tests)
-        // The rail is the old one with four more buttons under the tools, the library's (M8 N2), the screens' (N4), the connections' and the shared data's: 130px taller
-        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 130 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
+        // The rail is the old one with four more buttons under the tools, the library's (M8 N2), the screens' (N4), the connections' and the shared data's: 130px taller; and three layers under the line where the old one had five toggles: 70px shorter
+        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 130 - 70 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
         const answer = (await page.evaluate(`window.magneticShell.editor.inspect({ paths: ${JSON.stringify(Object.keys(OLD).map((key) => `${stage}.children.${key}`))} })`)) as { nodes: { path: string; rect: { width: number; height: number } }[] };
         const size = (key: string) => answer.nodes.find((node) => node.path.endsWith(`.${key}`))?.rect;
@@ -361,7 +361,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         }
         // The corner holds the app's name and its workspace's: under 400px on Windows, 437 with Linux's wider fonts (CI)
         expect(measured['nameCorner']?.width).toBeLessThan(480);
-        expect(measured['shareCorner']?.width).toBeLessThan(190);
+        // The share corner holds the view selector too (docs/design/magnetic-show-views.md)
+        expect(measured['shareCorner']?.width).toBeLessThan(440);
         expect(measured['chatBar']?.width).toBe(640);
     }, 60_000);
 
@@ -369,7 +370,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         // Arrange: each floating bar with its parts, left to right
         const CORNERS: [string, string[]][] = [
             ['nameCorner', ['home', 'name', 'workspace', 'size', 'open']],
-            ['shareCorner', ['feedback', 'prefs', 'share']],
+            ['shareCorner', ['views', 'feedback', 'prefs', 'share']],
             ['chatBar', ['chat', 'input', 'model', 'send']]
         ];
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
@@ -438,7 +439,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
 
     it("should take the tool keys from the editor's frame, but not while the person types there", async () => {
         // Arrange: the focus in the editor's frame, on a button of its rail
-        await editor.getByRole('button', { name: 'Theme' }).focus();
+        await editor.getByRole('button', { name: 'Layout' }).focus();
 
         // Act and Assert: H and V switch the tool from inside the frame
         await page.keyboard.press('h');

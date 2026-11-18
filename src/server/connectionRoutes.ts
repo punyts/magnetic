@@ -247,7 +247,7 @@ export function connectionRoutes(context: ConnectionRouteContext) {
         }
     }
 
-    return async (request: IncomingMessage, response: ServerResponse, method: string, path: string): Promise<boolean> => {
+    const route = async (request: IncomingMessage, response: ServerResponse, method: string, path: string): Promise<boolean> => {
         if (path !== '/settings/connections' && path !== '/connections/oauth/callback') return false;
         const who = await context.signedIn(request);
         if (who === undefined) {
@@ -276,4 +276,6 @@ export function connectionRoutes(context: ConnectionRouteContext) {
         }
         return false;
     };
+    // The editor's Statenet view changes a connection through the same code, from JSON
+    return Object.assign(route, { change });
 }

@@ -37,7 +37,7 @@ export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } 
 
 /** What the editor emits, for the page's script */
 export const EDITOR_EMITS = [
-    'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'showTheme', 'showLayout', 'showData', 'showLogic', 'showScreens',
+    'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'view', 'layerLayout', 'layerData', 'layerLogic',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'screenColumns', 'path', 'ask',
@@ -71,9 +71,11 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
-        { op: 'set', field: 'show', type: 'object', default: { theme: false, layout: false, data: false, logic: false, screens: false } },
-        // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the toggles)
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', 'notScreensView', 'isNarrow', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        // The view the canvas shows (Screens, Statenet, Theme, Logic), and the layers on the screen tiles
+        { op: 'set', field: 'view', type: 'string', default: 'screens' },
+        { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
+        // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the layers)
         { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
         { op: 'set', field: 'libraryLook', type: 'string', default: 'ghost' },
         { op: 'set', field: 'libraryTone', type: 'string', default: 'neutral' },
@@ -87,10 +89,10 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         ...['screenName', 'screenRename', 'screenNew', 'screensStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         // How many screens the canvas lays side by side before it starts a new row
         { op: 'set', field: 'screenColumns', type: 'string', default: 'n5' },
-        { op: 'set', field: 'showLook', type: 'object', default: { theme: 'ghost', layout: 'ghost', data: 'ghost', logic: 'ghost', screens: 'ghost' } },
+        { op: 'set', field: 'layerLook', type: 'object', default: { layout: 'ghost', data: 'ghost', logic: 'ghost' } },
         // And their tone: the accent while on, the ink while off
         { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
-        { op: 'set', field: 'showTone', type: 'object', default: { theme: 'neutral', layout: 'neutral', data: 'neutral', logic: 'neutral', screens: 'neutral' } }
+        { op: 'set', field: 'layerTone', type: 'object', default: { layout: 'neutral', data: 'neutral', logic: 'neutral' } }
     ],
     'magnetic-message': [
         { op: 'set', field: 'id', type: 'string', required: true },
@@ -240,10 +242,17 @@ function nameCorner(t: Texts): Record<string, unknown> {
     });
 }
 
-/** The corner at the top right: the bug button (feedback), the person's choices and Share */
+/** The editor's views, in the order the selector shows them (docs/design/magnetic-show-views.md) */
+export const EDITOR_VIEWS = ['screens', 'statenet', 'theme', 'logic'] as const;
+
+/**
+ * The corner at the top right: the view selector (a segmented control; below 760px a menu on the top rail instead),
+ * the bug button (feedback), the person's choices and Share
+ */
 function shareCorner(t: Texts): Record<string, unknown> {
     return float({ right: '12px', y: '12px' }, {
         bar: row({
+            views: { component: 'segmented', size: 'sm', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, '<-hidden': `${E}.isNarrow`, on: { change: emit('view') } },
             feedback: icon(t['feedback.open'], 'feedback', 'bug'),
             prefs: icon(t['prefs.open'], 'prefs', 'prefs'),
             share: { component: 'button', size: 'sm', _title: t['shell.share'], on: { press: emit('share') } }
@@ -251,10 +260,14 @@ function shareCorner(t: Texts): Record<string, unknown> {
     });
 }
 
+/** The views by name, for the selector */
+const viewOptions = (t: Texts): Record<string, unknown> => Object.fromEntries(EDITOR_VIEWS.map((name) => [name, { _label: t[`shell.view.${name}`] }]));
+
 /**
- * The rail at the left: the pointer tools, one above the other, a line, then what the agent is shown with the next
- * request. Each is a button that is solid while on (`toolLook`, `showLook`); a press emits `tool` with the tool's
- * name, or the toggle's `show…`. Below 760px the page shows the same rail along the top instead (`narrow`)
+ * The rail at the left, in the Screens view: the pointer tools and panels, one above the other, a line, then the layers
+ * the screen tiles show (layout, data, logic). Each is a button that is solid while on (`toolLook`, `layerLook`); a
+ * press emits `tool` with the tool's name, or the layer's `layer…`. Below 760px the page shows the same rail along the top
+ * instead (`narrow`), led by the view menu, which stays there in the other views when the tools hide
  */
 function rail(t: Texts, narrow = false): Record<string, unknown> {
     const tool = (name: 'use' | 'move' | 'select', key: 'shell.useKey' | 'shell.moveKey' | 'shell.selectKey', glyph: string): Record<string, unknown> => ({
@@ -267,18 +280,24 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
         '<-tone': `${E}.toolTone.${name}`,
         on: { press: { command: 'emit', target: 'tool', value: name } }
     });
-    const show = (name: 'theme' | 'layout' | 'data' | 'logic' | 'screens', target: string): Record<string, unknown> => ({
+    const layer = (name: 'layout' | 'data' | 'logic', target: string): Record<string, unknown> => ({
         component: 'button',
         size: 'sm',
         fill: !narrow,
-        _title: t[`shell.toggle.${name}`],
-        '<-variant': `${E}.showLook.${name}`,
-        '<-tone': `${E}.showTone.${name}`,
+        _title: t[`shell.layer.${name}`],
+        '<-variant': `${E}.layerLook.${name}`,
+        '<-tone': `${E}.layerTone.${name}`,
         on: { press: emit(target) }
     });
     const line = narrow ? 'row' : 'column';
+    // Below 760px, the rail's tools are the Screens view's; the view menu shows in every view
+    const screensOnly = narrow ? { '<-hidden': `${E}.notScreensView` } : {};
     return float(narrow ? { x: '12px', y: '64px', maxWidth: 'calc(100% - 24px)' } : { x: '12px', center: 'y' }, {
+        ...(narrow && {
+            viewMenu: { component: 'selectField', size: 'sm', variant: 'soft', width: 'auto', titlePosition: 'hidden', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, on: { change: emit('view') } }
+        }),
         tools: {
+            ...screensOnly,
             component: 'panel',
             padding: 'none',
             layout: { type: line, gap: 'sm', align: 'center' },
@@ -293,13 +312,14 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
                 shared: { component: 'button', size: 'sm', icon: 'shared-data', iconPosition: 'only', _title: t['sharedPanel.open'], '<-variant': `${E}.sharedLook`, '<-tone': `${E}.sharedTone`, on: { press: emit('sharedPanel') } }
             }
         },
-        line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal' },
-        showLabel: caption(t['shell.show'], { caps: true, muted: true, align: 'center' }),
-        shows: {
+        line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal', ...screensOnly },
+        layersLabel: caption(t['shell.layers'], { caps: true, muted: true, align: 'center', ...screensOnly }),
+        layers: {
+            ...screensOnly,
             component: 'panel',
             padding: 'none',
             layout: { type: line, gap: 'sm', align: 'stretch' },
-            children: { showTheme: show('theme', 'showTheme'), showLayout: show('layout', 'showLayout'), showData: show('data', 'showData'), showLogic: show('logic', 'showLogic'), showScreens: show('screens', 'showScreens') }
+            children: { layerLayout: layer('layout', 'layerLayout'), layerData: layer('data', 'layerData'), layerLogic: layer('logic', 'layerLogic') }
         }
     }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden` });
 }
@@ -313,7 +333,7 @@ function zoom(t: Texts): Record<string, unknown> {
             in: icon(t['shell.zoomInKey'], 'zoomIn', 'plus'),
             fit: icon(t['shell.fitKey'], 'zoomFit', 'fit')
         }, { layout: { type: 'row', gap: 'none', align: 'center' } })
-    });
+    }, { '<-hidden': `${E}.notScreensView` });
 }
 
 /** The chat bar at the bottom: what the next request is about, the request, the model and Send */

@@ -26,6 +26,8 @@ import { SCRIPT_TEXTS } from './text.js';
  *   menu (a page's own dialog, since a browser may not show `confirm`).
  * - The live frame following a route the app moved to (a navigate in the app) moves to that screen's slot too.
  * - A new document (the body's `data-revision`) reloads the list and mounts the previews again with it.
+ * - The live frame's screen is its `data-screen`, and `window.magneticScreens.panelOf(name)` gives a mounted
+ *   preview's panel, for the views' layers (`/assets/views.js`).
  */
 export const SCREENS_JS = String.raw`${SCRIPT_TEXTS}const shell = window.magneticShell;
 const host = window.stateuiHost;
@@ -139,6 +141,7 @@ function layout(keep) {
     const beforeX = Number(artboard.dataset.slotX || 0);
     const beforeY = Number(artboard.dataset.slotY || 0);
     const slot = placeOf(slotOf(current), width, height);
+    artboard.dataset.screen = current;
     artboard.dataset.slotX = String(slot.x);
     artboard.dataset.slotY = String(slot.y);
     artboard.style.setProperty('--slot-x', slot.x + 'px');
@@ -286,7 +289,12 @@ function mount(name, preview) {
     const writes = Object.entries(snapshot.data || {}).map(([key, value]) => ({ path: '$.data.' + key, value }));
     if (writes.length > 0) preview.panel.write(writes);
     preview.idle.hidden = true;
+    // The views' layers measure the preview once it has rendered
+    setTimeout(() => { if (window.magneticViews) window.magneticViews.drawLayers(); }, 800);
 }
+
+/** What /assets/views.js asks of the previews: a mounted preview's panel, to measure its nodes */
+window.magneticScreens = { panelOf: (name) => (previews.get(name) || {}).panel || null };
 
 function unmount(preview) {
     if (!preview.panel) return;

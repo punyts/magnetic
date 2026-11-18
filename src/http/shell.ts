@@ -59,6 +59,7 @@ export function shellPage(options: ShellPageOptions): string {
         FAVICON_LINK,
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
+        '<link rel="stylesheet" href="/assets/views.css">',
         '</head>',
         `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="shadows" id="shadows" aria-hidden="true"></div>',
@@ -73,6 +74,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/inspect.js"></script>',
         '<script type="module" src="/assets/screens.js"></script>',
+        '<script type="module" src="/assets/views.js"></script>',
         '</body>',
         '</html>',
         ''
@@ -189,7 +191,6 @@ const host = window.stateuiHost;
 const holder = document.getElementById('editor');
 const MODELS = JSON.parse(document.getElementById('magnetic-models').textContent || '[]');
 const OUTCOMES = { stopped: T['chat.stopped'], limit: T['chat.limit'], refused: T['chat.refused'], failed: T['chat.failed'], budget: T['chat.budget'] };
-const CONTEXT = ['theme', 'layout', 'data', 'logic', 'screens'];
 const READY_MS = 10000;
 
 // The editor: a StateUI app the page drives through its data and its emits
@@ -428,8 +429,7 @@ async function post(path, body) {
     try { return (await response.json()).message || T['chat.requestRefused']; } catch { return T['chat.requestRefused']; }
 }
 
-// What the next request shows the agent, the paths it is about, and the model
-const shown = { theme: false, layout: false, data: false, logic: false, screens: false };
+// The model of the next request
 let model = '';
 try { model = localStorage.getItem('magnetic.model') || ''; } catch { /* storage may be blocked */ }
 if (!MODELS.some((item) => item.id === model)) model = MODELS.length > 0 ? MODELS[0].id : '';
@@ -437,21 +437,14 @@ if (!MODELS.some((item) => item.id === model)) model = MODELS.length > 0 ? MODEL
 async function sendRequest(text) {
     const value = String(text || '').trim();
     if (value === '' || running) return;
-    const context = CONTEXT.filter((name) => shown[name]);
+    // What the next request shows the agent: what the view shown is about (views.js)
+    const context = magneticShell.contextOf ? magneticShell.contextOf() : [];
     const focus = magneticShell.focus.slice();
     const refused = await post('/turns', { text: value, context, ...(model && MODELS.length > 1 && { model }), ...(focus.length > 0 && { focus }) });
     if (refused !== undefined) { status(refused); void loadBudget(); return; }
     ed({ blank: false, notBlank: true, hintHidden: true });
     magneticShell.focus.length = 0;
     showFocus();
-}
-
-function showToggles() {
-    ed({
-        show: { ...shown },
-        showLook: Object.fromEntries(CONTEXT.map((name) => [name, shown[name] ? 'solid' : 'ghost'])),
-        showTone: Object.fromEntries(CONTEXT.map((name) => [name, shown[name] ? 'accent' : 'neutral']))
-    });
 }
 
 /**
@@ -727,13 +720,6 @@ emitListeners.push((name, payload) => {
             if (chosen) void sendRequest(fill(T['sharedPanel.askText'], chosen));
             return;
         }
-    }
-    const show = /^show(Theme|Layout|Data|Logic|Screens)$/.exec(name);
-    if (show) {
-        // A press turns a toggle over (a switch would say its new state)
-        const key = show[1].toLowerCase();
-        shown[key] = typeof value === 'boolean' ? value : !shown[key];
-        showToggles();
     }
 });
 
@@ -1106,6 +1092,14 @@ const magneticShell = {
     /** Lets go of the first thing Escape lets go of; true when there was one */
     escape: () => TOOL_KEYS.escape(),
     showInspector: (open) => ed({ inspectorHidden: !open }),
+    /** The Statenet, Theme or Logic view is shown (on) or the Screens view (off): the rail and the library go while one is */
+    appView(on) {
+        appView = on;
+        if (on) { showLibraryPanel(false, false); showScreensPanel(false); showConnectionsPanel(false); showSharedPanel(false); }
+        showWidth();
+    },
+    /** What the next request tells the agent about, by what views.js shows: set by views.js */
+    contextOf: null,
     editor: {
         set: ed,
         list,
@@ -1132,7 +1126,9 @@ if (!editing() && !hinted) { hint.hidden = false; setTimeout(hideHint, 5000); }
 const NARROW = window.matchMedia('(max-width: 759.98px)');
 // Below 480px the chat bar has no room for the model beside the request, so the model menu goes (the last one chosen stays)
 const PHONE = window.matchMedia('(max-width: 479.98px)');
-function showWidth() { ed({ narrowHidden: !NARROW.matches, wideHidden: NARROW.matches, noModels: MODELS.length < 2 || PHONE.matches }); }
+// The rail shows in the Screens view only: the other views (views.js) have their tools in their sheet
+let appView = false;
+function showWidth() { ed({ narrowHidden: !NARROW.matches, wideHidden: NARROW.matches || appView, isNarrow: NARROW.matches, noModels: MODELS.length < 2 || PHONE.matches }); }
 NARROW.addEventListener('change', () => { showWidth(); fitted = false; });
 PHONE.addEventListener('change', showWidth);
 
@@ -1150,10 +1146,8 @@ function showAll() {
         hintHidden: !blank || chatOpen,
         models: Object.fromEntries(MODELS.map((item) => [item.id, { _label: item.label }])),
         model,
-        noModels: MODELS.length < 2 || PHONE.matches,
-        show: { ...shown }
+        noModels: MODELS.length < 2 || PHONE.matches
     });
-    showToggles();
     render(false);
     showTool();
     showMessages();

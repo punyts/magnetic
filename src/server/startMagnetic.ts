@@ -25,12 +25,14 @@ import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { SCREENS_JS } from '../http/screens.js';
+import { VIEWS_CSS, VIEWS_JS } from '../http/views.js';
 import type { Mailer } from '../mail/Mailer.js';
 import { Connections } from '../connections/Connections.js';
 import { connectionFacts, paramsOf } from '../connections/facts.js';
 import type { GuardOptions } from '../connections/guard.js';
 import { CallLimits, HTTP_EFFECT, httpEffect } from '../connections/httpEffect.js';
 import { connectionRoutes } from './connectionRoutes.js';
+import { viewRoutes } from './viewRoutes.js';
 import { dataRoutes } from './dataRoutes.js';
 import { billingRoutes } from './billingRoutes.js';
 import { Credits } from '../billing/Credits.js';
@@ -718,6 +720,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         origin: () => publicOrigin ?? origin,
         report: (message, fields) => options.report.info(message, fields)
     });
+    // The editor's views: Screens, Statenet, Theme and Logic (docs/design/magnetic-show-views.md)
+    const handleViews = viewRoutes({
+        toolsOf: (services) => toolsOf(services),
+        readJson: (request) => readJsonBody(request, MAX_FORM_BYTES),
+        sendJson,
+        connections,
+        changeConnection: (user, form) => handleConnections.change(user, form),
+        sharedDatasets: async (workspaceId) => (stateGrants === undefined ? [] : sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)),
+        sharedCount: async (workspaceId, appId) => (await grants.forApp(workspaceId, appId)).filter((grant) => grant.revokedAt === undefined).length,
+        report: (message, fields) => options.report.info(message, fields)
+    });
     // The beta (docs/design/magnetic-beta.md): one org, joined through a link signed with the server's key
     if (budgetLimits.betaOrg !== undefined && options.secretKey === undefined) throw new Error('The beta org needs secretKey, which signs the beta link');
     const beta = budgetLimits.betaOrg === undefined || options.secretKey === undefined ? undefined : new Beta(db, orgs, budgetLimits.betaOrg, budgetLimits.allowanceUsers, options.secretKey);
@@ -1123,6 +1136,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/css', SHELL_CSS);
             return true;
         }
+        if (method === 'GET' && path === '/assets/views.css') {
+            sendAsset(response, 'text/css', VIEWS_CSS);
+            return true;
+        }
         if (method === 'GET' && path === '/assets/app-page.css') {
             sendAsset(response, 'text/css', APP_PAGE_CSS);
             return true;
@@ -1145,6 +1162,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (method === 'GET' && path === '/assets/screens.js') {
             sendAsset(response, 'text/javascript', SCREENS_JS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/views.js') {
+            sendAsset(response, 'text/javascript', VIEWS_JS);
             return true;
         }
         if (method === 'GET' && path === '/assets/inspect.js') {
@@ -1219,7 +1240,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
         const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget)?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget|\/views\/[a-z]+)?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1455,6 +1476,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             }
             sendJson(response, 200, { sent: true });
             return;
+        }
+        const view = what === undefined ? null : /^\/views\/([a-z]+)$/.exec(what);
+        if (view !== null) {
+            const role = place.orgId === undefined ? undefined : await orgs.role(place.orgId, userId);
+            const manages = place.orgId === undefined || role === 'owner' || role === 'admin';
+            if (await handleViews(request, response, method, view[1] as string, { services, app, workspaceId, user: who.user, manages })) return;
         }
         if (what !== undefined && INSPECT_ROUTES.has(what)) {
             await inspectRoute(request, response, method, services, app, what);

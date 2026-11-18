@@ -210,8 +210,8 @@ The commands are:
   person's app, or a shared one, is served by stateui-mcp as before.
 - **The editor** (`/edit/<appId>`): the app is a frame on a canvas, and the editor floats on it in rounded
   panels. At the top left are the way back to the apps, the name, the frame size (Desktop 1280×800, Tablet
-  834×1112, Phone 390×844) and Open; at the top right, Share, whose links open in a panel under it; on a rail at
-  the left, the tools and the context toggles; at the bottom right, the zoom.
+  834×1112, Phone 390×844) and Open; at the top right, the view selector (Screens, Statenet, Theme, Logic) and Share, whose links open in a panel
+  under it; on a rail at the left, the tools and the layers; at the bottom right, the zoom.
   - **The canvas** pans and zooms. Scrolling on the board pans it, Ctrl+scroll or a pinch zooms about the
     pointer, and dragging the board pans it. Over the app, the app gets the pointer as usual; with the Move tool
     (H) or Space held, a cover lies over the frame and the pointer moves the board. V goes back to Use; +, - and
@@ -229,9 +229,25 @@ The commands are:
     (`hostPageCsp`).
   - `POST /new` makes an app from the name typed on Your apps (lower case words joined by dashes) and opens its
     editor. Asked with `Accept: application/json` it answers 201 `{ id }`, or 400 `{ message }`.
-  - The rail has five toggles, Theme, Layout, Data, Logic and Screens. Each adds what a read-only tool says about
-    that part of the app (`ui_get`, `ui_tree`, `ui_tree` with `logic`, `ui_state_get` on `$.data`,
-    `ui_list` of screens) to the turn as a `<context>` block.
+  - **Views** (`docs/design/magnetic-show-views.md`). The selector (a menu below 760px) switches the canvas, and the
+    view is kept per app in the browser. **Screens** is the canvas of screens. Its rail's **Layers** draw on every
+    tile:
+    - **Layout:** the named sections, from the frame's real boxes or a schematic.
+    - **Data:** the state paths the screen reads and writes, and its outside data.
+    - **Logic:** its handlers, the units touching its paths (Server or Browser), and arrows to the screens it leads to.
+
+    **Statenet**, **Theme** and **Logic** are sheets over the board, each with its tools in the head and an editor
+    at the side:
+    - **Statenet:** a graph of what the app starts from, what it reads from outside and its own state. Its cards edit
+      records, model fields, running state and connections (for managers).
+    - **Theme:** a specimen per mode and a token table edited in place, per mode. It offers Edit for all or Clone for
+      a theme other apps use.
+    - **Logic:** units in a Server lane and a Browser lane, with Move to the browser or server, plus the screens'
+      handlers.
+
+    The routes are `/edit/<appId>/views/<name>` (`src/server/viewRoutes.ts`), each through the person's own tools.
+    Each turn carries the view's part of the app (`ui_get` of the theme, `ui_state_get` on `$.data`, `ui_tree`
+    with `logic`, `ui_list` of screens with the layers that are on) as a `<context>` block.
   - The activity drawer, at the foot of the chat, opens the chat and itself when a turn starts. It shows the model's progress notes and one line per tool call
     with its outcome, and has Stop and "Keep open". It closes 4 s after the turn ends, unless the pointer or the
     focus is in it, or it is kept open.

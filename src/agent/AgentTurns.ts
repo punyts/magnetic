@@ -458,10 +458,13 @@ export class AgentTurns {
             data: async () => (await runTool(tools.get('ui_state_get'), 'ui_state_get', { app, path: '$.data' })).body,
             screens: async () => (await runTool(tools.get('ui_list'), 'ui_list', { kind: 'screens', app })).body,
             theme: async () => {
-                const uses = (await runTool(tools.get('ui_get'), 'ui_get', { kind: 'apps', name: app, path: 'uses' })).body as { value?: { theme?: unknown } };
-                const theme = uses.value?.theme;
-                if (typeof theme !== 'string') return { note: 'The app uses the default theme.' };
-                return (await runTool(tools.get('ui_get'), 'ui_get', { kind: 'themes', name: theme })).body;
+                // An app's themes are a list; the first is the one it opens with
+                const uses = (await runTool(tools.get('ui_get'), 'ui_get', { kind: 'apps', name: app, path: 'uses' })).body as { value?: { themes?: unknown } };
+                const listed = uses.value?.themes;
+                const themes = Array.isArray(listed) ? listed.filter((name): name is string => typeof name === 'string') : [];
+                const theme = themes[0];
+                if (theme === undefined) return { note: 'The app uses the default theme.' };
+                return { themes, default: (await runTool(tools.get('ui_get'), 'ui_get', { kind: 'themes', name: theme })).body };
             }
         };
         const facts: string[] = [];

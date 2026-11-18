@@ -10,9 +10,13 @@ test.describe('The editor', () => {
         editor = await home.makeApp(uniqueName(info, 'editor'));
     });
 
-    test('has the top bar, the tools, the Show toggles, the zoom and the chat bar', async () => {
-        for (const name of ['All your apps', 'Open', 'Share', 'Use the app (V)', 'Move the canvas (H, or hold Space)', 'Select a part of the app (S)', 'Theme', 'Layout', 'Data', 'Logic', 'Screens', 'Zoom out (-)', 'Zoom in (+)', 'Fit the app (1)', 'Send'])
-            await expect(editor.button(name), name).toBeVisible();
+    test('has the top bar, the view selector, the tools, the layers, the zoom and the chat bar', async () => {
+        const phone = test.info().project.name === 'phone';
+        for (const name of ['All your apps', 'Open', 'Share', 'Use the app (V)', 'Move the canvas (H, or hold Space)', 'Select a part of the app (S)', 'Layout', 'Data', 'Zoom out (-)', 'Zoom in (+)', 'Fit the app (1)', 'Send'])
+            await expect(editor.button(name).filter({ visible: true }).first(), name).toBeVisible();
+        // Below 760px the views are a menu rather than a segmented control
+        if (phone) await expect(editor.editor.getByRole('combobox', { name: 'View' })).toBeVisible();
+        else for (const name of ['Screens', 'Statenet', 'Theme', 'Logic']) await expect(editor.editor.getByRole('radio', { name }), name).toBeVisible();
         await expect(editor.request).toBeVisible();
         await expect(editor.zoomButton).toBeVisible();
     });

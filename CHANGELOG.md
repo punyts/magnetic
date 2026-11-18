@@ -2,6 +2,13 @@
 
 ## 0.1.0 (unreleased)
 
+- **The editor's views: Screens, Statenet, Theme and Logic.** Breaking: the rail's SHOW toggles are gone. A selector in the top-right corner switches the canvas, as a segmented control or, below 760px, a View menu. The view is kept per app in the browser.
+  - **Screens:** the rail's **Layers** (Layout, Data, Logic) draw each screen's named sections, the state paths it uses, its handlers, the units touching its paths and arrows to the screens it leads to, on every tile.
+  - **Statenet, Theme and Logic** are sheets over the board. Statenet is a graph whose cards edit datasets, models, running state and connections. Theme is a specimen per mode and a token table edited per mode, with Edit for all or Clone for this app on a shared theme. Logic is a Server lane and a Browser lane of units with Move to the browser or server, plus the screens' handlers.
+  - Routes `/edit/<id>/views/*` go through the person's own tools, and each turn's `<context>` follows the view.
+
+  Tests: `server/viewRoutes.test.ts`, `inspector/viewInfo.test.ts`, `server/editor.browser.test.ts`, `e2e/views.spec.ts`, `e2e/editor.spec.ts`.
+- **Fix: the agent's Theme context always said the app used the default theme.** It read `uses.theme`, which does not exist. It now reads `uses.themes` and answers the list and the default theme's body.
 - **Tips and menus in the editor show whole.** The editor's frame is clipped to its panels, so a tip that reached past the rail or the chat bar ("Shared data (D)", "Show the chat") was cut off. The clip now adds the box of every open popover the runtime reports, grown by 8 px, and drops it when the popover closes. Test: `e2e/editor.spec.ts`, "a tip that reaches past its panel is shown whole: the clip takes its box while it is open".
 - **No light flash before a dark app.** The live frame and the previews had a white background, which an app's own page and the editor showed until the app drew; they now take the page's colour. With StateUI's host now loading each frame in the person's mode and language and hiding it until it is ready, an app opens straight in its theme.
 - **Screens show only their names when many are in view.** With more than four screens in view, or below a zoom of 0.15, nothing renders: no preview mounts and the live frame hides, every screen a tile with its name inside. Pressing a tile selects it and shows it live in its slot; its ×, Escape or a click on the empty board goes back to names. Escape on the page now runs the same turn as from the editor's frame (inspector, selected screen, chat). Test: `e2e/screens.spec.ts` (2).
