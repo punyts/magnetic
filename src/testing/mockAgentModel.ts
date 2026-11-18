@@ -1,4 +1,5 @@
 import type { AgentModel, ModelListener, ModelMessage, ModelRequest } from '../agent/AgentModel.js';
+import type { TokenUsage } from '../agent/Budgets.js';
 
 const USAGE = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 
@@ -31,12 +32,25 @@ async function say(text: string, listener: ModelListener, signal: AbortSignal): 
 /**
  * A stand-in for the Claude API on a development server, so the editor can be tried without an API key and at no
  * cost. Each turn reads the app with `ui_tree`, then adds the person's request as a text on the app's first screen,
- * pausing between steps so the activity drawer can be watched. Costs nothing, so budgets are not spent
+ * pausing between steps so the activity drawer can be watched. Costs nothing unless given `usage`, so budgets are not
+ * spent
  */
 export class MockAgentModel implements AgentModel {
-    constructor(private readonly pauseMs = 700) {}
+    /**
+     * @param usage The tokens each request reports, priced as the dearest model, so the budgets move as on the host;
+     * none by default
+     */
+    constructor(
+        private readonly pauseMs = 700,
+        private readonly usage?: TokenUsage
+    ) {}
 
     async request(params: ModelRequest, listener: ModelListener, signal: AbortSignal): Promise<ModelMessage> {
+        const response = await this.play(params, listener, signal);
+        return this.usage === undefined ? response : ({ ...response, usage: this.usage } as unknown as ModelMessage);
+    }
+
+    private async play(params: ModelRequest, listener: ModelListener, signal: AbortSignal): Promise<ModelMessage> {
         const opening = String(params.messages[0]?.content ?? '');
         const app = /The app being built is "([^"]+)"/.exec(opening)?.[1] ?? '';
         const request = /<request>\n([\s\S]*)\n<\/request>/.exec(opening)?.[1] ?? '';

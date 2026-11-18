@@ -19,6 +19,8 @@ import { importPeople } from './storage/importFiles.js';
 import type { OidcProvider } from './auth/OidcSignIn.js';
 import { MockAgentModel } from './testing/mockAgentModel.js';
 import { startMockOidcProvider } from './testing/mockOidcProvider.js';
+import { seedBeta } from './testing/betaPersonas.js';
+import type { SeededBeta } from './testing/betaPersonas.js';
 
 /** The embedder the options name; the local model only when its package is installed, as it never falls back to another */
 async function embedderOf(kind: 'local' | 'hash' | 'off', modelCache: string | undefined): Promise<Embedder | undefined> {
@@ -150,6 +152,21 @@ async function main(): Promise<void> {
         process.exitCode = 2;
         return;
     }
+    let seeded: SeededBeta | undefined;
+    if (options.seed !== undefined) {
+        if (!['127.0.0.1', '::1', 'localhost'].includes(options.host.toLowerCase())) {
+            process.stderr.write('magnetic: --seed is only allowed on a loopback host\n');
+            process.exitCode = 2;
+            return;
+        }
+        seeded = await seedBeta(database, { scenario: options.seed, slug: options.betaOrg as string, places: options.allowanceUsers ?? 100, allowance: options.userAllowance ?? 5 });
+        const { personas, testers, placesTaken, places } = seeded.made;
+        process.stderr.write(`magnetic: seeded ${options.seed}: ${personas} new personas, ${testers} new testers, ${placesTaken} of ${places} places taken\n`);
+    }
+    const devUsers = seeded === undefined ? options.devUsers : [...new Set([...seeded.devUsers, ...options.devUsers])];
+    const admins = seeded === undefined ? options.admins : [...new Set([...options.admins, seeded.adminEmail])];
+    // A seeded beta's mock turns cost about 15 cents (three requests priced as the dearest model), so its allowances move
+    const mockUsage = seeded === undefined ? undefined : { input_tokens: 5000, output_tokens: 1500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
     const providers: OidcProvider[] = options.linkedIn === undefined ? [] : [linkedInProvider(options.linkedIn.clientId, options.linkedIn.clientSecret, { pkce: options.linkedIn.pkce })];
     const mock = options.mockProvider ? await startMockOidcProvider() : undefined;
     if (mock !== undefined) providers.push({ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret });
@@ -160,7 +177,8 @@ async function main(): Promise<void> {
         port: options.port,
         ...(options.runtimePort !== undefined && { runtimePort: options.runtimePort }),
         report: reporter.report,
-        devUsers: options.devUsers,
+        devUsers,
+        ...(seeded !== undefined && { devProfiles: seeded.profiles }),
         starter: options.starter,
         ...(options.runtimeDir !== undefined && { runtimeDir: options.runtimeDir }),
         ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
@@ -172,8 +190,8 @@ async function main(): Promise<void> {
         ...(options.mail !== undefined && { mailer: sesMailer(options.mail) }),
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         ...(options.stripe !== undefined && { payments: { stripe: options.stripe, ...(options.topUps !== undefined && { topUps: options.topUps }) } }),
-        ...(options.admins.length > 0 && { admins: options.admins }),
-        agent: { ...(options.mockAgent && { model: new MockAgentModel() }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, betaOrg: options.betaOrg, monthly: options.monthlyBudget } }
+        ...(admins.length > 0 && { admins }),
+        agent: { ...(options.mockAgent && { model: new MockAgentModel(undefined, mockUsage) }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, betaOrg: options.betaOrg, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);
     if (options.mockAgent) process.stderr.write('magnetic: agent is the scripted mock agent; no API calls\n');

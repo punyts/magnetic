@@ -176,6 +176,11 @@ export interface MagneticOptions {
      * server bound to any other address refuses to start with them
      */
     readonly devUsers?: readonly string[];
+    /**
+     * The name, verified email and button label of development users who have them (a seeded beta: its admin is an admin
+     * by that email). Without one, a development user is their name and has no email
+     */
+    readonly devProfiles?: Readonly<Record<string, { readonly name: string; readonly email?: string; readonly label?: string }>>;
     /** What a new user's workspace starts with: the component showcase (default) or nothing */
     readonly starter?: 'showcase' | 'none';
     /** The folder of the built runtime bundle; default the one in `@punyts/stateui-app` */
@@ -435,7 +440,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             title: t['signin.title'],
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             app: await pageApps.document(PAGE_APPS.signIn),
-            data: { '$.data.signin': { error: error ?? '', noError: error === undefined, ...(await betaNotice(t)), labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name })])) } },
+            data: { '$.data.signin': { error: error ?? '', noError: error === undefined, ...(await betaNotice(t)), labels: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name })])) } },
             actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
     };
@@ -1032,9 +1037,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const form = await readForm(request);
             const name = form.get('user');
             if (name === null || !devUsers.includes(name)) throw new HttpError(403, 'Not a development user of this server', 'forbidden');
-            const user = await accounts.signIn({ provider: 'dev', subject: name }, { name });
+            const profile = options.devProfiles?.[name];
+            const user = await accounts.signIn({ provider: 'dev', subject: name }, profile === undefined ? { name } : { name: profile.name, ...(profile.email !== undefined && { email: profile.email, emailVerified: true }) });
             await joinBeta(user.id);
-            await rules.signedIn({ id: user.id, emailVerified: false }, { provider: 'dev', ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
+            await rules.signedIn({ id: user.id, emailVerified: profile?.email !== undefined }, { provider: 'dev', ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
             redirect(response, safeNext(form.get('next')), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
             return true;
         }

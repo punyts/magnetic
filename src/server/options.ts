@@ -17,6 +17,8 @@ export interface CliOptions {
     runtimePort: number | undefined;
     devUsers: string[];
     starter: 'showcase' | 'none';
+    /** Seeds the beta's people on a development server, to sign in as each (src/testing/betaPersonas.ts) */
+    seed: 'beta' | 'beta-full' | undefined;
     runtimeDir: string | undefined;
     publicOrigin: string | undefined;
     /** The runtime frame's origin behind a proxy, such as https://run.magnetic.example */
@@ -95,6 +97,8 @@ Options:
   --host <address>       Address to bind (env MAGNETIC_HOST, default 127.0.0.1)
   --dev-user <name>      A test user who signs in with a button, no provider; repeat for more
                          (env MAGNETIC_DEV_USERS, comma-separated). Loopback hosts only
+  --seed <scenario>      Seeds the beta's people to sign in as, for development: beta (a few places
+                         left) or beta-full (env MAGNETIC_SEED). Needs --beta-org. Loopback hosts only
   --starter <kind>       What a new workspace holds: showcase or none
                          (env MAGNETIC_STARTER, default showcase)
   --runtime-dir <dir>    The built StateUI runtime bundle (env MAGNETIC_RUNTIME_DIR)
@@ -263,6 +267,11 @@ const parseStarter = (text: string): 'showcase' | 'none' => {
     return text;
 };
 
+const parseSeed = (text: string): 'beta' | 'beta-full' => {
+    if (text !== 'beta' && text !== 'beta-full') throw new UsageError(`Invalid seed: ${text} (beta or beta-full)`);
+    return text;
+};
+
 /** Reads the command line and the environment. A flag wins over its environment variable */
 export function parseOptions(argv: readonly string[], env: Readonly<Record<string, string | undefined>>): CliOptions {
     let command: CliOptions['command'] = 'serve';
@@ -276,6 +285,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let port = env['MAGNETIC_PORT'] !== undefined ? parsePort(env['MAGNETIC_PORT']) : DEFAULT_PORT;
     let runtimePort = env['MAGNETIC_RUNTIME_PORT'] !== undefined ? parsePort(env['MAGNETIC_RUNTIME_PORT']) : undefined;
     let starter = env['MAGNETIC_STARTER'] !== undefined ? parseStarter(env['MAGNETIC_STARTER']) : 'showcase';
+    let seed = env['MAGNETIC_SEED'] !== undefined && env['MAGNETIC_SEED'] !== '' ? parseSeed(env['MAGNETIC_SEED']) : undefined;
     let runtimeDir = env['MAGNETIC_RUNTIME_DIR'];
     let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
     let runtimeOrigin = env['MAGNETIC_RUNTIME_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_RUNTIME_ORIGIN']) : undefined;
@@ -365,6 +375,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--dev-user':
                 (flagUsers ??= []).push(parseDevUser(value()));
                 break;
+            case '--seed':
+                seed = parseSeed(value());
+                break;
             case '--starter':
                 starter = parseStarter(value());
                 break;
@@ -445,6 +458,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     if (betaOrg !== undefined && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(betaOrg)) throw new UsageError(`Invalid beta org: ${betaOrg} (an org slug: lower-case letters, digits and dashes)`);
     if (betaOrg !== undefined && secretKey === undefined) throw new UsageError('The beta org (--beta-org) needs MAGNETIC_SECRET_KEY, which signs the beta link');
+    if (seed !== undefined && betaOrg === undefined) throw new UsageError('Seeding the beta (--seed) needs --beta-org');
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }

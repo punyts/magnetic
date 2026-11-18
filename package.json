@@ -25,6 +25,7 @@
         "test": "vitest run",
         "start": "node dist/cli.js",
         "start:live": "node --env-file-if-exists=../.env dist/cli.js",
+        "start:beta": "node --env-file=beta.dev.env dist/cli.js",
         "e2e": "npm run build && playwright test",
         "e2e:report": "playwright show-report e2e-report"
     },
