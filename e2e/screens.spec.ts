@@ -78,8 +78,8 @@ test.describe('Screens', () => {
         await expect(editor.button('Delete')).toBeHidden();
         // The old home screen can go now
         await preview(page, 'home').locator('.preview-cover').click();
-        page.once('dialog', (dialog) => void dialog.accept());
         await editor.button('Delete').click();
+        await page.getByRole('dialog', { name: 'Screen Home' }).getByRole('button', { name: 'Delete' }).click();
         await expect(preview(page, 'home')).toHaveCount(0);
         await expect(editor.editor.getByText('Home', { exact: true })).toBeHidden();
         await expect(rename).toHaveValue('welcome');
@@ -123,4 +123,131 @@ test.describe('Screens', () => {
         await expect.poll(() => page.locator('.preview iframe').count()).toBeLessThan(3);
         await expect(preview(page, 'three').locator('.preview-idle')).toHaveText('Three');
     });
+
+    test('with more than four screens in view, the previews show only their names', async ({ page }) => {
+        // Arrange: six screens two to a row, the home screen live, and the board fitted to it
+        await zoomedOutOnSix(page);
+        await editor.button('Fit the app (1)').click();
+        await expect.poll(() => page.locator('.preview iframe').count()).toBeGreaterThan(0);
+
+        // Act: zoomed out until every screen is in view
+        await zoomOut(page);
+
+        // Assert: nothing renders: no preview runs and the live frame hides, its screen a tile like the others, with no
+        // name above; fitting the live frame again shows it and runs the previews in view
+        await expect.poll(() => page.locator('.preview iframe').count()).toBe(0);
+        await expect(page.locator('#artboard')).toBeHidden();
+        await expect(preview(page, 'home').locator('.preview-idle')).toHaveText('Home');
+        await expect(preview(page, 'five').locator('.preview-idle')).toHaveText('Five');
+        await expect(preview(page, 'five').locator('.artboard-label')).toBeHidden();
+        await editor.button('Fit the app (1)').click();
+        await expect(page.locator('#artboard')).toBeVisible();
+        await expect(preview(page, 'home')).toHaveCount(0);
+        await expect.poll(() => page.locator('.preview iframe').count()).toBeGreaterThan(0);
+    });
+
+    test('a name dragged to another slot moves its screen there', async ({ page }) => {
+        // Arrange
+        await zoomedOutOnSix(page);
+        const from = (await preview(page, 'three').boundingBox())!;
+        const to = (await preview(page, 'one').boundingBox())!;
+
+        // Act: three onto one's slot
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 - 20, from.y + from.height / 2, { steps: 3 });
+        await expect(page.locator('.drop-slot')).toBeVisible();
+        await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+        await page.mouse.up();
+
+        // Assert: the order is home, three, one, two, four, five, on the board and in the panel
+        await expect.poll(() => order(page)).toEqual(['home', 'three', 'one', 'two', 'four', 'five']);
+        const titles = editor.editor.getByText(/^(Home|One|Two|Three|Four|Five)$/);
+        await expect(titles).toHaveText(['Home', 'Three', 'One', 'Two', 'Four', 'Five']);
+    });
+
+    test('a preview\'s menu retitles its screen and moves it earlier', async ({ page }) => {
+        // Arrange
+        await zoomedOutOnSix(page);
+
+        // Act
+        await preview(page, 'two').locator('.preview-cover').click({ button: 'right' });
+        const menu = page.getByRole('dialog', { name: 'Screen Two' });
+        await menu.getByLabel('Title').fill('Pricing');
+        await menu.getByRole('button', { name: 'Save' }).first().click();
+        await expect(menu).toBeHidden();
+        await preview(page, 'two').locator('.preview-cover').click({ button: 'right' });
+        await page.getByRole('dialog', { name: 'Screen Pricing' }).getByRole('button', { name: 'Move earlier' }).click();
+
+        // Assert
+        await expect(preview(page, 'two').locator('.preview-idle')).toHaveText('Pricing');
+        await expect.poll(() => order(page)).toEqual(['home', 'two', 'one', 'three', 'four', 'five']);
+    });
+
+    test('a tile pressed in names shows its screen until it is deselected', async ({ page }) => {
+        // Arrange
+        await zoomedOutOnSix(page);
+
+        // Act: select two
+        await preview(page, 'two').locator('.preview-cover').click();
+
+        // Assert: the live frame shows two in its slot, the others stay names; its × and Escape go back to names
+        await expect(page.locator('#artboard')).toBeVisible();
+        await expect(page.locator('#artboard-size').locator('xpath=..')).toContainText('Two');
+        await expect(preview(page, 'two')).toHaveCount(0);
+        await expect(page.locator('.preview iframe')).toHaveCount(0);
+        await page.getByRole('button', { name: 'Show only its name' }).click();
+        await expect(page.locator('#artboard')).toBeHidden();
+        await expect(preview(page, 'two').locator('.preview-idle')).toHaveText('Two');
+        await preview(page, 'three').locator('.preview-cover').click();
+        await expect(page.locator('#artboard')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#artboard')).toBeHidden();
+    });
+
+    test('a tile\'s bin deletes its screen once confirmed, and its ⋯ opens its menu', async ({ page }) => {
+        // Arrange
+        await zoomedOutOnSix(page);
+
+        // Act
+        await preview(page, 'two').hover();
+        await preview(page, 'two').getByRole('button', { name: 'Delete Two' }).click();
+        const ask = page.getByRole('dialog', { name: 'Screen Two' });
+        await expect(ask).toContainText('Delete the screen Two?');
+        await ask.getByRole('button', { name: 'Delete' }).click();
+
+        // Assert
+        await expect(preview(page, 'two')).toHaveCount(0);
+        await expect(editor.editor.getByText('Two', { exact: true })).toBeHidden();
+        await expect(preview(page, 'home').getByRole('button', { name: 'Delete Home' })).toBeHidden();
+        await preview(page, 'one').getByRole('button', { name: 'More for One' }).click();
+        await expect(page.getByRole('dialog', { name: 'Screen One' }).getByRole('button', { name: 'Copy' })).toBeVisible();
+    });
 });
+
+/** Six screens two to a row, home live, and zoomed out until all six are in view */
+async function zoomedOutOnSix(page: Page): Promise<void> {
+    const editor = new EditorPage(page);
+    for (const name of ['one', 'two', 'three', 'four', 'five']) await addScreen(editor, name);
+    await preview(page, 'home').locator('.preview-cover').click();
+    await editor.editor.getByRole('combobox', { name: 'Screens in a row', exact: true }).selectOption({ label: '2' });
+    await zoomOut(page);
+}
+
+async function zoomOut(page: Page): Promise<void> {
+    const editor = new EditorPage(page);
+    for (let step = 0; step < 6; step += 1) await editor.button('Zoom out (-)').click();
+    // The zoom glides: wait for it to settle on names
+    await expect(page.locator('body.screen-names')).toHaveCount(1);
+    await page.waitForTimeout(400);
+}
+
+/** The tiles' screens in the order of their slots, left to right and down */
+async function order(page: Page): Promise<string[]> {
+    const placed = await page.locator('.preview').evaluateAll((elements) => elements.map((element) => ({
+        name: (element as HTMLElement).dataset['screen'] ?? '',
+        left: parseFloat((element as HTMLElement).style.left),
+        top: parseFloat((element as HTMLElement).style.top)
+    })));
+    return placed.sort((a, b) => a.top - b.top || a.left - b.left).map((item) => item.name);
+}

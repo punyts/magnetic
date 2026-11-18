@@ -103,16 +103,49 @@ body.shell.editing.unfitted .world { visibility: hidden; }
 .board.dragging, .board.dragging .shield { cursor: grabbing; }
 .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .world.glide { transition: transform 0.25s ease; }
-.artboard { position: relative; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
+.artboard { position: relative; background: var(--paper); border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
 /* Each screen of the app in a slot of its own, in rows left to right: the live frame in the slot of the screen it shows, the
    others as previews (screens.js) with a cover that makes the screen the one worked on */
 body.shell.editing .artboard { left: var(--slot-x, 0px); top: var(--slot-y, 0px); }
-.preview { position: absolute; top: 0; background: #fff; border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
+.preview { position: absolute; top: 0; background: var(--paper); border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
 .preview-frame, .preview-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; border-radius: inherit; overflow: hidden; }
 .preview-cover { position: absolute; inset: 0; z-index: 1; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: inherit; }
 .preview-cover:hover, .preview-cover:focus-visible { outline: calc(2px / var(--zoom, 1)) solid var(--accent, #3d5afe); }
 .preview-idle { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font: calc(14px / var(--zoom, 1)) system-ui, sans-serif; }
 body.shell:not(.editing) .preview { display: none; }
+/* Many screens in view, or far out: each screen is a tile with its name, dragged to another slot to move the screen.
+   Nothing renders: the live frame hides (its screen has a tile) until a tile is pressed, and the name above a tile goes */
+body.screen-names .preview-idle { color: var(--ink); font-size: calc(20px / var(--zoom, 1)); font-weight: 600; padding: 0 calc(12px / var(--zoom, 1)); text-align: center; }
+body.screen-names .preview-cover { cursor: grab; }
+body.screen-names .preview .artboard-label { display: none; }
+body.live-hidden .artboard { visibility: hidden; }
+.preview-tools { display: none; position: absolute; z-index: 2; top: calc(8px / var(--zoom, 1)); right: calc(8px / var(--zoom, 1)); gap: calc(4px / var(--zoom, 1)); }
+body.screen-names .preview-tools { display: flex; }
+.preview-tool, .live-close { display: grid; place-items: center; width: calc(28px / var(--zoom, 1)); height: calc(28px / var(--zoom, 1)); padding: 0; border: calc(1px / var(--zoom, 1)) solid var(--dot); border-radius: calc(6px / var(--zoom, 1)); background: var(--paper); color: var(--muted); cursor: pointer; }
+.preview-tool[hidden], .live-close[hidden] { display: none; }
+.preview-tool:hover, .preview-tool:focus-visible, .live-close:hover, .live-close:focus-visible { color: var(--ink); border-color: var(--accent); outline: none; }
+.preview-tool.bin:hover, .preview-tool.bin:focus-visible { color: #c62828; border-color: #c62828; }
+.preview-tool svg, .live-close svg { width: 60%; height: 60%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.live-close { position: absolute; z-index: 3; transform: translate(-100%, calc(-100% - 6px / var(--zoom, 1))); }
+.preview.lifted { z-index: 3; opacity: 0.85; box-shadow: 0 calc(12px / var(--zoom, 1)) calc(32px / var(--zoom, 1)) rgba(20, 24, 40, 0.3); }
+.preview.lifted .preview-cover { cursor: grabbing; }
+.drop-slot { position: absolute; box-sizing: border-box; border: calc(2px / var(--zoom, 1)) dashed var(--accent); border-radius: calc(6px / var(--zoom, 1)); background: color-mix(in srgb, var(--accent) 8%, transparent); pointer-events: none; z-index: 2; }
+.drop-slot[hidden] { display: none; }
+/* A screen's menu, opened from its preview */
+.screen-menu { position: fixed; z-index: 5; display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 280px; padding: 6px; border-radius: 10px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); border: 1px solid var(--dot); font: 13px system-ui, sans-serif; }
+.screen-menu > button { text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.screen-menu > button:hover, .screen-menu > button:focus-visible { background: var(--soft); outline: none; }
+.screen-menu form { display: flex; align-items: end; gap: 6px; padding: 4px 8px; }
+.screen-menu label { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; color: var(--muted); font-size: 12px; }
+.screen-menu input { padding: 4px 6px; border: 1px solid var(--dot); border-radius: 6px; background: var(--paper); color: var(--ink); font: 13px system-ui, sans-serif; }
+.screen-menu form button { padding: 4px 8px; border: 0; border-radius: 6px; background: var(--soft); color: var(--accent); font: inherit; cursor: pointer; }
+.screen-menu > button.danger, .screen-menu-row button.danger { color: #c62828; }
+.screen-menu-question { margin: 0; padding: 6px 8px; }
+.screen-menu-row { display: flex; gap: 6px; justify-content: flex-end; padding: 4px 8px; }
+.screen-menu-row button { padding: 6px 10px; border: 1px solid var(--dot); border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.screen-menu-row button.danger { border-color: #c62828; }
+.screen-menu-status { margin: 0; padding: 0 8px; color: #c62828; font-size: 12px; }
+.screen-menu-status:empty { display: none; }
 body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: inherit; display: block; }
 .artboard-label { position: absolute; left: 0; bottom: 100%; margin: 0 0 calc(6px / var(--zoom, 1)); display: flex; gap: 0.5em; white-space: nowrap; font-size: calc(12px / var(--zoom, 1)); color: var(--muted); }
 .artboard-label span:first-child { color: var(--ink); font-weight: 600; }
@@ -185,7 +218,19 @@ function write(writes) {
     else pending.push(...writes);
 }
 /** Writes a list of the editor's data as records by id */
-function list(name, records) { write([{ path: '$.data.' + name, value: Object.fromEntries(records.map((record) => [record.id, record])) }]); }
+/**
+ * Writes a list as records keyed by id, in order. A write merges into the records there, where a key keeps its place, so
+ * a list whose ids changed (a screen moved, or renamed, which would put it last) is cleared first
+ */
+const listIds = new Map();
+function list(name, records) {
+    const path = '$.data.' + name;
+    const ids = records.map((record) => record.id).join('\n');
+    const changed = listIds.has(name) && listIds.get(name) !== ids;
+    listIds.set(name, ids);
+    const value = Object.fromEntries(records.map((record) => [record.id, record]));
+    write(changed ? [{ path, value: null }, { path, value }] : [{ path, value }]);
+}
 
 /** The path of the first node kept under a key, anywhere in the editor's screens */
 function pathOfKey(key) {
@@ -901,9 +946,9 @@ const TOOL_KEYS = {
     p: () => showScreensPanel(!screensOpen),
     c: () => showConnectionsPanel(!connectionsOpen),
     d: () => showSharedPanel(!sharedOpen),
-    escape: () => { for (const listener of escapeListeners) if (listener()) return; if (chatOpen) showChat(false); }
+    escape: () => { for (const listener of escapeListeners) if (listener()) return true; if (chatOpen) { showChat(false); return true; } return false; }
 };
-/** What Escape lets go of first: inspect.js adds placing and the selection */
+/** What Escape lets go of, in turn: inspect.js adds placing and the selection, screens.js the selected screen */
 const escapeListeners = [];
 
 function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
@@ -912,7 +957,7 @@ document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') { event.preventDefault(); setEditing(!editing()); return; }
     if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
     if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
-    // Escape on the page is inspect.js's; from the editor's frame it comes as a key of the runtime
+    // Escape on the page is inspect.js's, which runs the same turn as the escape key; from the editor's frame it comes as a key of the runtime
     const run = event.key === 'Escape' ? undefined : TOOL_KEYS[event.key.toLowerCase()] || (event.key === '+' ? TOOL_KEYS['='] : undefined);
     if (run) { event.preventDefault(); run(); }
 });
@@ -1050,6 +1095,8 @@ const magneticShell = {
     },
     editorChanged,
     onEscape: (listener) => escapeListeners.push(listener),
+    /** Lets go of the first thing Escape lets go of; true when there was one */
+    escape: () => TOOL_KEYS.escape(),
     showInspector: (open) => ed({ inspectorHidden: !open }),
     editor: {
         set: ed,

@@ -190,12 +190,13 @@ const INSPECTOR = {
     width: `clamp(${fit('320px')}, (760px - 100vw) * 1000, calc(100% - 24px))`
 };
 /**
- * The component library: right of the rail, below the corners, 288px wide and down to above the chat bar; below 760px
+ * The component library: right of the rail, below the corners, 288px wide and down to the bottom of the window less its
+ * margin; while the centred chat bar (640px) would reach under it, below 1432px, it stops above the chat bar. Below 760px
  * a sheet across the bottom, as the inspector is
  */
 const LIBRARY = {
     x: 'clamp(12px, (100vw - 760px) * 1000, 96px)',
-    bottom: '100px',
+    bottom: 'clamp(12px, (1432px - 100vw) * 1000, 100px)',
     y: 'clamp(76px, (760px - 100vw) * 1000, calc(55vh - 100px))',
     width: `clamp(${fit('288px')}, (760px - 100vw) * 1000, calc(100% - 24px))`
 };
@@ -588,15 +589,19 @@ function libraryBody(t: Texts): Record<string, unknown> {
                 placement: { grow: 1 },
                 _empty: t['inspector.noMatch'],
                 // A drag source: the card holds the pointer and says where it is, so the page sees the drag cross out of
-                // the editor's frame (which covers the window) onto the canvas, and takes the drop
+                // the editor's frame (which covers the window) onto the canvas, and takes the drop. Rows have one fixed
+                // height, so the summary keeps to one line: a second ran into the next card
                 row: {
                     component: 'card',
                     elevation: 'flat',
                     padding: 'sm',
                     interactive: true,
                     draggable: true,
-                    '<-_title': '$row.name',
-                    '<-_subtitle': '$row.summary',
+                    layout: { type: 'column', gap: 'none' },
+                    children: {
+                        name: { component: 'text', textRole: 'label', truncate: 1, '<-_text': '$row.name' },
+                        summary: { component: 'text', textRole: 'caption', truncate: 1, muted: true, '<-_text': '$row.summary' }
+                    },
                     on: { press: emit('place', '$row.name'), dragStart: emit('grab', '$row.name'), dragMove: emit('dragMove'), dragEnd: emit('dragEnd') }
                 }
             }

@@ -226,6 +226,23 @@ describe("The editor's inspector routes", () => {
         expect(copy['children']).toEqual(['title', 'list']);
     });
 
+    it('should reorder the screens and retitle one, and refuse an order that leaves one out', async () => {
+        // Arrange
+        await screens({ action: 'add', name: 'about' });
+
+        // Act
+        const ordered = await screens({ action: 'order', order: ['about', 'home'] });
+        const short = await screens({ action: 'order', order: ['home'] });
+        const titled = await screens({ action: 'title', name: 'about', title: 'Our story' });
+        const blank = await screens({ action: 'title', name: 'about', title: '  ' });
+
+        // Assert
+        expect((ordered.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['about', 'home']);
+        expect(short.status).toBe(400);
+        expect(titled.body['screens']).toEqual([{ name: 'about', title: 'Our story' }, expect.objectContaining({ name: 'home' })]);
+        expect(blank.status).toBe(400);
+    });
+
     it('should add, set, move and remove nodes, each as one checked write that moves the revision on by one', async () => {
         // Arrange
         const start = await revision();

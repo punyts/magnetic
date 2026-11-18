@@ -1531,12 +1531,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendJson(response, 200, { revision: app.revision, ...screensOf(document as Record<string, unknown>) });
             return;
         }
-        // One change to the screens, through the same tools as the agent's: add (blank), copy, rename, delete, or home
+        // One change to the screens, through the same tools as the agent's: add (blank), copy, rename, delete, home, order
+        // (every screen's name in the new order) or title (a screen's new title)
         if (what === '/screens' && method === 'POST') {
             const body = await readJsonBody(request, MAX_FORM_BYTES);
             const action = isRecord(body) && typeof body['action'] === 'string' ? body['action'] : '';
             const name = isRecord(body) && typeof body['name'] === 'string' ? body['name'] : '';
             const to = isRecord(body) && typeof body['to'] === 'string' ? body['to'] : '';
+            const order = isRecord(body) && Array.isArray(body['order']) ? body['order'].filter((item): item is string => typeof item === 'string') : [];
+            const title = isRecord(body) && typeof body['title'] === 'string' ? body['title'].trim() : '';
             const expectedRevision = isRecord(body) && typeof body['revision'] === 'number' ? body['revision'] : app.revision;
             const call = async (tool: string, args: Record<string, unknown>): Promise<void> => {
                 const found = tools.find((candidate) => candidate.name === tool);
@@ -1556,7 +1559,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 } else if (action === 'rename') await call('ui_rename', { kind: 'screens', app: app.name, name, to });
                 else if (action === 'delete') await call('ui_delete', { kind: 'screens', app: app.name, name });
                 else if (action === 'home') await call('ui_app_configure', { name: app.name, start: name });
-                else throw new HttpError(400, 'Say add, copy, rename, delete or home.', 'invalid');
+                else if (action === 'order') await call('ui_app_configure', { name: app.name, screens: order.map((screen) => ({ name: screen })) });
+                else if (action === 'title') {
+                    if (!isRecord(screens[name])) throw new HttpError(404, 'No such screen.', 'not_found');
+                    if (title === '') throw new HttpError(400, 'A screen title is some text.', 'invalid');
+                    await call('ui_app_configure', { name: app.name, screens: Object.keys(screens).map((screen) => (screen === name ? { name: screen, title } : { name: screen })) });
+                } else throw new HttpError(400, 'Say add, copy, rename, delete, home, order or title.', 'invalid');
             } catch (error) {
                 if (error instanceof HttpError) {
                     sendJson(response, error.status, { message: error.message });

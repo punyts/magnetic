@@ -890,7 +890,7 @@ shell.onEscape(letGo);
 document.addEventListener('keydown', (event) => {
     if (!shell.editing() || event.ctrlKey || event.metaKey || typing(event.target)) return;
     if (event.key === 'Escape') {
-        if (letGo()) event.preventDefault();
+        if (shell.escape()) event.preventDefault();
         return;
     }
     if (!selected) return;
