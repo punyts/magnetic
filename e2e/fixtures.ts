@@ -33,6 +33,12 @@ export async function seedDataset(seed: { user: string; email: string; dataset: 
     expect(response.status, await response.text()).toBe(204);
 }
 
+/** Gives a dev user's app a logic module working on one of their datasets (seedDataset), as the agent would make it */
+export async function seedModule(seed: { user: string; app: string; module: string; dataset: string }): Promise<void> {
+    const response = await fetch(`${CONTROL}/module`, { method: 'POST', body: JSON.stringify(seed) });
+    expect(response.status, await response.text()).toBe(204);
+}
+
 /** The stand-in Stripe refunds a checkout session's payment, so far `cents` in all */
 export async function refundCheckout(session: string, cents: number): Promise<void> {
     const answer = await fetch(`${CONTROL}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session, cents }) });

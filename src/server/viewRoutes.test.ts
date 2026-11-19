@@ -113,16 +113,19 @@ describe("The editor's view routes", () => {
         expect((await get('screen?screen=nowhere')).status).toBe(404);
     });
 
-    it("should answer the app's statenet: its theme, its dataset with its model, and the app", async () => {
+    it("should answer the owner's statenet by state path: the app with its screens and bindings, its theme, its dataset with its model", async () => {
         // Act
         const answer = await get('graph');
 
         // Assert
         expect(answer.status, JSON.stringify(answer.body)).toBe(200);
         const ids = (answer.body['nodes'] as { id: string }[]).map((node) => node.id);
-        expect(ids).toEqual(expect.arrayContaining(['app', 'theme:calm', 'dataset:notes', 'model:note']));
-        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: 'theme:calm', isDefault: true }));
-        expect(answer.body['edges']).toContainEqual({ from: 'dataset:notes', to: 'app', kind: 'binding', label: '$.data.notes' });
+        expect(ids).toEqual(expect.arrayContaining(['$', '$.apps.notes', '$.apps.other', '$.apps.notes.screens.home', '$.apps.notes.uses.data.notes', '$.themes.calm', '$.data.notes', '$.data.notes.n1', '$.models.note', '$.models.note.fields.title']));
+        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.apps.notes', current: true }));
+        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.apps.other', used: false }));
+        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.themes.calm', isDefault: true, used: true }));
+        expect(answer.body['edges']).toContainEqual({ from: '$.apps.notes.uses.data.notes', to: '$.data.notes', kind: 'binding', label: '$.data.notes' });
+        expect(answer.body['app']).toBe('notes');
         expect(answer.body['manages']).toBe(true);
     });
 
@@ -232,7 +235,39 @@ describe("The editor's view routes", () => {
         expect(info.body).toMatchObject({ name: 'weather', baseUrl: 'https://api.example.com', keySet: true });
         expect(JSON.stringify(info.body)).not.toContain('secret-value');
         expect(endpoint.status, JSON.stringify(endpoint.body)).toBe(200);
-        expect(graph.body['nodes']).toContainEqual(expect.objectContaining({ id: 'endpoint:weather/today', used: false }));
+        expect(graph.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.connections.weather.endpoints.today', used: false }));
+    });
+
+    it("should make a model, a dataset bound in the app, a module the app uses, and bind a dataset the owner has, from the tree's +", async () => {
+        // Act
+        const model = await post('add', { what: 'model', name: 'task', field: 'title', type: 'string' });
+        const dataset = await post('add', { what: 'dataset', name: 'open-tasks', model: 'task', record: { title: 'First' } });
+        const module = await post('add', { what: 'module', name: 'chores', need: 'notes' });
+        await tool(tools, 'ui_data_write', { dataset: 'later', model: 'task', operations: [{ op: 'add', value: { title: 'Later' } }] });
+        const bound = await post('add', { what: 'binding', dataset: 'later', binding: 'someday' });
+        const taken = await post('add', { what: 'binding', dataset: 'later', binding: 'someday' });
+        const badName = await post('add', { what: 'module', name: 'Not A Name', need: 'notes' });
+        const noNeed = await post('add', { what: 'module', name: 'loose' });
+        const rule = await post('logic', { module: 'chores', unit: 'rules.example', revision: (await get('part?kind=logic&name=chores')).body['revision'], value: { when: { path: '$.data.notes.{id}.title', is: 'example' }, do: [{ command: 'set', target: '$.data.notes.{id}.title', value: '' }] } });
+        const machine = await post('logic', { module: 'chores', unit: 'machines.example', revision: rule.body['revision'], value: { state: '$.data.notes.status', initial: 'idle', transitions: [{ from: 'idle', when: { path: '$.data.notes.{id}.title', is: 'example' }, to: 'done' }] } });
+        const table = await post('logic', { module: 'chores', unit: 'tables.example', revision: machine.body['revision'], value: { inputs: { value: '$.data.notes.{id}.title' }, outputs: { copy: '$.data.notes.{id}.done' }, rows: [{ copy: '{{ $value }}' }] } });
+        const graph = await get('graph');
+
+        // Assert
+        expect(model.body, JSON.stringify(model.body)).toEqual({ path: '$.models.task' });
+        expect(dataset.body, JSON.stringify(dataset.body)).toEqual({ path: '$.data.open-tasks' });
+        expect(module.body, JSON.stringify(module.body)).toEqual({ path: '$.logic.chores' });
+        expect(bound.body, JSON.stringify(bound.body)).toEqual({ path: '$.data.someday' });
+        expect(taken.status).toBe(409);
+        expect(badName.status).toBe(400);
+        expect(noNeed.status).toBe(400);
+        expect([rule.status, machine.status, table.status], JSON.stringify([rule.body, machine.body, table.body])).toEqual([200, 200, 200]);
+        const nodes = graph.body['nodes'] as { id: string; used: boolean }[];
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.apps.notes.uses.data.openTasks', kind: 'binding', note: 'open-tasks' }));
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.apps.notes.uses.data.someday', kind: 'binding', note: 'later' }));
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.data.open-tasks', used: true }));
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.logic.chores', used: true }));
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.models.task', used: true }));
     });
 
     it('should keep the view routes to signed-in people who may edit the app', async () => {

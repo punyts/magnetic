@@ -3,7 +3,7 @@ import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { User } from '../accounts/Accounts.js';
 import type { Connections } from '../connections/Connections.js';
 import { CallRefused } from '../connections/guard.js';
-import { graphOf, screenInfoOf, themeTokensOf, unitsOf } from '../inspector/viewInfo.js';
+import { ownerTreeOf, screenInfoOf, themeTokensOf, unitsOf } from '../inspector/viewInfo.js';
 import type { GraphConnection, ThemeBody } from '../inspector/viewInfo.js';
 
 type JsonRecord = Record<string, unknown>;
@@ -43,6 +43,8 @@ const PRESETS = ['clean', 'moody', 'playful', 'professional'];
 /** The most records of a dataset or a state value a view shows */
 const MOST_RECORDS = 200;
 const NAME = /^[a-z][a-z0-9-]*$/;
+/** The groups of a logic module's units */
+const UNIT_GROUPS = ['machines', 'rules', 'tables', 'computes', 'effects'];
 
 /** A refusal the view shows: a status and a message (a tool's message, which names paths, never values) */
 class Refused extends Error {
@@ -57,7 +59,8 @@ class Refused extends Error {
  *
  * - `GET screen?screen=`: a screen's layout tree, the paths it uses, its handlers, where it leads and the units
  *   touching it (the Screens view's layers).
- * - `GET graph`: the app's statenet. `GET part?kind=data|models&name=`: one dataset or model. `GET state?path=` and
+ * - `GET graph`: the owner's tree of state paths (`ownerTreeOf`). `GET part?kind=data|models|logic&name=`: one
+ *   dataset, model or logic module. `POST add`: what a + of the tree makes (`addPart`). `GET state?path=` and
  *   `POST state`: a path of the running state. `POST data`: a dataset's records or a model's fields.
  *   `POST connections`: a change to a connection, for those who manage them.
  * - `GET theme?theme=` and `POST theme`: the app's themes and one theme's tokens in each mode; its changes.
@@ -109,18 +112,44 @@ export function viewRoutes(context: ViewRouteContext) {
         return readers;
     }
 
+    /** A part's body, or an empty one when it went away while the tree was read */
+    async function bodyOf(place: ViewPlace, kind: string, name: string): Promise<JsonRecord> {
+        const found = await place.services.parts.findByName(kind as never, name);
+        return found === undefined ? {} : (found.body as unknown as JsonRecord);
+    }
+
+    /** The owner's tree: every part of the workspace by kind, with the app being edited and what it holds */
     async function graph(place: ViewPlace): Promise<JsonRecord> {
         const app = await appNow(place);
         const uses = usesOf(app);
         const document = await documentOf(place);
-        const datasetModels: Record<string, string | undefined> = {};
-        const data = isRecord(uses['data']) ? uses['data'] : {};
-        for (const use of Object.values(data)) {
-            if (!isRecord(use) || typeof use['dataset'] !== 'string') continue;
-            const part = await place.services.parts.findByName('data', use['dataset']);
-            const model = part === undefined ? undefined : (part.body as unknown as JsonRecord)['model'];
-            datasetModels[use['dataset']] = typeof model === 'string' ? model : undefined;
-        }
+        const names = async (kind: string): Promise<string[]> => (await place.services.parts.list(kind as never)).map((summary) => summary.name);
+        const apps = await Promise.all(
+            (await place.services.parts.list('apps')).map(async (summary) => {
+                const title = (await bodyOf(place, 'apps', summary.name))['title'];
+                return { id: summary.id, name: summary.name, title: typeof title === 'string' ? title : summary.name };
+            })
+        );
+        const datasets = await Promise.all(
+            (await names('data')).map(async (name) => {
+                const body = await bodyOf(place, 'data', name);
+                return { name, ...(typeof body['model'] === 'string' && { model: body['model'] }), keys: isRecord(body['records']) ? Object.keys(body['records']) : [] };
+            })
+        );
+        const models = await Promise.all(
+            (await names('models')).map(async (name) => {
+                const fields = (await bodyOf(place, 'models', name))['fields'];
+                const types = isRecord(fields) ? Object.entries(fields).map(([field, value]) => [field, isRecord(value) && typeof value['type'] === 'string' ? value['type'] : '']) : [];
+                return { name, fields: Object.fromEntries(types) as Record<string, string> };
+            })
+        );
+        const modules = await Promise.all(
+            (await names('logic')).map(async (name) => {
+                const body = await bodyOf(place, 'logic', name);
+                const units = UNIT_GROUPS.flatMap((group) => (isRecord(body[group]) ? Object.keys(body[group] as JsonRecord).map((unit) => ({ group, name: unit })) : []));
+                return { name, units, needs: isRecord(body['needs']) ? Object.keys(body['needs']) : [] };
+            })
+        );
         const appNames: Record<string, string> = {};
         const external = isRecord(uses['external']) ? uses['external'] : {};
         for (const use of Object.values(external)) {
@@ -136,8 +165,106 @@ export function viewRoutes(context: ViewRouteContext) {
             host: new URL(connection.baseUrl).host,
             endpoints: connection.endpoints.map((endpoint) => ({ name: endpoint.name, method: endpoint.method, path: endpoint.path }))
         }));
-        const built = graphOf({ appName: typeof (app.body as unknown as JsonRecord)['title'] === 'string' ? String((app.body as unknown as JsonRecord)['title']) : app.name, uses, document, connections, datasetModels, ownerNames, appNames, sharedWith: await context.sharedCount(place.workspaceId, app.id) });
-        return { revision: app.revision, manages: place.manages, ...built };
+        const title = (app.body as unknown as JsonRecord)['title'];
+        const built = ownerTreeOf({
+            app: { id: app.id, name: app.name, title: typeof title === 'string' ? title : app.name, uses, document, sharedWith: await context.sharedCount(place.workspaceId, app.id) },
+            apps,
+            themes: await names('themes'),
+            datasets,
+            models,
+            modules,
+            components: await names('components'),
+            patterns: await names('patterns'),
+            connections,
+            ownerNames,
+            appNames,
+            manages: place.manages
+        });
+        return { revision: app.revision, manages: place.manages, app: app.name, ...built };
+    }
+
+    /** A binding name for a dataset: its name in camel case, made free among the app's bindings */
+    function bindingFor(dataset: string, taken: JsonRecord): string {
+        const stem = dataset.replace(/-([a-z0-9])/g, (_whole, letter: string) => letter.toUpperCase());
+        let name = stem;
+        for (let index = 2; Object.hasOwn(taken, name); index++) name = `${stem}${index}`;
+        return name;
+    }
+
+    /** The app's `uses` with one more data binding or logic module, written through `ui_app_configure` */
+    async function useInApp(place: ViewPlace, change: (uses: JsonRecord) => JsonRecord): Promise<void> {
+        const app = await appNow(place);
+        await call(place.services, 'ui_app_configure', { name: app.name, expectedRevision: app.revision, uses: change(usesOf(app)) });
+    }
+
+    /**
+     * What a + of the tree makes, through the person's tools, and puts to use in the app: a dataset with its first
+     * record (bound in the app), a model with its first field, a logic module (used by the app), a binding of a dataset
+     * the owner has, or the app's use of a part it does not use yet
+     */
+    async function addPart(place: ViewPlace, body: JsonRecord): Promise<JsonRecord> {
+        const what = typeof body['what'] === 'string' ? body['what'] : '';
+        const name = typeof body['name'] === 'string' ? body['name'].trim() : '';
+        const named = (words: string): void => {
+            if (!NAME.test(name)) throw new Refused(400, `A ${words} name is lower case letters, digits and dashes, starting with a letter.`);
+        };
+        switch (what) {
+            case 'dataset': {
+                named('dataset');
+                const model = typeof body['model'] === 'string' ? body['model'] : '';
+                const record = isRecord(body['record']) ? body['record'] : {};
+                if ((await place.services.parts.findByName('data', name)) !== undefined) throw new Refused(409, 'A dataset with that name exists.');
+                await call(place.services, 'ui_data_write', { dataset: name, model, operations: [{ op: 'add', value: record }] });
+                await useInApp(place, (uses) => {
+                    const data = isRecord(uses['data']) ? uses['data'] : {};
+                    return { ...uses, data: { ...data, [bindingFor(name, data)]: { dataset: name } } };
+                });
+                return { path: `$.data.${name}` };
+            }
+            case 'model': {
+                named('model');
+                const field = typeof body['field'] === 'string' ? body['field'].trim() : '';
+                const type = typeof body['type'] === 'string' ? body['type'] : 'string';
+                if (field === '') throw new Refused(400, 'A model starts with a field: give it a name.');
+                if ((await place.services.parts.findByName('models', name)) !== undefined) throw new Refused(409, 'A model with that name exists.');
+                await call(place.services, 'ui_model_write', { model: name, operations: [{ op: 'set', field, type }] });
+                return { path: `$.models.${name}` };
+            }
+            case 'module': {
+                named('module');
+                if ((await place.services.parts.findByName('logic', name)) !== undefined) throw new Refused(409, 'A logic module with that name exists.');
+                // A module works on the data it needs: one of the app's dataset bindings, by the same name, with its model
+                const need = typeof body['need'] === 'string' ? body['need'] : '';
+                const use = usesOf(await appNow(place))['data'];
+                const bound = isRecord(use) && isRecord(use[need]) ? use[need] : undefined;
+                const dataset = bound !== undefined && typeof bound['dataset'] === 'string' ? await place.services.parts.findByName('data', bound['dataset']) : undefined;
+                const model = dataset === undefined ? undefined : (dataset.body as unknown as JsonRecord)['model'];
+                if (typeof model !== 'string') throw new Refused(400, 'A module works on a dataset the app binds: name one of its bindings.');
+                await call(place.services, 'ui_logic_write', { module: name, needs: { [need]: { model } }, params: {}, operations: [] });
+                await useInApp(place, (uses) => ({ ...uses, logic: { ...(isRecord(uses['logic']) ? uses['logic'] : {}), [name]: {} } }));
+                return { path: `$.logic.${name}` };
+            }
+            case 'binding': {
+                // A dataset the owner has, bound in the app; a module of the owner, used by it
+                const dataset = typeof body['dataset'] === 'string' ? body['dataset'] : '';
+                if ((await place.services.parts.findByName('data', dataset)) === undefined) throw new Refused(404, 'No dataset with that name.');
+                let binding = '';
+                await useInApp(place, (uses) => {
+                    const data = isRecord(uses['data']) ? uses['data'] : {};
+                    binding = typeof body['binding'] === 'string' && body['binding'] !== '' ? body['binding'] : bindingFor(dataset, data);
+                    if (Object.hasOwn(data, binding)) throw new Refused(409, `The app already has a binding named ${binding}.`);
+                    return { ...uses, data: { ...data, [binding]: { dataset } } };
+                });
+                return { path: `$.data.${binding}` };
+            }
+            case 'useModule': {
+                if ((await place.services.parts.findByName('logic', name)) === undefined) throw new Refused(404, 'No logic module with that name.');
+                await useInApp(place, (uses) => ({ ...uses, logic: { ...(isRecord(uses['logic']) ? uses['logic'] : {}), [name]: {} } }));
+                return { path: `$.logic.${name}` };
+            }
+            default:
+                throw new Refused(400, 'Say dataset, model, module, binding or useModule.');
+        }
     }
 
     /** A connection as its editor shows it: whether its secrets are set, never what they are */
@@ -160,7 +287,12 @@ export function viewRoutes(context: ViewRouteContext) {
 
     async function part(place: ViewPlace, kind: string, name: string): Promise<JsonRecord> {
         if (kind === 'connections') return connectionInfo(place, name);
-        if (kind !== 'data' && kind !== 'models') throw new Refused(400, 'Say data, models or connections.');
+        if (kind === 'logic') {
+            const found = await place.services.parts.findByName('logic', name);
+            if (found === undefined) throw new Refused(404, `No logic module named ${name}.`);
+            return { kind, name, revision: found.revision, body: found.body };
+        }
+        if (kind !== 'data' && kind !== 'models') throw new Refused(400, 'Say data, models, logic or connections.');
         const found = await place.services.parts.findByName(kind, name);
         if (found === undefined) throw new Refused(404, `No ${kind === 'data' ? 'dataset' : 'model'} named ${name}.`);
         const body = found.body as unknown as JsonRecord;
@@ -273,6 +405,11 @@ export function viewRoutes(context: ViewRouteContext) {
         if (!/^(machines|rules|tables|computes|effects)\.[A-Za-z_][\w-]*$/.test(unit)) throw new Refused(400, 'Name the unit as machines, rules, tables, computes or effects, a dot and its name.');
         const operation = body['remove'] === true ? { op: 'remove', unit } : { op: 'set', unit, value: body['value'] };
         if (operation.op === 'set' && !isRecord(body['value'])) throw new Refused(400, 'A unit is an object.');
+        if (typeof body['module'] === 'string') {
+            // A unit of a logic module: the module's own revision, which a new module's first write leaves out
+            const written = await call(place.services, 'ui_logic_write', { module: body['module'], ...(typeof body['revision'] === 'number' && { expectedRevision: body['revision'] }), operations: [operation] });
+            return { revision: written['revision'], units: written['units'] ?? [], warnings: written['warnings'] ?? [] };
+        }
         const written = await call(place.services, 'ui_logic_write', { app: app.name, expectedRevision: typeof body['revision'] === 'number' ? body['revision'] : app.revision, operations: [operation] });
         return { revision: written['revision'], units: written['units'] ?? [], warnings: written['warnings'] ?? [] };
     }
@@ -353,6 +490,9 @@ export function viewRoutes(context: ViewRouteContext) {
                     break;
                 case 'POST data':
                     answer = await changeData(place, await body());
+                    break;
+                case 'POST add':
+                    answer = await addPart(place, await body());
                     break;
                 case 'POST connections':
                     answer = await changeConnection(place, await body());

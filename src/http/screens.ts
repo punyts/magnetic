@@ -304,7 +304,7 @@ function mount(name, preview) {
 }
 
 /** What /assets/views.js asks of the previews: a mounted preview's panel, to measure its nodes */
-window.magneticScreens = { panelOf: (name) => (previews.get(name) || {}).panel || null };
+window.magneticScreens = { panelOf: (name) => (previews.get(name) || {}).panel || null, choose: (name) => choose(name) };
 
 function unmount(preview) {
     if (!preview.panel) return;

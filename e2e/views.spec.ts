@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { EditorPage, expect, signIn, test, uniqueName } from './fixtures.js';
+import { EditorPage, expect, seedDataset, seedModule, signIn, test, uniqueName } from './fixtures.js';
 
 const isPhone = (page: Page): boolean => (page.viewportSize()?.width ?? 1440) < 760;
 
@@ -11,14 +11,21 @@ async function pickView(editor: EditorPage, page: Page, name: 'Screens' | 'State
 }
 
 const sheet = (page: Page) => page.locator('#view-sheet');
+const graph = (page: Page) => page.locator('#world > .graph');
+/** A card or a pill of the Statenet tree by its state path */
+const node = (page: Page, path: string) => graph(page).locator(`[data-node="${path}"]`);
+/** The app being edited: its card is marked current */
+const appCard = (page: Page) => graph(page).locator('.graph-node.current');
 
 test.describe("The editor's views", () => {
     let editor: EditorPage;
+    let appName: string;
 
     test.beforeEach(async ({ context, home }, info) => {
         await signIn(context, 'alice');
         await home.goto();
-        editor = await home.makeApp(uniqueName(info, 'views'));
+        appName = uniqueName(info, 'views');
+        editor = await home.makeApp(appName);
         await editor.ask('Home words');
         // The chat floats over every view: closed, so the sheet takes the pointer
         await editor.button('Close the chat').click();
@@ -27,15 +34,162 @@ test.describe("The editor's views", () => {
     test('the selector switches between the screens and the app views, and the view is kept for the app', async ({ page }) => {
         await expect(sheet(page)).toBeHidden();
         await pickView(editor, page, 'Statenet');
-        await expect(sheet(page)).toBeVisible();
-        // The app itself is a card of the graph, with the parts it uses beside it
-        await expect(sheet(page).locator('[data-node="app"]')).toBeVisible();
-        // The screens' tools are for the screens: hidden in an app view
-        await expect(editor.button('Zoom in (+)')).toBeHidden();
+        await expect(sheet(page).getByRole('heading', { name: 'Statenet' })).toBeVisible();
+        // The graph is on the board in place of the screens, and pans and zooms with it: the app itself is a card under
+        // $.apps
+        await expect(appCard(page)).toBeVisible();
+        await expect(page.locator('#artboard')).toBeHidden();
+        await expect(editor.button('Zoom in (+)')).toBeVisible();
         await page.reload();
         await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
-        await expect(sheet(page)).toBeVisible();
+        await expect(appCard(page)).toBeVisible();
+        // The board's tools are for the board: hidden in a view without it
+        await pickView(editor, page, 'Theme');
+        await expect(editor.button('Zoom in (+)')).toBeHidden();
+        await expect(graph(page)).toHaveCount(0);
         await pickView(editor, page, 'Screens');
+        await expect(sheet(page)).toBeHidden();
+        await expect(editor.app.getByText('Home words')).toBeVisible();
+    });
+
+    test("the Statenet graph is the owner's tree by state path: each part under its branch, nothing covering anything", async ({ page }, info) => {
+        // Arrange: a theme of the app's own
+        const name = uniqueName(info, 'tree');
+        await pickView(editor, page, 'Theme');
+        page.once('dialog', (dialog) => void dialog.accept(name));
+        await sheet(page).getByRole('button', { name: 'New theme' }).click();
+        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+
+        // Act
+        await pickView(editor, page, 'Statenet');
+
+        // Assert: $ at the left, its branches, then the parts in them; the app's screens under it
+        const theme = node(page, `$.themes.${name}`);
+        await expect(theme).toBeVisible();
+        await expect(theme).not.toHaveClass(/unused/);
+        const app = appCard(page);
+        const appPath = (await app.getAttribute('data-node')) as string;
+        expect(appPath).toMatch(/^\$\.apps\./);
+        await expect(node(page, `${appPath}.screens.home`)).toBeVisible();
+        // Read from one board at once: a change to the app may draw a new one
+        const left = await graph(page).evaluate((board, paths) => paths.map((path) => (board.querySelector(`[data-node="${path}"]`) as HTMLElement).offsetLeft), ['$', '$.themes', `$.themes.${name}`, '$.apps', appPath]);
+        const [root, themes, themeLeft, apps, appLeft] = left as [number, number, number, number, number];
+        expect(root).toBeLessThan(themes);
+        expect(themes).toBeLessThan(themeLeft);
+        expect(apps).toBeLessThan(appLeft);
+        expect(appLeft).toBe(themeLeft);
+        // Of the owner's other apps the first six show, and a pill shows the rest
+        expect(await graph(page).locator('.graph-node.unused[data-node^="$.apps."]').count()).toBeLessThanOrEqual(6);
+        const boxes = await graph(page).locator('.graph-node, .graph-group').evaluateAll((all) => all.map((each) => { const box = each.getBoundingClientRect(); return [box.left, box.top, box.width, box.height] as const; }));
+        boxes.forEach(([x, y, w, h], index) => {
+            for (const [x2, y2, w2, h2] of boxes.slice(index + 1)) expect(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y).toBe(true);
+        });
+    });
+
+    test("a branch's + makes what it holds: a screen of the app, a binding of a dataset, a module working on it, and a rule in it", async ({ page }, info) => {
+        // Arrange: a dataset of alice's that the app does not bind yet
+        const module = uniqueName(info, 'plus');
+        const dataset = uniqueName(info, 'stock');
+        await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset, records: { bolt: { name: 'Bolt' } } });
+        await pickView(editor, page, 'Statenet');
+        const appPath = (await appCard(page).getAttribute('data-node')) as string;
+        const side = sheet(page).locator('.view-side');
+
+        // Act: a screen
+        await graph(page).getByRole('button', { name: `Add to ${appPath}.screens` }).click();
+        await side.getByRole('textbox', { name: 'Name' }).fill('second');
+        await side.getByRole('button', { name: 'Create' }).click();
+
+        // Assert
+        await expect(node(page, `${appPath}.screens.second`)).toBeVisible();
+
+        // Act: the dataset bound in the app
+        await graph(page).getByRole('button', { name: `Add to ${appPath}.uses.data` }).click();
+        await side.getByRole('combobox', { name: 'Dataset' }).selectOption(dataset);
+        await side.getByRole('button', { name: 'Create' }).click();
+
+        // Assert: its binding under the app, and the dataset no longer dimmed
+        await expect(graph(page).locator(`[data-node^="${appPath}.uses.data."]`)).toHaveCount(1);
+        await expect(node(page, `$.data.${dataset}`)).not.toHaveClass(/unused/);
+
+        // Act: a module working on it, then a rule in it from the form's template
+        await graph(page).getByRole('button', { name: 'Add to $.logic', exact: true }).click();
+        await side.getByRole('textbox', { name: 'Name' }).fill(module);
+        await side.getByRole('button', { name: 'Create' }).click();
+        await expect(node(page, `$.logic.${module}`)).toBeVisible();
+        await expect(node(page, `$.logic.${module}`)).not.toHaveClass(/unused/);
+        await graph(page).getByRole('button', { name: `Add to $.logic.${module}` }).click();
+        await side.getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Rule' });
+        await side.getByRole('textbox', { name: 'Its name' }).fill('ping');
+        await side.getByRole('button', { name: 'Create' }).click();
+
+        // Assert: the rule's card, and its editor at the side
+        await expect(node(page, `$.logic.${module}.rules.ping`)).toBeVisible();
+        await expect(side.getByRole('heading', { name: 'rules.ping' })).toBeVisible();
+        await expect(side.getByRole('textbox', { name: 'rules.ping' })).toBeVisible();
+    });
+
+    test('a card of the graph opens its editor beside it: the app leads to its screens, a theme to the Theme view and back', async ({ page }, info) => {
+        // Arrange: a theme of the app's own
+        const name = uniqueName(info, 'card');
+        await pickView(editor, page, 'Theme');
+        page.once('dialog', (dialog) => void dialog.accept(name));
+        await sheet(page).getByRole('button', { name: 'New theme' }).click();
+        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+        await pickView(editor, page, 'Statenet');
+        const side = sheet(page).locator('.view-side');
+
+        // Act and Assert: the app's card lists its screens, and one shows that screen
+        await appCard(page).click();
+        await expect(side.getByRole('heading', { name: 'Screens' })).toBeVisible();
+        await expect(side).not.toContainText('null');
+        await side.getByRole('button', { name: 'home', exact: true }).click();
+        await expect(page.locator('body')).toHaveAttribute('data-view', 'screens');
+
+        // A theme's card: removing asks first, and the Theme view has the way back
+        await pickView(editor, page, 'Statenet');
+        await node(page, `$.themes.${name}`).click();
+        page.once('dialog', (dialog) => void dialog.dismiss());
+        await side.getByRole('button', { name: 'Remove from the app' }).click();
+        await expect(node(page, `$.themes.${name}`)).toBeVisible();
+        await side.getByRole('button', { name: 'Edit in the Theme view' }).click();
+        await expect(page.locator('body')).toHaveAttribute('data-view', 'theme');
+        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+        await sheet(page).getByRole('button', { name: '← Statenet' }).click();
+        await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
+        await expect(sheet(page).getByRole('button', { name: '← Statenet' })).toBeHidden();
+    });
+
+    test("a logic module added while Statenet shows gets a card, which opens the Logic view with its rule and leads back", async ({ page }, info) => {
+        // Arrange
+        const dataset = uniqueName(info, 'stock');
+        const module = uniqueName(info, 'checks');
+        await pickView(editor, page, 'Statenet');
+        await expect(appCard(page)).toBeVisible();
+
+        // Act: a dataset of alice's and a module working on it, used by the app, made as the agent would; the graph
+        // follows the change with no reload
+        await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset, records: { bolt: { name: 'Bolt' } } });
+        await seedModule({ user: 'alice', app: appName, module, dataset });
+        await node(page, `$.logic.${module}`).click();
+        await sheet(page).locator('.view-side').getByRole('button', { name: 'Open in the Logic view' }).click();
+
+        // Assert
+        await expect(page.locator('body')).toHaveAttribute('data-view', 'logic');
+        await expect(sheet(page).locator('[data-unit*="seen"]')).toBeVisible();
+        await sheet(page).getByRole('button', { name: '← Statenet' }).click();
+        await expect(node(page, `$.logic.${module}`)).toBeVisible();
+    });
+
+    test('with the editor hidden the app fills the window, whatever view the editor last showed', async ({ page }) => {
+        // Arrange
+        await pickView(editor, page, 'Theme');
+
+        // Act
+        await page.goto(page.url().replace('/edit/', '/apps/'));
+
+        // Assert
+        await expect(page.locator('#board')).toBeVisible();
         await expect(sheet(page)).toBeHidden();
         await expect(editor.app.getByText('Home words')).toBeVisible();
     });

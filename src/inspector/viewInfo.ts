@@ -262,65 +262,116 @@ export function screenInfoOf(document: JsonRecord, screen: string): ScreenInfo |
     return { screen, layout: boxOf(root, `$.screens.${screen}`, screen, 0), paths: [...paths.values()], handlers, navigates, units };
 }
 
-// ---- The statenet graph --------------------------------------------------------------------------------------------
+// ---- The statenet tree ---------------------------------------------------------------------------------------------
 
-/** The kinds of node of the Statenet view */
-export type GraphKind = 'app' | 'state' | 'server' | 'dataset' | 'persona' | 'model' | 'theme' | 'module' | 'component' | 'connection' | 'endpoint' | 'shared' | 'otherApp';
+/** The kinds of node of the Statenet view: `$`, a branch (a path that holds others), a part, or what a part holds */
+export type TreeKind =
+    | 'owner'
+    | 'branch'
+    | 'app'
+    | 'screen'
+    | 'binding'
+    | 'persona'
+    | 'state'
+    | 'shared'
+    | 'otherApp'
+    | 'theme'
+    | 'dataset'
+    | 'record'
+    | 'model'
+    | 'field'
+    | 'module'
+    | 'unit'
+    | 'component'
+    | 'pattern'
+    | 'connection'
+    | 'endpoint';
 
-export interface GraphNode {
+/** What the + of a node makes under it */
+export type TreeAdd = 'app' | 'screen' | 'binding' | 'theme' | 'dataset' | 'record' | 'model' | 'field' | 'module' | 'unit' | 'connection';
+
+export interface TreeNode {
+    /** Its state path in the owner's tree (`$.themes.calm`, `$.apps.tasks.screens.home`): unique, and the node's id */
     readonly id: string;
-    readonly kind: GraphKind;
+    /** The path of the node it hangs from; null for `$` */
+    readonly parent: string | null;
+    readonly kind: TreeKind;
+    /** A part's name, an app's title, or a branch's path below its parent (`$.themes`, `screens`, `uses.data`) */
     readonly label: string;
     /**
-     * Data, never words (the view writes those in the person's language): a dataset's binding path, a persona's model,
-     * a shared dataset's owner, another app's path, a connection's host, an endpoint's method and path (or, missing,
-     * its connection)
+     * Data, never words (the view writes those in the person's language): a binding's dataset or model, a dataset's
+     * model, a field's type, a unit's group, a state key's path, a shared dataset's owner, another app's path, a
+     * connection's host, an endpoint's method and path (or, missing, its connection)
      */
     readonly note: string;
-    /** The app: how many links share it */
+    /** Whether the app being edited uses it: what it does not is drawn dimmed */
+    readonly used: boolean;
+    /** The app being edited */
+    readonly current?: boolean;
+    /** Another app: its id, to open it */
+    readonly appId?: string;
+    /** The app being edited: how many links share it */
     readonly count?: number;
+    /** The app being edited: its screens; a composed component: the screens of that app that place it */
+    readonly screens?: readonly string[];
     /** A theme: the app's default */
     readonly isDefault?: boolean;
-    /** An endpoint the logic calls that its connection does not have */
+    /** Drawn as outside the owner: dashed */
+    readonly outside?: boolean;
+    /** An endpoint the app's logic calls that its connection does not have */
     readonly missing?: boolean;
-    /** 0 outside sources, 1 datasets, models and parts, 2 the app, 3 its own state */
-    readonly column: 0 | 1 | 2 | 3;
-    /** Drawn as outside the app: dashed, with its icon */
-    readonly outside: boolean;
-    /** False for a connection of the workspace the app does not call: drawn dimmed */
-    readonly used: boolean;
+    /** A dataset: how many records it has beyond the ones drawn */
+    readonly more?: number;
+    /** What its + makes; none when there is no + */
+    readonly add?: TreeAdd;
 }
 
-export interface GraphEdge {
+export interface TreeEdge {
     readonly from: string;
     readonly to: string;
     readonly kind: 'binding' | 'read' | 'call' | 'model' | 'uses';
     readonly label?: string;
 }
 
-/** A connection of the workspace as the graph sees it: never a secret, only whether one is set */
+/** A connection of the workspace as the tree sees it: never a secret, only its host and endpoints */
 export interface GraphConnection {
     readonly name: string;
     readonly host: string;
     readonly endpoints: readonly { readonly name: string; readonly method: string; readonly path: string }[];
 }
 
-export interface GraphInput {
-    readonly appName: string;
-    /** The app part's `uses` */
-    readonly uses: JsonRecord;
-    /** The assembled document: its `data`, `logic` and `composed` */
-    readonly document: JsonRecord;
+export interface TreeInput {
+    /** The app being edited */
+    readonly app: {
+        readonly id: string;
+        readonly name: string;
+        readonly title: string;
+        /** The app part's `uses` */
+        readonly uses: JsonRecord;
+        /** The assembled document: its `screens`, `data`, `logic` and `composed` */
+        readonly document: JsonRecord;
+        /** The people it is shared with: links and grants */
+        readonly sharedWith: number;
+    };
+    /** Every part of the owner, by kind */
+    readonly apps: readonly { readonly id: string; readonly name: string; readonly title: string }[];
+    readonly themes: readonly string[];
+    readonly datasets: readonly { readonly name: string; readonly model?: string; readonly keys: readonly string[] }[];
+    readonly models: readonly { readonly name: string; readonly fields: Readonly<Record<string, string>> }[];
+    readonly modules: readonly { readonly name: string; readonly units: readonly { readonly group: string; readonly name: string }[]; readonly needs: readonly string[] }[];
+    readonly components: readonly string[];
+    readonly patterns: readonly string[];
     readonly connections: readonly GraphConnection[];
-    /** The model of each dataset the app binds, by dataset name */
-    readonly datasetModels: Readonly<Record<string, string | undefined>>;
     /** The name of each workspace that shares a dataset, by its id */
     readonly ownerNames: Readonly<Record<string, string>>;
     /** The name of each other app the app reads, by its id */
     readonly appNames: Readonly<Record<string, string>>;
-    /** The people the app is shared with: links and grants */
-    readonly sharedWith: number;
+    /** Whether the person manages the workspace's connections: only then does `$.connections` have a + */
+    readonly manages: boolean;
 }
+
+/** The most records of a dataset the tree draws */
+export const TREE_RECORDS = 8;
 
 /** The value at a `$.data…` path of the document's starting data */
 function dataAt(document: JsonRecord, path: string): unknown {
@@ -356,103 +407,159 @@ export function callsOf(document: JsonRecord): { effect: string; connection: str
     return found;
 }
 
+
+/** True when the node or one under it is the component */
+function places(node: unknown, component: string): boolean {
+    if (!isRecord(node)) return false;
+    if (node['component'] === component) return true;
+    return isRecord(node['children']) && Object.values(node['children']).some((child) => places(child, component));
+}
+
+
 /**
- * The app's statenet: every part it starts from (themes, datasets and their models, persona models, logic modules,
- * composed components), what it reads from outside (shared datasets, other apps' state, the connections its effects
- * call, with their endpoints), its own state (`$.data` keys no binding holds, `$.app`, `$.server`), and the edges
- * between them. Only what exists: no relay or peer is drawn
+ * The owner's statenet as a tree of state paths: `$`, then `$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
+ * `$.components`, `$.patterns` and `$.connections`, each holding every part of that kind the owner has. A part the
+ * app being edited does not use is drawn dimmed (`used: false`). One level is drawn below a part: the app's screens,
+ * bindings (`uses.data`), own state (`data`) and outside reads (`uses.external`); a dataset's records (the first
+ * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints. A branch the person can add to has
+ * `add`. The edges are what the tree does not show: what the app uses, a binding's dataset, a dataset's model, an
+ * endpoint the app calls
  */
-export function graphOf(input: GraphInput): { nodes: GraphNode[]; edges: GraphEdge[] } {
-    const nodes = new Map<string, GraphNode>();
-    const edges: GraphEdge[] = [];
-    const add = (node: GraphNode): void => {
+export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeEdge[] } {
+    const nodes = new Map<string, TreeNode>();
+    const edges: TreeEdge[] = [];
+    const add = (node: TreeNode): void => {
         if (!nodes.has(node.id)) nodes.set(node.id, node);
     };
-    const app = 'app';
-    add({ id: app, kind: 'app', label: input.appName, note: '', column: 2, outside: false, used: true, count: input.sharedWith });
-
-    const uses = input.uses;
+    const branch = (id: string, parent: string, label: string, used: boolean, adds?: TreeAdd): string => {
+        add({ id, parent, kind: 'branch', label, note: '', used, ...(adds !== undefined && { add: adds }) });
+        return id;
+    };
+    const { uses, document } = input.app;
+    const app = `$.apps.${input.app.name}`;
+    const screens = isRecord(document['screens']) ? document['screens'] : {};
     const themes = Array.isArray(uses['themes']) ? uses['themes'].filter((name): name is string => typeof name === 'string') : [];
-    themes.forEach((theme, index) => {
-        add({ id: `theme:${theme}`, kind: 'theme', label: theme, note: '', column: 1, outside: false, used: true, isDefault: index === 0 });
-        edges.push({ from: `theme:${theme}`, to: app, kind: 'uses' });
-    });
-
-    const bound = new Set<string>();
-    const data = isRecord(uses['data']) ? uses['data'] : {};
-    for (const [binding, use] of Object.entries(data)) {
-        if (!isRecord(use)) continue;
-        bound.add(binding);
-        if (typeof use['dataset'] === 'string') {
-            const dataset = use['dataset'];
-            add({ id: `dataset:${dataset}`, kind: 'dataset', label: dataset, note: `$.data.${binding}`, column: 1, outside: false, used: true });
-            edges.push({ from: `dataset:${dataset}`, to: app, kind: 'binding', label: `$.data.${binding}` });
-            const model = input.datasetModels[dataset];
-            if (model !== undefined) {
-                add({ id: `model:${model}`, kind: 'model', label: model, note: '', column: 1, outside: false, used: true });
-                edges.push({ from: `model:${model}`, to: `dataset:${dataset}`, kind: 'model' });
-            }
-        } else if (typeof use['model'] === 'string') {
-            const model = use['model'];
-            add({ id: `persona:${binding}`, kind: 'persona', label: binding, note: model, column: 1, outside: false, used: true });
-            edges.push({ from: `persona:${binding}`, to: app, kind: 'binding', label: `$.data.${binding}` });
-            add({ id: `model:${model}`, kind: 'model', label: model, note: '', column: 1, outside: false, used: true });
-            edges.push({ from: `model:${model}`, to: `persona:${binding}`, kind: 'model' });
-        }
-    }
-
+    const bindings = isRecord(uses['data']) ? uses['data'] : {};
     const modules = isRecord(uses['logic']) ? Object.keys(uses['logic']) : [];
-    for (const module of modules) {
-        add({ id: `module:${module}`, kind: 'module', label: module, note: '', column: 1, outside: false, used: true });
-        edges.push({ from: `module:${module}`, to: app, kind: 'uses' });
-    }
+    const composed = isRecord(document['composed']) ? Object.keys(document['composed']) : [];
+    const bound = new Map<string, string>();
+    for (const [binding, use] of Object.entries(bindings)) if (isRecord(use) && typeof use['dataset'] === 'string') bound.set(use['dataset'], binding);
+    const modelOf = new Map(input.datasets.map((dataset) => [dataset.name, dataset.model]));
+    const usedModels = new Set<string>();
+    for (const [dataset] of bound) { const model = modelOf.get(dataset); if (model !== undefined) usedModels.add(model); }
+    for (const use of Object.values(bindings)) if (isRecord(use) && typeof use['model'] === 'string') usedModels.add(use['model']);
 
-    const composed = isRecord(input.document['composed']) ? Object.keys(input.document['composed']) : [];
-    for (const component of composed) {
-        add({ id: `component:${component}`, kind: 'component', label: component, note: '', column: 1, outside: false, used: true });
-        edges.push({ from: `component:${component}`, to: app, kind: 'uses' });
-    }
+    add({ id: '$', parent: null, kind: 'owner', label: '$', note: '', used: true });
 
-    const external = isRecord(uses['external']) ? uses['external'] : {};
-    for (const [alias, use] of Object.entries(external)) {
+    // $.apps: the app being edited with what it holds, and the owner's other apps
+    branch('$.apps', '$', '$.apps', true, 'app');
+    add({ id: app, parent: '$.apps', kind: 'app', label: input.app.title, note: input.app.name, used: true, current: true, appId: input.app.id, count: input.app.sharedWith, screens: Object.keys(screens) });
+    for (const other of input.apps) {
+        if (other.id === input.app.id) continue;
+        add({ id: `$.apps.${other.name}`, parent: '$.apps', kind: 'app', label: other.title, note: other.name, used: false, appId: other.id });
+    }
+    const appScreens = branch(`${app}.screens`, app, 'screens', true, 'screen');
+    for (const screen of Object.keys(screens)) add({ id: `${appScreens}.${screen}`, parent: appScreens, kind: 'screen', label: screen, note: '', used: true });
+    const appData = branch(`${app}.uses.data`, app, 'uses.data', true, 'binding');
+    for (const [binding, use] of Object.entries(bindings)) {
         if (!isRecord(use)) continue;
-        if (typeof use['owner'] === 'string' && typeof use['dataset'] === 'string') {
-            const id = `shared:${use['owner']}/${use['dataset']}`;
-            add({ id, kind: 'shared', label: use['dataset'], note: input.ownerNames[use['owner']] ?? '', column: 0, outside: true, used: true });
-            edges.push({ from: id, to: app, kind: 'read', label: `$.external.${alias}` });
-        } else if (typeof use['app'] === 'string') {
-            const id = `otherApp:${use['app']}`;
-            add({ id, kind: 'otherApp', label: input.appNames[use['app']] ?? use['app'], note: typeof use['path'] === 'string' ? use['path'] : '$.data', column: 0, outside: true, used: true });
-            edges.push({ from: id, to: app, kind: 'read', label: `$.external.${alias}` });
+        const id = `${appData}.${binding}`;
+        if (typeof use['dataset'] === 'string') {
+            add({ id, parent: appData, kind: 'binding', label: binding, note: use['dataset'], used: true });
+            edges.push({ from: id, to: `$.data.${use['dataset']}`, kind: 'binding', label: `$.data.${binding}` });
+        } else if (typeof use['model'] === 'string') {
+            add({ id, parent: appData, kind: 'persona', label: binding, note: use['model'], used: true });
+            edges.push({ from: id, to: `$.models.${use['model']}`, kind: 'model' });
+        }
+    }
+    const own = (isRecord(document['data']) ? Object.keys(document['data']) : []).filter((key) => !Object.hasOwn(bindings, key));
+    if (own.length > 0) {
+        const appState = branch(`${app}.data`, app, 'data', true);
+        for (const key of own) add({ id: `${appState}.${key}`, parent: appState, kind: 'state', label: key, note: `$.data.${key}`, used: true });
+    }
+    const external = isRecord(uses['external']) ? uses['external'] : {};
+    if (Object.keys(external).length > 0) {
+        const outside = branch(`${app}.uses.external`, app, 'uses.external', true);
+        for (const [alias, use] of Object.entries(external)) {
+            if (!isRecord(use)) continue;
+            const id = `${outside}.${alias}`;
+            if (typeof use['owner'] === 'string' && typeof use['dataset'] === 'string') {
+                add({ id, parent: outside, kind: 'shared', label: use['dataset'], note: input.ownerNames[use['owner']] ?? '', used: true, outside: true });
+            } else if (typeof use['app'] === 'string') {
+                add({ id, parent: outside, kind: 'otherApp', label: input.appNames[use['app']] ?? use['app'], note: typeof use['path'] === 'string' ? use['path'] : '$.data', used: true, outside: true });
+            }
         }
     }
 
-    const calls = callsOf(input.document);
+    // $.themes, the app's first being its default
+    branch('$.themes', '$', '$.themes', themes.length > 0, 'theme');
+    for (const theme of [...themes, ...input.themes.filter((name) => !themes.includes(name))]) {
+        const used = themes.includes(theme);
+        add({ id: `$.themes.${theme}`, parent: '$.themes', kind: 'theme', label: theme, note: '', used, isDefault: used && themes[0] === theme });
+        if (used) edges.push({ from: app, to: `$.themes.${theme}`, kind: 'uses' });
+    }
+
+    // $.data: each dataset with its first records
+    branch('$.data', '$', '$.data', bound.size > 0, 'dataset');
+    for (const dataset of input.datasets) {
+        const id = `$.data.${dataset.name}`;
+        const used = bound.has(dataset.name);
+        const shown = dataset.keys.slice(0, TREE_RECORDS);
+        add({ id, parent: '$.data', kind: 'dataset', label: dataset.name, note: dataset.model ?? '', used, add: 'record', ...(dataset.keys.length > shown.length && { more: dataset.keys.length - shown.length }) });
+        for (const key of shown) add({ id: `${id}.${key}`, parent: id, kind: 'record', label: key, note: '', used });
+        if (dataset.model !== undefined) edges.push({ from: `$.models.${dataset.model}`, to: id, kind: 'model' });
+    }
+
+    // $.models with their fields
+    branch('$.models', '$', '$.models', usedModels.size > 0, 'model');
+    for (const model of input.models) {
+        const id = `$.models.${model.name}`;
+        const used = usedModels.has(model.name);
+        add({ id, parent: '$.models', kind: 'model', label: model.name, note: '', used, add: 'field' });
+        const fields = `${id}.fields`;
+        for (const [field, type] of Object.entries(model.fields)) add({ id: `${fields}.${field}`, parent: id, kind: 'field', label: field, note: type, used });
+    }
+
+    // $.logic: the modules with their units
+    branch('$.logic', '$', '$.logic', modules.length > 0, 'module');
+    for (const module of input.modules) {
+        const id = `$.logic.${module.name}`;
+        const used = modules.includes(module.name);
+        add({ id, parent: '$.logic', kind: 'module', label: module.name, note: '', used, add: 'unit' });
+        for (const unit of module.units) add({ id: `${id}.${unit.group}.${unit.name}`, parent: id, kind: 'unit', label: unit.name, note: unit.group, used });
+        if (used) edges.push({ from: app, to: id, kind: 'uses' });
+    }
+
+    // $.components and $.patterns: made from screens by the agent, so no +
+    branch('$.components', '$', '$.components', composed.length > 0);
+    for (const component of [...composed, ...input.components.filter((name) => !composed.includes(name))]) {
+        const used = composed.includes(component);
+        const placing = used ? Object.entries(screens).filter(([, screen]) => isRecord(screen) && places(screen['root'], component)).map(([name]) => name) : [];
+        add({ id: `$.components.${component}`, parent: '$.components', kind: 'component', label: component, note: '', used, screens: placing });
+        if (used) edges.push({ from: app, to: `$.components.${component}`, kind: 'uses' });
+    }
+    if (input.patterns.length > 0) {
+        branch('$.patterns', '$', '$.patterns', false);
+        for (const pattern of input.patterns) add({ id: `$.patterns.${pattern}`, parent: '$.patterns', kind: 'pattern', label: pattern, note: '', used: false });
+    }
+
+    // $.connections with their endpoints, and an endpoint the logic calls that its connection lacks
+    const calls = callsOf(document);
     const called = new Set(calls.map((call) => call.connection));
+    branch('$.connections', '$', '$.connections', called.size > 0, input.manages ? 'connection' : undefined);
     for (const connection of input.connections) {
+        const id = `$.connections.${connection.name}`;
         const used = called.has(connection.name);
-        add({ id: `connection:${connection.name}`, kind: 'connection', label: connection.name, note: connection.host, column: 0, outside: true, used });
+        add({ id, parent: '$.connections', kind: 'connection', label: connection.name, note: connection.host, used });
         for (const endpoint of connection.endpoints) {
-            const id = `endpoint:${connection.name}/${endpoint.name}`;
-            add({ id, kind: 'endpoint', label: endpoint.name, note: `${endpoint.method} ${endpoint.path}`, column: 0, outside: true, used });
-            edges.push({ from: `connection:${connection.name}`, to: id, kind: 'uses' });
+            add({ id: `${id}.endpoints.${endpoint.name}`, parent: id, kind: 'endpoint', label: endpoint.name, note: `${endpoint.method} ${endpoint.path}`, used });
         }
     }
     for (const call of calls) {
-        const id = `endpoint:${call.connection}/${call.endpoint}`;
-        if (!nodes.has(id)) add({ id, kind: 'endpoint', label: call.endpoint, note: call.connection, column: 0, outside: true, used: true, missing: true });
+        const parent = nodes.has(`$.connections.${call.connection}`) ? `$.connections.${call.connection}` : '$.connections';
+        const id = `$.connections.${call.connection}.endpoints.${call.endpoint}`;
+        if (!nodes.has(id)) add({ id, parent, kind: 'endpoint', label: call.endpoint, note: call.connection, used: true, missing: true });
         edges.push({ from: app, to: id, kind: 'call', label: call.effect });
-    }
-
-    const state = isRecord(input.document['data']) ? Object.keys(input.document['data']) : [];
-    for (const key of state) {
-        if (bound.has(key)) continue;
-        add({ id: `state:$.data.${key}`, kind: 'state', label: `$.data.${key}`, note: '', column: 3, outside: false, used: true });
-        edges.push({ from: app, to: `state:$.data.${key}`, kind: 'binding' });
-    }
-    if (unitsOf(input.document).some((unit) => [...unit.reads, ...unit.writes].some((path) => path.startsWith('$.server')))) {
-        add({ id: 'server:$.server', kind: 'server', label: '$.server', note: '', column: 3, outside: false, used: true });
-        edges.push({ from: app, to: 'server:$.server', kind: 'binding' });
     }
     return { nodes: [...nodes.values()], edges };
 }

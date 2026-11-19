@@ -236,13 +236,18 @@ The commands are:
     - **Data:** the state paths the screen reads and writes, and its outside data.
     - **Logic:** its handlers, the units touching its paths (Server or Browser), and arrows to the screens it leads to.
 
-    **Statenet**, **Theme** and **Logic** are sheets over the board, each with its tools in the head and an editor
-    at the side:
-    - **Statenet:** a graph of what the app starts from, what it reads from outside and its own state. Its cards edit
-      records, model fields, running state and connections (for managers).
-    - **Theme:** a specimen per mode and a token table edited in place, per mode. It offers Edit for all or Clone for
+    **Statenet**, **Theme** and **Logic** each have their tools in a head and an editor at the side:
+    - **Statenet:** the owner's tree by state path (`$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
+      `$.components`, `$.patterns`, `$.connections`), every part with what this app does not use dimmed and one level
+      below each, drawn on the board in place of the screens: it pans, zooms and fits like them. A + on each branch
+      makes what it holds (an app, a screen, a binding, a theme, a dataset, a model, a module or one of its units) and
+      puts it to use in the app. Each card opens an editor at the side, and the board moves
+      the card clear of it: records, model fields, running state and connections (for managers); the app's and a
+      component's screens; a theme's default and removal; the way to the Theme or Logic view and back. Removing
+      anything asks first.
+    - **Theme:** a sheet over the board: a specimen per mode and a token table edited in place, per mode. It offers Edit for all or Clone for
       a theme other apps use.
-    - **Logic:** units in a Server lane and a Browser lane, with Move to the browser or server, plus the screens'
+    - **Logic:** a sheet over the board: units in a Server lane and a Browser lane, with Move to the browser or server, plus the screens'
       handlers.
 
     The routes are `/edit/<appId>/views/<name>` (`src/server/viewRoutes.ts`), each through the person's own tools.

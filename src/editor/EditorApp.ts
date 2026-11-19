@@ -75,7 +75,7 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', 'notScreensView', 'isNarrow', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
         // The view the canvas shows (Screens, Statenet, Theme, Logic), and the layers on the screen tiles
         { op: 'set', field: 'view', type: 'string', default: 'screens' },
         { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
@@ -330,7 +330,7 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
     }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden` });
 }
 
-/** The zoom at the bottom right, above the chat bar when the window is too narrow for both */
+/** The zoom at the bottom right, above the chat bar when the window is too narrow for both; hidden in the views without the board (Theme, Logic) */
 function zoom(t: Texts): Record<string, unknown> {
     return float({ right: '12px', bottom: ABOVE_CHAT }, {
         bar: row({
@@ -339,7 +339,7 @@ function zoom(t: Texts): Record<string, unknown> {
             in: icon(t['shell.zoomInKey'], 'zoomIn', 'plus'),
             fit: icon(t['shell.fitKey'], 'zoomFit', 'fit')
         }, { layout: { type: 'row', gap: 'none', align: 'center' } })
-    }, { '<-hidden': `${E}.notScreensView` });
+    }, { '<-hidden': `${E}.noBoard` });
 }
 
 /** The chat bar at the bottom: what the next request is about, the request, the model and Send */

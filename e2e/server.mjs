@@ -51,14 +51,44 @@ async function seedDataset({ user, email, dataset, records }) {
     const id = await devUserId(user);
     if (id === undefined) throw new Error(`${user} has not signed in`);
     await test.db.query('UPDATE app_user SET email = $2, email_verified = true WHERE id = $1', [id, email]);
-    const tools = createStateUiTools(await magnetic.workspaces.get(id));
-    const run = async (name, args) => {
-        const outcome = await tools.find((candidate) => candidate.name === name).run(args);
-        if (outcome.isError) throw new Error(`${name}: ${JSON.stringify(outcome.body)}`);
-    };
+    const run = await toolsOf(id);
     const fields = [...new Set(Object.values(records).flatMap((record) => Object.keys(record)))];
     await run('ui_model_write', { model: `${dataset}-item`, operations: fields.map((field) => ({ op: 'set', field, type: 'string' })) });
     await run('ui_data_write', { dataset, model: `${dataset}-item`, operations: Object.entries(records).map(([path, value]) => ({ op: 'set', path, value })) });
+}
+
+/** Runs the agent's tools in a dev user's workspace: run(name, args) answers the tool's body or throws its error */
+async function toolsOf(id) {
+    const tools = createStateUiTools(await magnetic.workspaces.get(id));
+    return async (name, args) => {
+        const outcome = await tools.find((candidate) => candidate.name === name).run(args);
+        if (outcome.isError) throw new Error(`${name}: ${JSON.stringify(outcome.body)}`);
+        return outcome.body;
+    };
+}
+
+/**
+ * POST /module: a dev user's app gets a logic module, as the agent would make it: { user, app, module, dataset } with
+ * the app's name and a dataset of the user's (POST /dataset), bound in the app as $.data.stock. The module's rule
+ * marks a record seen when its name changes
+ */
+async function seedModule({ user, app, module, dataset }) {
+    const id = await devUserId(user);
+    if (id === undefined) throw new Error(`${user} has not signed in`);
+    const run = await toolsOf(id);
+    await run('ui_logic_write', {
+        module,
+        needs: { stock: { model: `${dataset}-item` } },
+        params: {},
+        operations: [{ op: 'set', unit: 'rules.seen', value: { when: { path: '$.data.stock.{id}.name' }, do: [{ command: 'set', target: '$.data.stock.{id}.seen', value: 'yes' }] } }]
+    });
+    const read = await run('ui_get', { kind: 'apps', name: app, depth: 8 });
+    const uses = read.value.uses ?? {};
+    await run('ui_app_configure', {
+        name: app,
+        expectedRevision: read.revision,
+        uses: { ...uses, data: { ...uses.data, stock: { dataset } }, logic: { ...uses.logic, [module]: {} } }
+    });
 }
 
 /**
@@ -74,7 +104,7 @@ async function stripeSends(type, object) {
 const checkouts = new Map();
 
 // For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims), the
-// invites emailed so far (GET /mail), and a dev user's dataset (POST /dataset)
+// invites emailed so far (GET /mail), and a dev user's dataset (POST /dataset) and logic module (POST /module)
 const control = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => (body += chunk));
@@ -112,6 +142,11 @@ const control = createServer((request, response) => {
                 );
         } else if (request.method === 'POST' && request.url === '/dataset') {
             seedDataset(JSON.parse(body)).then(
+                () => response.writeHead(204).end(),
+                (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+            );
+        } else if (request.method === 'POST' && request.url === '/module') {
+            seedModule(JSON.parse(body)).then(
                 () => response.writeHead(204).end(),
                 (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
             );

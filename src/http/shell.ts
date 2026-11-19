@@ -641,9 +641,11 @@ async function sendFeedback() {
 const CLOSE_AFTER_MS = 4000;
 let chatOpen = false;
 let drawerTimer = null;
+/** The blank app's hint shows over the frame of a blank app with screens, while the chat is closed, in the Screens view */
+function hintHidden() { return chatOpen || !editorState.blank || noScreens || appView; }
 function showChat(open) {
     chatOpen = open;
-    ed({ chatHidden: !open, hintHidden: open || !editorState.blank || noScreens });
+    ed({ chatHidden: !open, hintHidden: hintHidden() });
 }
 function showDrawer(open) {
     clearTimeout(drawerTimer);
@@ -759,11 +761,15 @@ let turned = false;
 let tool = 'use';
 let spaceHeld = false;
 let saveTimer = null;
+/** What the board fits instead of the live frame (the Statenet graph, set by views.js): a box in the frame's pixels. While
+ * it is set the view is not kept, so the screens' view is the one a reload finds */
+let fitBox = null;
 
 function clampZoom(zoom) { return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)); }
 
 function writeView() {
     saveTimer = null;
+    if (fitBox !== null) return;
     try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size, turned })); } catch { /* storage may be blocked */ }
 }
 
@@ -824,13 +830,14 @@ function frameHeight() { return artboard.offsetHeight; }
 let fittedRail = null;
 function railShown() { return panels.has('railTop') ? 'railTop' : 'rail'; }
 
-// Fit the frame into the free area, never past 100%
+// Fit the frame, or what the view shows in its place, into the free area, never past 100%
 function fit(glide) {
     fittedRail = railShown();
     const area = freeArea();
-    view.zoom = clampZoom(Math.min(1, area.width / frameWidth(), area.height / frameHeight()));
-    view.x = area.left + (area.width - frameWidth() * view.zoom) / 2 - slotX() * view.zoom;
-    view.y = area.top + (area.height - frameHeight() * view.zoom) / 2 - slotY() * view.zoom;
+    const box = fitBox !== null ? fitBox() : { x: slotX(), y: slotY(), width: frameWidth(), height: frameHeight() };
+    view.zoom = clampZoom(Math.min(1, area.width / box.width, area.height / box.height));
+    view.x = area.left + (area.width - box.width * view.zoom) / 2 - box.x * view.zoom;
+    view.y = area.top + (area.height - box.height * view.zoom) / 2 - box.y * view.zoom;
     render(glide);
 }
 
@@ -1116,7 +1123,7 @@ const magneticShell = {
     noScreens(on) {
         if (noScreens === on) return;
         noScreens = on;
-        ed({ hintHidden: chatOpen || !editorState.blank || on });
+        ed({ hintHidden: hintHidden() });
     },
     canvas: {
         /** The frame size, in the frame's pixels */
@@ -1125,7 +1132,15 @@ const magneticShell = {
         shift(dx, dy = 0) { view.x -= dx * view.zoom; view.y -= dy * view.zoom; render(false); },
         onSize: (listener) => sizeListeners.push(listener),
         fitted: () => fittedRail !== null,
-        fit: () => fit(false)
+        fit: () => fit(false),
+        /** Where the board is, or null before it was placed */
+        look: () => (fitted ? { x: view.x, y: view.y, zoom: view.zoom } : null),
+        /** Puts the board back where a look had it */
+        lookAt(look) { fittedRail = null; view.x = look.x; view.y = look.y; view.zoom = clampZoom(look.zoom); render(false); },
+        /** What the board fits instead of the live frame: a function giving a box in the frame's pixels, or null for the frame */
+        fitTo(box) { fitBox = box; },
+        /** Moves the board by dx and dy screen pixels, gliding */
+        pan(dx, dy) { fittedRail = null; view.x += dx; view.y += dy; render(true); }
     },
     editorChanged,
     onEscape: (listener) => escapeListeners.push(listener),
@@ -1135,6 +1150,7 @@ const magneticShell = {
     /** The Statenet, Theme or Logic view is shown (on) or the Screens view (off): the rail and the library go while one is */
     appView(on) {
         appView = on;
+        ed({ hintHidden: hintHidden() });
         if (on) { showLibraryPanel(false, false); showScreensPanel(false); showConnectionsPanel(false); showSharedPanel(false); }
         showWidth();
     },
@@ -1187,7 +1203,7 @@ function showAll() {
         language: document.documentElement.lang || 'en',
         blank,
         notBlank: !blank,
-        hintHidden: !blank || chatOpen || noScreens,
+        hintHidden: !blank || chatOpen || noScreens || appView,
         models: Object.fromEntries(MODELS.map((item) => [item.id, { _label: item.label }])),
         model,
         noModels: MODELS.length < 2 || PHONE.matches

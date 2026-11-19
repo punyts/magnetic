@@ -12,9 +12,11 @@ import { SCRIPT_TEXTS } from './text.js';
  *   from the document on a name tile); Data lists the state paths the screen reads and writes down its right edge,
  *   `$.external` ones as from outside; Logic marks the nodes with handlers, lists the app's units that touch the
  *   screen down its left edge, each marked Server or Browser, and draws an arrow to each screen it leads to.
- * - **Statenet**: the app's graph in four columns (outside, the parts it uses, the app, its own state), from
- *   `GET /edit/<id>/views/graph`. Pressing a node opens its editor at the side: a dataset's records, a model's fields,
- *   a path of the state, a connection and its endpoints (for those who manage connections).
+ * - **Statenet**: the owner's tree by state path, drawn on the board from `GET /edit/<id>/views/graph`: `$`, its
+ *   branches, every part with what the app does not use dimmed, and one level below a part. Pressing a node opens its
+ *   editor at the side: a dataset's records, a model's fields, a path of the state, a module's unit, a connection and
+ *   its endpoints (for those who manage connections). A + on a branch or a part opens a form that makes what it holds
+ *   and puts it to use in the app.
  * - **Theme**: the app's themes, and the chosen one as a specimen per mode above its tokens, each token's value for
  *   all modes and in each mode, edited in place. A theme other apps use asks first: edit it for all of them, or clone
  *   it for this app.
@@ -29,7 +31,17 @@ import { SCRIPT_TEXTS } from './text.js';
  */
 /** `/assets/views.css`: the views' sheet, graph, token table, lanes and tile layers (a file: the page's policy allows no inline style) */
 export const VIEWS_CSS = [
-    'body[data-view]:not([data-view="screens"]) #board { visibility: hidden; }',
+    // The views are the editor's: with it hidden the app fills the window, whatever view was last shown
+    'body.editing[data-view="theme"] #board, body.editing[data-view="logic"] #board { visibility: hidden; }',
+    'body:not(.editing) .view-sheet, body:not(.editing) #world > .graph { display: none !important; }',
+    // Statenet is drawn on the board in place of the screens; its head and its editor float over it
+    'body.editing[data-view="statenet"] #world > :not(.graph) { visibility: hidden; }',
+    '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
+    '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
+    '.view-sheet.on-canvas .view-body { margin-top: 12px; }',
+    '.view-sheet.on-canvas .view-main { visibility: hidden; }',
+    '@media (min-width: 760px) { .view-sheet.on-canvas .view-side { align-self: flex-start; max-height: 100%; } }',
+    '.view-sheet.on-canvas .view-side { pointer-events: auto; border-left: 0; border-top: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet { position: fixed; z-index: 0; left: 12px; right: 12px; top: 64px; bottom: 96px; display: flex; flex-direction: column; background: var(--paper, #fff); color: var(--ink, #111); border-radius: 12px; box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }',
     '@media (max-width: 759.98px) { .view-sheet { top: 112px; left: 8px; right: 8px; bottom: 132px; } }',
     '.view-sheet[hidden] { display: none; }',
@@ -40,7 +52,7 @@ export const VIEWS_CSS = [
     '.view-status.refused { color: #b3261e; }',
     '.view-body { flex: 1; display: flex; min-height: 0; }',
     '.view-main { flex: 1; overflow: auto; padding: 16px; position: relative; }',
-    '.view-side { width: min(360px, 45%); overflow: auto; padding: 16px; border-left: 1px solid var(--line, #e3e3e3); }',
+    '.view-side { width: min(360px, 45%); overflow-x: hidden; overflow-y: auto; padding: 16px; border-left: 1px solid var(--line, #e3e3e3); }',
     '.view-side[hidden] { display: none; }',
     '@media (max-width: 759.98px) { .view-body { flex-direction: column; } .view-side { width: auto; border-left: 0; border-top: 1px solid var(--line, #e3e3e3); max-height: 50%; } }',
     '.view-sheet button, .view-sheet select, .view-sheet input, .view-sheet textarea { font: inherit; }',
@@ -54,17 +66,40 @@ export const VIEWS_CSS = [
     '.view-ask { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent, #3d5afe) 10%, transparent); }',
     '.view-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }',
     // Statenet
-    '.graph { position: relative; display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 48px; align-items: start; min-width: 760px; }',
-    '.graph-column h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #666); margin: 0 0 8px; }',
-    '.graph-node { position: relative; z-index: 1; display: block; width: 100%; text-align: left; margin: 0 0 12px; padding: 8px 10px !important; border-radius: 10px !important; background: var(--paper, #fff) !important; }',
-    '.graph-node.outside { border-style: dashed !important; }',
-    '.graph-node.unused { opacity: .45; }',
-    '.graph-node.chosen { outline: 2px solid var(--accent, #3d5afe); }',
+    '.graph { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; color: var(--ink, #111); font: 14px/1.4 system-ui, sans-serif; }',
+    '.graph button { font: inherit; border: 1px solid var(--line, #ccc); color: inherit; cursor: pointer; pointer-events: auto; }',
+    '.graph-node { position: absolute; z-index: 1; display: flex; align-items: flex-start; gap: 4px; width: 220px; box-sizing: border-box; padding: 0; border: 1px solid var(--line, #ccc); border-radius: 10px; background: var(--paper, #fff); }',
+    '.graph-node.leaf { width: 160px; font-size: 13px; }',
+    '.graph-leaves { position: absolute; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; width: 420px; }',
+    '.graph-leaves > .graph-node { position: relative; width: auto; max-width: 200px; }',
+    '.graph-leaves .graph-kind { display: none; }',
+    '.graph .graph-open { flex: 1; min-width: 0; display: block; text-align: left; margin: 0; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; }',
+    '.graph-node.leaf .graph-open { padding: 5px 8px; }',
+    '.graph .graph-add { flex: none; width: 24px; height: 24px; margin: 6px 6px 0 0; padding: 0; border-radius: 50%; line-height: 1; font-weight: 600; color: var(--accent, #3d5afe); background: var(--paper, #fff); }',
+    '.graph-group .graph-add { margin: 0 0 0 6px; width: 20px; height: 20px; }',
+    '.graph-node.current { border: 2px solid var(--accent, #3d5afe); }',
+    '.graph-group { position: absolute; z-index: 1; display: flex; align-items: center; padding: 3px 6px 3px 12px; border-radius: 999px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--accent, #3d5afe); background: color-mix(in srgb, var(--accent, #3d5afe) 14%, var(--paper, #fff)); pointer-events: auto; }',
+    '.graph-group.path { font-family: ui-monospace, monospace; }',
+    '.graph-group:not(:has(.graph-add)) { padding-right: 12px; }',
+    '.graph-group.unused { opacity: .55; }',
+    '.graph .graph-more { border: 0; padding: 0; background: transparent; color: inherit; font-weight: 600; }',
+    '.graph-node.outside { border-style: dashed; }',
+    '.graph-node.unused { opacity: .5; }',
+    '.graph-node.chosen { outline: 2px solid var(--accent, #3d5afe); outline-offset: 2px; opacity: 1; }',
     '.graph-node b { display: block; overflow-wrap: anywhere; } .graph-node small { display: block; color: var(--muted, #666); overflow-wrap: anywhere; }',
     '.graph-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent, #3d5afe); }',
     '.graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }',
     '.graph-edges path { fill: none; stroke: var(--muted, #999); stroke-width: 1.5; }',
-    '.graph-edges path.read, .graph-edges path.call { stroke-dasharray: 5 4; }',
+    '.graph-edges path.across { stroke-dasharray: 5 4; stroke: var(--accent, #3d5afe); visibility: hidden; } .graph-edges path.across.lit { visibility: visible; }',
+    // A record table scrolls on its own, sideways; the panel never does
+    '.records-wrap { overflow-x: auto; max-width: 100%; margin: 8px 0; }',
+    '.records tr.adding td { border-bottom: 0; padding-top: 8px; }',
+    '.view-sheet button.remove { min-width: 28px; min-height: 28px; padding: 0 6px; font-size: 16px; line-height: 1; }',
+    '.view-field { display: grid; gap: 2px; margin: 8px 0; } .view-field > span { font-size: 12px; color: var(--muted, #666); }',
+    '.view-output { white-space: pre-wrap; max-height: 200px; overflow: auto; }',
+    '.view-back { font-weight: 600; }',
+    '.view-link { color: var(--accent, #3d5afe); font-weight: 600; }',
+    '.view-side .view-row button.screen { border-radius: 8px; }',
     '.records { border-collapse: collapse; font-size: 12px; } .records td, .records th { border-bottom: 1px solid var(--line, #eee); padding: 2px 4px; text-align: left; } .records input { width: 110px; }',
     // Theme
     '.specimens { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }',
@@ -156,11 +191,20 @@ const tools = element('div', { className: 'view-tools' });
 const status = element('p', { className: 'view-status', role: 'status' });
 const main = element('div', { className: 'view-main' });
 const side = element('aside', { className: 'view-side', hidden: true });
-sheet.append(element('header', { className: 'view-head' }, [heading, tools, status]), element('div', { className: 'view-body' }, [main, side]));
+/** Back to Statenet, shown in Theme or Logic when a card of the graph led there */
+const back = element('button', { type: 'button', className: 'view-back', hidden: true, text: T['views.backToGraph'] });
+back.addEventListener('click', () => setView('statenet'));
+sheet.append(element('header', { className: 'view-head' }, [back, heading, tools, status]), element('div', { className: 'view-body' }, [main, side]));
 document.body.append(sheet);
 
 function says(text, refused) { status.textContent = text || ''; status.classList.toggle('refused', Boolean(refused)); }
-function closeSide() { side.hidden = true; side.replaceChildren(); for (const chosen of main.querySelectorAll('.chosen')) chosen.classList.remove('chosen'); }
+function unchoose() { for (const chosen of document.querySelectorAll('.view-main .chosen, .graph .chosen')) chosen.classList.remove('chosen'); }
+function closeSide() {
+    side.hidden = true;
+    side.replaceChildren();
+    unchoose();
+    for (const path of document.querySelectorAll('.graph-edges path.lit')) path.classList.remove('lit');
+}
 
 async function getJson(path) {
     const response = await fetch(base + path);
@@ -202,6 +246,7 @@ function showSelector() {
     editor.set({
         view,
         notScreensView: view !== 'screens',
+        noBoard: view === 'theme' || view === 'logic',
         layers: { ...layers },
         layerLook: Object.fromEntries(LAYERS.map((name) => [name, layers[name] ? 'solid' : 'ghost'])),
         layerTone: Object.fromEntries(LAYERS.map((name) => [name, layers[name] ? 'accent' : 'neutral']))
@@ -212,8 +257,14 @@ function showSelector() {
     shell.showContext(chips);
 }
 
-function setView(name) {
+/** Where the board showed the screens before Statenet took it, to go back there */
+let screensLook = null;
+/** Shows a view; fromGraph when a card of Statenet led there, so the head offers the way back */
+function setView(name, fromGraph) {
     if (!VIEWS.includes(name)) return;
+    back.hidden = !(fromGraph && view === 'statenet' && (name === 'theme' || name === 'logic'));
+    if (name === 'statenet' && view !== 'statenet') screensLook = shell.canvas.look();
+    if (name !== 'statenet') leaveGraph();
     view = name;
     store(VIEW_KEY, view);
     document.body.dataset.view = view;
@@ -227,6 +278,7 @@ function setView(name) {
     shell.setTool('use');
     shell.showInspector(false);
     sheet.hidden = false;
+    sheet.classList.toggle('on-canvas', view === 'statenet');
     closeSide();
     says('');
     heading.textContent = T['shell.view.' + view];
@@ -242,7 +294,8 @@ function load() {
 
 editor.onEmit((name, payload) => {
     const value = payload && typeof payload === 'object' && 'value' in payload ? payload.value : payload;
-    if (name === 'view' && typeof value === 'string') { setView(value); return; }
+    // The selector echoes a view set from here: only a different view is a change
+    if (name === 'view' && typeof value === 'string') { if (value !== view) setView(value); return; }
     const layer = /^layer(Layout|Data|Logic)$/.exec(name);
     if (layer) {
         const key = layer[1].toLowerCase();
@@ -257,94 +310,572 @@ shell.onEscape(() => { if (view !== 'screens' && !side.hidden) { closeSide(); re
 // ---- Statenet ------------------------------------------------------------------------------------------------------
 
 let graph = null;
+/** The graph on the board, in the world that pans and zooms, while Statenet shows */
+let graphBoard = null;
+/** The board is fitted to the graph once each time Statenet is entered, not when a change to the app redraws it */
+let graphFitted = false;
+function leaveGraph() {
+    if (graphBoard) { graphBoard.remove(); graphBoard = null; }
+    if (view !== 'statenet') return;
+    graphFitted = false;
+    shell.canvas.fitTo(null);
+    if (screensLook) shell.canvas.lookAt(screensLook); else shell.canvas.fit();
+}
 function kindText(node) { return T['views.kind.' + node.kind] || node.kind; }
 function noteText(node) {
+    const unused = node.used ? '' : T['views.note.unused'];
+    const joined = (text) => [text, unused].filter(Boolean).join(' · ');
     switch (node.kind) {
-        case 'app': return T['views.note.authority'] + (node.count ? ' · ' + fill(T['views.note.shared'], { count: node.count }) : '');
-        case 'theme': return node.isDefault ? T['views.note.defaultTheme'] : '';
+        case 'app': return node.current ? T['views.note.authority'] + (node.count ? ' · ' + fill(T['views.note.shared'], { count: node.count }) : '') : T['views.note.anotherApp'];
+        case 'theme': return joined(node.isDefault ? T['views.note.defaultTheme'] : '');
+        case 'binding': return '$.data.' + node.note;
         case 'persona': return fill(T['views.note.persona'], { model: node.note });
+        case 'dataset': return joined(node.note ? fill(T['views.note.ofModel'], { model: node.note }) : '');
+        case 'record': return '';
+        case 'unit': return T['views.unit.' + (UNIT_KINDS[node.note] || '')] || node.note;
         case 'shared': return fill(T['views.note.sharedBy'], { name: node.note || T['views.note.anotherOwner'] });
         case 'otherApp': return fill(T['views.note.otherApp'], { path: node.note });
         case 'endpoint': return node.missing ? fill(T['views.note.missing'], { connection: node.note }) : node.note;
-        case 'state': return T['views.note.state'];
-        case 'server': return T['views.note.server'];
+        case 'model': case 'module': case 'component': case 'connection': case 'pattern': return joined(node.note);
         default: return node.note;
     }
 }
+/** The leaves below a part: drawn smaller */
+const LEAVES = ['screen', 'binding', 'persona', 'state', 'record', 'field', 'unit', 'endpoint', 'shared', 'otherApp'];
+
+/** How many parts a branch shows that the app does not use, before a pill for the rest */
+const UNUSED_SHOWN = 6;
+/** The branches whose every part shows, this visit */
+const graphOpened = new Set();
+
+/**
+ * The nodes drawn: every branch, each part the app uses, and the first UNUSED_SHOWN others of a branch (all of them
+ * once the branch is opened). A part the app does not use is drawn without what it holds; its editor shows that. The
+ * server's tree lists a parent before its children, so one pass decides
+ */
+function shownNodes() {
+    const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+    const shown = new Set();
+    const unused = new Map();
+    const hidden = new Map();
+    for (const node of graph.nodes) {
+        const parent = node.parent === null ? null : nodes.get(node.parent);
+        if (parent && !shown.has(parent.id)) continue;
+        const isPart = parent && parent.kind === 'branch' && parent.parent === '$';
+        if (isPart && !node.used && !graphOpened.has(parent.id)) {
+            const count = (unused.get(parent.id) || 0) + 1;
+            unused.set(parent.id, count);
+            if (count > UNUSED_SHOWN) { hidden.set(parent.id, (hidden.get(parent.id) || 0) + 1); continue; }
+        }
+        if (parent && parent.kind !== 'branch' && parent.kind !== 'owner' && !parent.used) continue;
+        shown.add(node.id);
+    }
+    return { shown, hidden };
+}
 
 async function loadGraph() {
-    try { graph = await getJson('/graph'); } catch (error) { says(error.message, true); return; }
-    if (view !== 'statenet') return;
-    tools.replaceChildren(button(T['views.refresh'], () => void loadGraph()));
-    const columns = [0, 1, 2, 3].map((column) => element('div', { className: 'graph-column' }, [element('h3', { text: T['views.column' + column] })]));
-    const cards = new Map();
+    let next;
+    try { next = await getJson('/graph'); } catch (error) { says(error.message, true); return; }
+    // A new revision that left the tree as it was (a screen's layout, a token) keeps the board as it is
+    const same = graph !== null && graphBoard !== null && JSON.stringify({ ...next, revision: 0 }) === JSON.stringify({ ...graph, revision: 0 });
+    graph = next;
+    if (!same) drawGraph();
+}
+
+function drawGraph() {
+    if (view !== 'statenet' || !graph) return;
+    tools.replaceChildren();
+    const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+    const { shown, hidden } = shownNodes();
+    const items = new Map();
     for (const node of graph.nodes) {
-        const card = element('button', { type: 'button', className: 'graph-node' + (node.outside ? ' outside' : '') + (node.used ? '' : ' unused'), 'data-node': node.id }, [
-            element('span', { className: 'graph-kind', text: kindText(node) }),
-            element('b', { text: node.label }),
-            noteText(node) ? element('small', { text: noteText(node) }) : null
-        ]);
-        card.addEventListener('click', () => void openNode(node, card));
-        cards.set(node.id, card);
-        columns[node.column].append(card);
+        if (!shown.has(node.id)) continue;
+        const plus = node.add ? button('+', () => void addUnder(node, items.get(node.id).element), 'graph-add') : null;
+        if (plus) plus.setAttribute('aria-label', fill(T['views.addTo'], { path: node.id }));
+        let made;
+        if (node.kind === 'branch' || node.kind === 'owner') {
+            made = element('div', { className: 'graph-group path' + (node.used ? '' : ' unused'), 'data-node': node.id, title: node.id }, [element('span', { text: node.label }), plus]);
+        } else {
+            const open = element('button', { type: 'button', className: 'graph-open', title: node.id }, [
+                element('span', { className: 'graph-kind', text: kindText(node) }),
+                element('b', { text: node.label }),
+                noteText(node) ? element('small', { text: noteText(node) }) : null,
+                node.more ? element('small', { text: fill(T['views.note.more'], { count: node.more }) }) : null
+            ]);
+            made = element('div', { className: 'graph-node' + (LEAVES.includes(node.kind) ? ' leaf' : '') + (node.outside ? ' outside' : '') + (node.used ? '' : ' unused') + (node.current ? ' current' : ''), 'data-node': node.id }, [open, plus]);
+            open.addEventListener('click', () => void openNode(node, made));
+        }
+        items.set(node.id, { element: made, pill: node.kind === 'branch' || node.kind === 'owner', kind: node.kind, id: node.id, children: [], parent: null });
+    }
+    let root = null;
+    for (const node of graph.nodes) {
+        const item = items.get(node.id);
+        if (!item) continue;
+        const parent = node.parent === null ? null : items.get(node.parent);
+        if (!parent) { root = item; continue; }
+        item.parent = parent;
+        item.side = 1;
+        parent.children.push(item);
+    }
+    // A branch with parts left out ends in a pill that shows them all; an opened one in a pill that shows fewer
+    for (const [id, item] of items) {
+        if (!item.pill || nodes.get(id).parent !== '$') continue;
+        const left = hidden.get(id) || 0;
+        if (left === 0 && !graphOpened.has(id)) continue;
+        const toggle = button(left > 0 ? fill(T['views.note.more'], { count: left }) : T['views.showFewer'], () => {
+            if (left > 0) graphOpened.add(id); else graphOpened.delete(id);
+            drawGraph();
+        }, 'graph-more');
+        const more = { element: element('div', { className: 'graph-group more' }, [toggle]), pill: true, kind: 'more', id: id + '#more', children: [], parent: item, side: 1 };
+        item.children.push(more);
+    }
+    // The leaves of a part (its records, fields, screens, bindings, units) wrap in one block beside it, not a row each
+    for (const item of items.values()) {
+        const held = item.children.filter((child) => !child.pill);
+        if (held.length < 2 || !held.every((child) => LEAVES.includes(child.kind) && child.children.length === 0)) continue;
+        const block = { element: element('div', { className: 'graph-leaves' }, held.map((leaf) => leaf.element)), pill: false, kind: 'leaves', id: item.id + '#leaves', children: [], parent: item, side: 1, leaves: held };
+        item.children = [block, ...item.children.filter((child) => child.pill)];
     }
     const edges = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     edges.setAttribute('class', 'graph-edges');
-    const board = element('div', { className: 'graph' }, [edges, ...columns]);
-    main.replaceChildren(board);
-    // The lines join the cards' sides, once the cards are laid out
-    requestAnimationFrame(() => {
-        const origin = board.getBoundingClientRect();
-        for (const edge of graph.edges) {
-            const from = cards.get(edge.from);
-            const to = cards.get(edge.to);
-            if (!from || !to) continue;
-            const a = from.getBoundingClientRect();
-            const b = to.getBoundingClientRect();
-            const leftToRight = a.left <= b.left;
-            const x1 = (leftToRight ? a.right : a.left) - origin.left;
-            const x2 = (leftToRight ? b.left : b.right) - origin.left;
-            const y1 = a.top + a.height / 2 - origin.top;
-            const y2 = b.top + b.height / 2 - origin.top;
-            const bend = Math.max(24, Math.abs(x2 - x1) / 2) * (leftToRight ? 1 : -1);
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + (x1 + bend) + ',' + y1 + ' ' + (x2 - bend) + ',' + y2 + ' ' + x2 + ',' + y2);
-            path.setAttribute('class', edge.kind);
-            if (edge.label) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = edge.label; path.append(title); }
-            edges.append(path);
-        }
-    });
+    const board = element('div', { className: 'graph' }, [edges]);
+    for (const item of treeItems(root)) board.append(item.element);
+    if (graphBoard) graphBoard.remove();
+    graphBoard = board;
+    world.append(board);
+    layOut(root, board);
+    for (const block of treeItems(root)) {
+        for (const leaf of block.leaves || []) Object.assign(leaf, { x: block.x + leaf.element.offsetLeft, y: block.y + leaf.element.offsetTop, w: leaf.element.offsetWidth, h: leaf.element.offsetHeight });
+    }
+    drawEdges(root, graph, edges);
+    shell.canvas.fitTo(() => ({ x: 0, y: 0, width: board.offsetWidth, height: board.offsetHeight }));
+    if (!graphFitted) { graphFitted = true; shell.canvas.fit(); }
+    // A card chosen before the redraw stays chosen, with its edges lit
+    const chosen = side.hidden ? null : side.dataset.node;
+    if (chosen && nodes.has(chosen)) light(chosen);
 }
 
-function sideOpen(card, title, children) {
-    for (const chosen of main.querySelectorAll('.chosen')) chosen.classList.remove('chosen');
+/** Marks a card chosen and lights the edges that are not the tree's: what it uses, or what uses it */
+function light(id) {
+    if (!graphBoard) return;
+    for (const path of graphBoard.querySelectorAll('.graph-edges path.across')) path.classList.toggle('lit', path.dataset.from === id || path.dataset.to === id);
+    const card = graphBoard.querySelector('[data-node="' + CSS.escape(id) + '"]');
     if (card) card.classList.add('chosen');
-    side.replaceChildren(element('h3', { text: title }), ...children);
-    side.hidden = false;
 }
 
-async function openNode(node, card) {
-    const name = node.id.slice(node.id.indexOf(':') + 1);
+function treeItems(item) { return [item, ...item.children.flatMap(treeItems)]; }
+
+const ROW_GAP = 10;
+const GROUP_GAP = 28;
+const COLUMN_GAP = 72;
+
+/** Places the tree's elements in the graph's own pixels: each subtree stacked down, a parent across from the middle of its children */
+function layOut(root, board) {
+    for (const item of treeItems(root)) { item.w = item.element.offsetWidth; item.h = item.element.offsetHeight; }
+    const shift = (item, dy) => { item.y += dy; for (const child of item.children) shift(child, dy); };
+    // Stacks a list of siblings down from top, each beside its own children; the bottom
+    const stack = (list, depth, top, widths) => {
+        let y = top;
+        list.forEach((item, index) => {
+            if (index > 0) y += item.children.length > 0 || list[index - 1].children.length > 0 ? GROUP_GAP : ROW_GAP;
+            widths[depth] = Math.max(widths[depth] || 0, item.w);
+            item.depth = depth;
+            if (item.children.length === 0) { item.y = y; y += item.h; return; }
+            const bottom = stack(item.children, depth + 1, y, widths);
+            const first = item.children[0];
+            const last = item.children[item.children.length - 1];
+            item.y = (first.y + first.h / 2 + last.y + last.h / 2) / 2 - item.h / 2;
+            if (item.y < y) {
+                const down = y - item.y;
+                item.y = y;
+                for (const child of item.children) shift(child, down);
+                y = bottom + down;
+            } else y = Math.max(bottom, item.y + item.h);
+        });
+        return y;
+    };
+    root.x = 0;
+    root.y = -root.h / 2;
+    root.depth = 0;
+    for (const side of [1, -1]) {
+        const list = root.children.filter((item) => item.side === side);
+        if (list.length === 0) continue;
+        const widths = [];
+        const height = stack(list, 1, 0, widths);
+        for (const item of list) shift(item, -height / 2);
+        // The columns go out from the app: left-aligned to its right, right-aligned to its left
+        const start = [side > 0 ? root.w : 0];
+        for (let depth = 1; depth < widths.length; depth++) start[depth] = start[depth - 1] + side * ((depth > 1 ? widths[depth - 1] : 0) + COLUMN_GAP);
+        // The branches and the parts in them stand in columns; what a part holds sits just beside it
+        for (const item of list.flatMap(treeItems)) {
+            if (item.depth > 2 && side > 0) item.x = item.parent.x + item.parent.w + COLUMN_GAP;
+            else item.x = side > 0 ? start[item.depth] : start[item.depth] - item.w;
+        }
+    }
+    const all = treeItems(root);
+    const minX = Math.min(...all.map((item) => item.x));
+    const minY = Math.min(...all.map((item) => item.y));
+    for (const item of all) {
+        item.x -= minX;
+        item.y -= minY;
+        item.element.style.left = item.x + 'px';
+        item.element.style.top = item.y + 'px';
+    }
+    board.style.width = Math.max(...all.map((item) => item.x + item.w)) + 'px';
+    board.style.height = Math.max(...all.map((item) => item.y + item.h)) + 'px';
+}
+
+/** The tree's links from each branch to what it holds, and the other edges, lit when one of their ends is chosen */
+function drawEdges(root, graph, svg) {
+    const all = treeItems(root);
+    const items = new Map(all.flatMap((item) => [[item.id, item], ...(item.leaves || []).map((leaf) => [leaf.id, leaf])]));
+    const curve = (x1, y1, x2, y2, className, label, from, to) => {
+        const bend = Math.max(24, Math.abs(x2 - x1) / 2) * (x2 >= x1 ? 1 : -1);
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + (x1 + bend) + ',' + y1 + ' ' + (x2 - bend) + ',' + y2 + ' ' + x2 + ',' + y2);
+        if (className) path.setAttribute('class', className);
+        if (from) { path.dataset.from = from; path.dataset.to = to; }
+        if (label) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = label; path.append(title); }
+        svg.append(path);
+    };
+    const middle = (item) => item.y + item.h / 2;
+    for (const item of all) for (const child of item.children) curve(item.x + item.w, middle(item), child.x, middle(child), child.pill ? 'branch' : '');
+    // Across the tree: from the right of the one higher up to the right of the other, bowing out to the right
+    for (const edge of graph.edges) {
+        const a = items.get(edge.from);
+        const b = items.get(edge.to);
+        if (!a || !b) continue;
+        const x = Math.max(a.x + a.w, b.x + b.w);
+        const bow = 40 + Math.abs(middle(a) - middle(b)) / 8;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M' + (a.x + a.w) + ',' + middle(a) + ' C' + (x + bow) + ',' + middle(a) + ' ' + (x + bow) + ',' + middle(b) + ' ' + (b.x + b.w) + ',' + middle(b));
+        path.setAttribute('class', 'across ' + edge.kind);
+        path.dataset.from = edge.from;
+        path.dataset.to = edge.to;
+        if (edge.label) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = edge.label; path.append(title); }
+        svg.append(path);
+    }
+}
+
+function sideOpen(card, title, children, id) {
+    unchoose();
+    for (const path of document.querySelectorAll('.graph-edges path.lit')) path.classList.remove('lit');
+    if (card) card.classList.add('chosen');
+    if (id) light(id);
+    side.dataset.node = id || '';
+    side.replaceChildren(element('h3', { text: title }), ...children.filter(Boolean));
+    side.hidden = false;
+    if (card && graphBoard && graphBoard.contains(card)) reveal(card);
+}
+
+/** Moves the board so the panel does not cover the chosen card: left at a wide window, up at a narrow one */
+function reveal(card) {
+    if (side.hidden) return;
+    const at = card.getBoundingClientRect();
+    const over = side.getBoundingClientRect();
+    const head = sheet.querySelector('.view-head').getBoundingClientRect();
+    const MARGIN = 24;
+    // At 760px and wider the panel is at the right, below that along the bottom (as the sheet's CSS lays it out)
+    if (matchMedia('(min-width: 760px)').matches) {
+        const dx = at.right + MARGIN - over.left;
+        if (dx > 0 && at.bottom > over.top && at.top < over.bottom) shell.canvas.pan(-Math.min(dx, Math.max(0, at.left - MARGIN)), 0);
+    } else {
+        const dy = at.bottom + MARGIN - over.top;
+        if (dy > 0) shell.canvas.pan(0, -Math.min(dy, Math.max(0, at.top - head.bottom - MARGIN)));
+    }
+}
+
+/** A row of buttons, one per screen, each showing that screen in the Screens view */
+function screenButtons(names) {
+    return element('div', { className: 'view-row' }, names.map((name) => button(name, () => {
+        setView('screens');
+        if (window.magneticScreens) window.magneticScreens.choose(name);
+    }, 'screen')));
+}
+
+/** The last segment of a node's path: the part's or record's own name */
+function nameOf(node) { return node.id.slice(node.id.lastIndexOf('.') + 1); }
+/** The node a node hangs from, so many levels up */
+function above(node, levels) {
+    let at = node;
+    for (let index = 0; index < levels && at; index++) at = graph.nodes.find((each) => each.id === at.parent);
+    return at;
+}
+/** A + made something: the tree again, and the app's views, as its document may have changed */
+async function added() { closeSide(); shell.editorChanged(); await loadGraph(); }
+async function post(path, body) {
+    says(T['views.saving']);
     try {
-        switch (node.kind) {
-            case 'dataset': return datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(name)), card);
-            case 'model': return modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(name)), card);
-            case 'persona': case 'state': return stateEditor(node.kind === 'persona' ? '$.data.' + name : name, card);
-            case 'connection': return connectionEditor(await getJson('/part?kind=connections&name=' + encodeURIComponent(name)), card);
-            case 'endpoint': return connectionEditor(await getJson('/part?kind=connections&name=' + encodeURIComponent(name.split('/')[0])), card, name.split('/')[1]);
-            case 'theme': chosenTheme = name; setView('theme'); return;
-            case 'module': setView('logic'); return;
-            default: sideOpen(card, node.label, [element('p', { className: 'view-note', text: kindText(node) + (noteText(node) ? ' · ' + noteText(node) : '') })]);
+        const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+        const answer = await response.json().catch(() => ({}));
+        if (!response.ok) { says(answer.message || T['views.refused'], true); return undefined; }
+        says(T['views.saved']);
+        return answer;
+    } catch { says(T['views.refused'], true); return undefined; }
+}
+/** A labelled field of a + form */
+function field(label, control) { return element('label', { className: 'view-field' }, [element('span', { text: label }), control]); }
+function nameInput(label) { return element('input', { 'aria-label': label, placeholder: 'lower-case-name', autocomplete: 'off', spellcheck: 'false' }); }
+function choice(label, values, texts) { return element('select', { 'aria-label': label }, values.map((value, index) => element('option', { value, text: texts ? texts[index] : value }))); }
+function namesOf(kind) { return graph.nodes.filter((node) => node.kind === kind && node.parent && node.parent.split('.').length === 2).map(nameOf); }
+/** A + form at the side: its fields, and a button that runs it (Enter in a field too) */
+function addForm(card, node, title, fields, run) {
+    const go = button(T['views.create'], async () => { go.disabled = true; try { await run(); } finally { go.disabled = false; } }, 'on');
+    for (const each of fields) for (const control of each.querySelectorAll('input')) control.addEventListener('keydown', (event) => { if (event.key === 'Enter') go.click(); });
+    sideOpen(card, title, [element('p', { className: 'view-note', text: fill(T['views.addTo'], { path: node.id }) }), ...fields, element('div', { className: 'view-row' }, [go])], node.id);
+    const first = side.querySelector('input, select');
+    if (first) first.focus();
+}
+
+/** What the + of a node does: a form for a new part, or the editor of the part with its add row */
+async function addUnder(node, card) {
+    try {
+        switch (node.add) {
+            case 'app': {
+                const name = nameInput(T['views.name']);
+                return addForm(card, node, T['views.new.app'], [field(T['views.name'], name)], async () => {
+                    const response = await fetch('/new', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ name: name.value }) });
+                    const answer = await response.json().catch(() => ({}));
+                    if (!response.ok || !answer.id) { says(answer.message || T['views.refused'], true); return; }
+                    location.href = '/edit/' + encodeURIComponent(answer.id);
+                });
+            }
+            case 'screen': {
+                const name = nameInput(T['views.name']);
+                return addForm(card, node, T['views.new.screen'], [field(T['views.name'], name)], async () => {
+                    if (await post('/edit/' + encodeURIComponent(appId) + '/screens', { action: 'add', name: name.value.trim() })) await added();
+                });
+            }
+            case 'binding': {
+                const bound = new Set(graph.nodes.filter((each) => each.kind === 'binding').map((each) => each.note));
+                const free = namesOf('dataset').filter((name) => !bound.has(name));
+                if (free.length === 0) return sideOpen(card, T['views.new.binding'], [element('p', { className: 'view-note', text: T['views.noFreeDataset'] })], node.id);
+                const dataset = choice(T['views.dataset'], free);
+                const binding = element('input', { 'aria-label': T['views.bindingName'], placeholder: T['views.bindingAuto'], autocomplete: 'off' });
+                return addForm(card, node, T['views.new.binding'], [field(T['views.dataset'], dataset), field(T['views.bindingName'], binding)], async () => {
+                    if (await change('add', { what: 'binding', dataset: dataset.value, binding: binding.value.trim() })) await added();
+                });
+            }
+            case 'theme': {
+                const name = nameInput(T['views.themeName']);
+                const presets = ['clean', 'moody', 'playful', 'professional'];
+                const preset = choice(T['views.preset'], presets, presets.map((each) => T['views.preset.' + each]));
+                return addForm(card, node, T['views.newTheme'], [field(T['views.name'], name), field(T['views.preset'], preset)], async () => {
+                    if (await change('theme', { action: 'create', theme: name.value.trim(), preset: preset.value })) await added();
+                });
+            }
+            case 'dataset': {
+                const models = namesOf('model');
+                if (models.length === 0) return sideOpen(card, T['views.new.dataset'], [element('p', { className: 'view-note', text: T['views.needModel'] })], node.id);
+                const name = nameInput(T['views.name']);
+                const model = choice(T['views.model'], models);
+                const record = element('div', { className: 'view-record' });
+                const showFields = () => {
+                    const fields = graph.nodes.filter((each) => each.kind === 'field' && each.parent === '$.models.' + model.value);
+                    record.replaceChildren(element('p', { className: 'view-note', text: T['views.firstRecord'] }), ...fields.map((each) => field(each.label, element('input', { 'aria-label': each.label, 'data-field': each.label, 'data-type': each.note }))));
+                };
+                model.addEventListener('change', showFields);
+                showFields();
+                return addForm(card, node, T['views.new.dataset'], [field(T['views.name'], name), field(T['views.model'], model), record], async () => {
+                    const value = {};
+                    for (const input of record.querySelectorAll('input')) if (input.value !== '') value[input.dataset.field] = input.dataset.type === 'string' ? input.value : typed(input.value);
+                    if (await change('add', { what: 'dataset', name: name.value.trim(), model: model.value, record: value })) await added();
+                });
+            }
+            case 'record': {
+                await datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(nameOf(node))), card, node.id);
+                const first = side.querySelector('tr.adding input');
+                if (first) first.focus();
+                return;
+            }
+            case 'model': {
+                const name = nameInput(T['views.name']);
+                const first = element('input', { 'aria-label': T['views.fieldName'], autocomplete: 'off' });
+                const type = choice(T['views.fieldType'], FIELD_TYPES);
+                return addForm(card, node, T['views.new.model'], [field(T['views.name'], name), field(T['views.fieldName'], first), field(T['views.fieldType'], type)], async () => {
+                    if (!first.value.trim()) { says(T['views.fieldNameNeeded'], true); first.focus(); return; }
+                    if (await change('add', { what: 'model', name: name.value.trim(), field: first.value.trim(), type: type.value })) await added();
+                });
+            }
+            case 'field': {
+                modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(nameOf(node))), card, node.id);
+                const first = side.querySelector('input');
+                if (first) first.focus();
+                return;
+            }
+            case 'module': {
+                // A module works on data it needs: one of the app's dataset bindings
+                const bindings = graph.nodes.filter((each) => each.kind === 'binding').map((each) => each.label);
+                if (bindings.length === 0) return sideOpen(card, T['views.new.module'], [element('p', { className: 'view-note', text: T['views.needBinding'] })], node.id);
+                const name = nameInput(T['views.name']);
+                const need = choice(T['views.worksOn'], bindings);
+                return addForm(card, node, T['views.new.module'], [field(T['views.name'], name), field(T['views.worksOn'], need)], async () => {
+                    if (await change('add', { what: 'module', name: name.value.trim(), need: need.value })) await added();
+                });
+            }
+            case 'unit': {
+                // A module's unit works on what the module needs: the form starts from one on its first need's fields
+                const module = await getJson('/part?kind=logic&name=' + encodeURIComponent(nameOf(node)));
+                const groups = ['rules', 'machines', 'tables'];
+                const group = choice(T['views.unitKind'], groups, groups.map((each) => T['views.unit.' + UNIT_KINDS[each]]));
+                const name = element('input', { 'aria-label': T['views.unitName'], autocomplete: 'off' });
+                const text = element('textarea', { 'aria-label': T['views.unitBody'], spellcheck: 'false' });
+                const template = () => { text.value = JSON.stringify(moduleTemplate(module.body, group.value), null, 2); };
+                group.addEventListener('change', template);
+                template();
+                return addForm(card, node, T['views.new.unit'], [field(T['views.unitKind'], group), field(T['views.unitName'], name), field(T['views.unitBody'], text)], async () => {
+                    let value;
+                    try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
+                    const unit = group.value + '.' + name.value.trim();
+                    if (await change('logic', { module: nameOf(node), unit, revision: module.revision, value })) {
+                        await loadGraph();
+                        const made = graph.nodes.find((each) => each.id === node.id + '.' + unit);
+                        if (made) await moduleUnitEditor(made, graphBoard.querySelector('[data-node="' + CSS.escape(made.id) + '"]'));
+                    }
+                });
+            }
+            case 'connection':
+                return sideOpen(card, T['views.kind.connection'], [element('p', { className: 'view-note', text: T['views.connectionsPage'] }), element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/settings/connections', text: T['views.openConnections'] })])], node.id);
+            default:
+                return undefined;
         }
     } catch (error) { says(error.message, true); }
 }
 
-function datasetEditor(part, card) {
+/** A unit to start from in a module, on its first need: a rule, a machine or a table over that need's fields */
+function moduleTemplate(body, group) {
+    const needs = body && body.needs ? body.needs : {};
+    const need = Object.keys(needs)[0] || 'items';
+    const model = needs[need] && needs[need].model;
+    const fields = graph.nodes.filter((each) => each.kind === 'field' && each.parent === '$.models.' + model).map((each) => each.label);
+    const first = fields[0] || 'name';
+    const second = fields[1] || first + 'Copy';
+    const at = (name) => '$.data.' + need + '.{id}.' + name;
+    if (group === 'machines') return { state: '$.data.' + need + '.status', initial: 'idle', transitions: [{ from: 'idle', when: { path: at(first), is: 'example' }, to: 'done' }] };
+    if (group === 'tables') return { inputs: { value: at(first) }, outputs: { copy: at(second) }, rows: [{ copy: '{{ $value }}' }] };
+    return { when: { path: at(first), is: 'example' }, do: [{ command: 'set', target: at(first), value: '' }] };
+}
+
+/** A part the app does not use: a button that puts it to use */
+function useButton(run) { return element('div', { className: 'view-row' }, [button(T['views.useInApp'], async () => { if (await run()) await added(); }, 'on')]); }
+
+function appEditor(node, card) {
+    if (!node.current) {
+        return sideOpen(card, node.label, [
+            element('p', { className: 'view-note', text: T['views.note.anotherApp'] }),
+            element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/edit/' + encodeURIComponent(node.appId), text: T['views.openApp'] })])
+        ], node.id);
+    }
+    const screens = node.screens || [];
+    const counts = new Map();
+    for (const each of graph.nodes) if (each.used && ['theme', 'dataset', 'model', 'module', 'component', 'connection'].includes(each.kind)) counts.set(each.kind, (counts.get(each.kind) || 0) + 1);
+    sideOpen(card, node.label, [
+        element('p', { className: 'view-note', text: noteText(node) }),
+        element('h3', { text: T['views.screens'] }),
+        screens.length > 0 ? screenButtons(screens) : element('p', { className: 'view-note', text: T['views.noScreens'] }),
+        counts.size > 0 ? element('h3', { text: T['views.uses'] }) : null,
+        counts.size > 0 ? element('ul', { className: 'view-note' }, [...counts].map(([kind, count]) => element('li', { text: (T['views.kind.' + kind] || kind) + ': ' + count }))) : null
+    ], node.id);
+}
+
+function themeEditor(node, card) {
+    const name = nameOf(node);
+    const act = (action) => async () => {
+        const answer = await change('theme', { action, theme: name });
+        if (answer) await added();
+    };
+    if (!node.used) return sideOpen(card, name, [element('p', { className: 'view-note', text: T['views.note.unused'] }), useButton(() => change('theme', { action: 'add', theme: name }))], node.id);
+    sideOpen(card, name, [
+        element('p', { className: 'view-note', text: node.isDefault ? T['views.note.defaultTheme'] : T['views.kind.theme'] }),
+        element('div', { className: 'view-row' }, [
+            button(T['views.editTheme'], () => { chosenTheme = name; setView('theme', true); }, 'on'),
+            node.isDefault ? null : button(T['views.makeDefault'], act('default'))
+        ]),
+        element('div', { className: 'view-row' }, [button(T['views.removeTheme'], () => { if (confirm(fill(T['views.removeThemeConfirm'], { name }))) void act('remove')(); }, 'danger')])
+    ], node.id);
+}
+
+function componentEditor(node, card) {
+    const screens = node.screens || [];
+    sideOpen(card, node.label, [
+        element('p', { className: 'view-note', text: T['views.componentNote'] }),
+        element('h3', { text: T['views.placedOn'] }),
+        screens.length > 0 ? screenButtons(screens) : element('p', { className: 'view-note', text: T['views.notPlaced'] })
+    ], node.id);
+}
+
+function moduleEditor(node, card) {
+    if (!node.used) return sideOpen(card, node.label, [element('p', { className: 'view-note', text: T['views.moduleNote'] }), useButton(() => change('add', { what: 'useModule', name: node.label }))], node.id);
+    sideOpen(card, node.label, [
+        element('p', { className: 'view-note', text: T['views.moduleNote'] }),
+        element('div', { className: 'view-row' }, [button(T['views.openLogic'], () => setView('logic', true), 'on')])
+    ], node.id);
+}
+
+/** A unit of a logic module as JSON, saved or removed through the module's own writes */
+async function moduleUnitEditor(node, card) {
+    const moduleName = nameOf(above(node, 1));
+    const module = await getJson('/part?kind=logic&name=' + encodeURIComponent(moduleName));
+    const unit = node.note + '.' + node.label;
+    const records = module.body[node.note] || {};
+    const text = element('textarea', { 'aria-label': unit, spellcheck: 'false' });
+    text.value = JSON.stringify(records[node.label] || {}, null, 2);
+    const save = button(T['views.save'], async () => {
+        let value;
+        try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
+        if (await change('logic', { module: moduleName, unit, revision: module.revision, value })) await loadGraph();
+    }, 'on');
+    const remove = removeButton(T['views.removeUnit'], fill(T['views.removeUnitAsk'], { unit }), async () => {
+        if (await change('logic', { module: moduleName, unit, revision: module.revision, remove: true })) { closeSide(); await loadGraph(); }
+    });
+    sideOpen(card, unit, [element('p', { className: 'view-note', text: fill(T['views.fromModule'], { module: moduleName }) }), text, element('div', { className: 'view-row' }, [save, remove])], node.id);
+}
+
+async function openNode(node, card) {
+    const part = (kind, name) => getJson('/part?kind=' + kind + '&name=' + encodeURIComponent(name));
+    try {
+        switch (node.kind) {
+            case 'app': return appEditor(node, card);
+            case 'screen': setView('screens'); if (window.magneticScreens) window.magneticScreens.choose(node.label); return undefined;
+            case 'binding': return datasetEditor(await part('data', node.note), card, node.id);
+            case 'persona': return stateEditor('$.data.' + node.label, card, node.id);
+            case 'state': return stateEditor(node.note, card, node.id);
+            case 'dataset': {
+                await datasetEditor(await part('data', nameOf(node)), card, node.id);
+                if (!node.used) side.append(useButton(() => change('add', { what: 'binding', dataset: nameOf(node) })));
+                return undefined;
+            }
+            case 'record': return datasetEditor(await part('data', nameOf(above(node, 1))), card, node.id);
+            case 'model': return modelEditor(await part('models', nameOf(node)), card, node.id);
+            case 'field': return modelEditor(await part('models', nameOf(above(node, 1))), card, node.id);
+            case 'theme': return themeEditor(node, card);
+            case 'module': return moduleEditor(node, card);
+            case 'unit': return moduleUnitEditor(node, card);
+            case 'component': return componentEditor(node, card);
+            case 'connection': return connectionEditor(await part('connections', nameOf(node)), card, undefined, node.id);
+            case 'endpoint': {
+                const connection = node.missing ? node.note : nameOf(above(node, 1));
+                return connectionEditor(await part('connections', connection), card, node.label, node.id);
+            }
+            default: return sideOpen(card, node.label, [element('p', { className: 'view-note', text: kindText(node) + (noteText(node) ? ' · ' + noteText(node) : '') })], node.id);
+        }
+    } catch (error) { says(error.message, true); }
+}
+
+/** A × that asks first: the question names what goes */
+function removeButton(label, question, run) {
+    const made = button('×', () => { if (confirm(question)) void run(); }, 'danger remove');
+    made.setAttribute('aria-label', label);
+    return made;
+}
+
+function datasetEditor(part, card, id) {
     const fields = Object.keys(part.fields || {});
     const keys = Object.keys(part.records || {});
     const columns = fields.length > 0 ? fields : [...new Set(keys.flatMap((key) => Object.keys(part.records[key] || {})))];
     const table = element('table', { className: 'records' }, [element('tr', {}, [element('th', { text: '' }), ...columns.map((field) => element('th', { text: field })), element('th')])]);
     let revision = part.revision;
+    const reopen = async () => datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(part.name)), card, id);
     for (const key of keys) {
         const record = part.records[key] || {};
         const cells = columns.map((field) => {
@@ -355,25 +886,35 @@ function datasetEditor(part, card) {
             });
             return element('td', {}, [input]);
         });
-        const remove = button('×', async () => {
+        const remove = removeButton(T['views.removeRecord'] + ' ' + key, fill(T['views.removeRecordAsk'], { key }), async () => {
             const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'remove', path: key }] });
-            if (answer) datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(part.name)), card);
-        }, 'danger');
-        remove.setAttribute('aria-label', T['views.removeRecord'] + ' ' + key);
+            if (answer) await reopen();
+        });
         table.append(element('tr', {}, [element('td', { text: key }), ...cells, element('td', {}, [remove])]));
     }
-    const add = button(T['views.addRecord'], async () => {
-        const value = Object.fromEntries(columns.map((field) => [field, typed(prompt(field) ?? '')]));
+    // A new record is typed in the last row, not asked for field by field
+    const fresh = columns.map((field) => element('input', { placeholder: field, 'aria-label': T['views.newRecord'] + ' ' + field }));
+    const add = button(T['views.add'], async () => {
+        if (fresh.every((input) => input.value.trim() === '')) { says(T['views.recordEmpty'], true); fresh[0].focus(); return; }
+        const value = Object.fromEntries(columns.map((field, index) => [field, fresh[index].value.trim() === '' ? undefined : typed(fresh[index].value)]).filter((entry) => entry[1] !== undefined));
         const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'add', value }] });
-        if (answer) datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(part.name)), card);
-    });
+        if (answer) await reopen();
+    }, 'on');
+    for (const input of fresh) input.addEventListener('keydown', (event) => { if (event.key === 'Enter') add.click(); });
+    if (columns.length > 0) table.append(element('tr', { className: 'adding' }, [element('td', { text: '+' }), ...fresh.map((input) => element('td', {}, [input])), element('td', {}, [add])]));
     const more = part.count > keys.length ? element('p', { className: 'view-note', text: fill(T['views.moreRecords'], { shown: keys.length, count: part.count }) }) : null;
-    sideOpen(card, part.name, [element('p', { className: 'view-note', text: part.model ? fill(T['views.ofModel'], { model: part.model }) : '' }), element('div', { style: 'overflow:auto' }, [table]), more, add]);
+    sideOpen(card, part.name, [
+        part.model ? element('p', { className: 'view-note', text: fill(T['views.ofModel'], { model: part.model }) }) : null,
+        element('div', { className: 'records-wrap' }, [table]),
+        more,
+        columns.length === 0 ? element('p', { className: 'view-note', text: T['views.noFields'] }) : null
+    ], id);
 }
 
 const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'array', 'object', 'any', 'url'];
-function modelEditor(part, card) {
+function modelEditor(part, card, id) {
     let revision = part.revision;
+    const reopen = async () => modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(part.name)), card, id);
     const rows = Object.entries(part.fields || {}).map(([field, declaration]) => {
         const type = element('select', { 'aria-label': field }, FIELD_TYPES.map((name) => element('option', { value: name, text: name })));
         type.value = declaration && declaration.type;
@@ -381,23 +922,25 @@ function modelEditor(part, card) {
             const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field, type: type.value }] });
             if (answer) revision = answer.revision;
         });
-        const remove = button('×', async () => {
+        const remove = removeButton(T['views.removeField'] + ' ' + field, fill(T['views.removeFieldAsk'], { field, model: part.name }), async () => {
             const answer = await change('data', { model: part.name, revision, operations: [{ op: 'remove', field }] });
-            if (answer) modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(part.name)), card);
-        }, 'danger');
-        remove.setAttribute('aria-label', T['views.removeField'] + ' ' + field);
+            if (answer) await reopen();
+        });
         return element('div', { className: 'view-row' }, [element('b', { text: field }), type, remove]);
     });
     const name = element('input', { placeholder: T['views.fieldName'], 'aria-label': T['views.fieldName'] });
     const type = element('select', { 'aria-label': T['views.fieldType'] }, FIELD_TYPES.map((each) => element('option', { value: each, text: each })));
     const add = button(T['views.addField'], async () => {
-        const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field: name.value.trim(), type: type.value }] });
-        if (answer) modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(part.name)), card);
-    });
-    sideOpen(card, part.name, [...rows, element('div', { className: 'view-row' }, [name, type, add])]);
+        const field = name.value.trim();
+        if (!field) { says(T['views.fieldNameNeeded'], true); name.focus(); return; }
+        const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field, type: type.value }] });
+        if (answer) await reopen();
+    }, 'on');
+    name.addEventListener('keydown', (event) => { if (event.key === 'Enter') add.click(); });
+    sideOpen(card, part.name, [...rows, element('div', { className: 'view-row' }, [name, type, add])], id);
 }
 
-async function stateEditor(path, card) {
+async function stateEditor(path, card, id) {
     const read = await getJson('/state?path=' + encodeURIComponent(path));
     const text = element('textarea', { 'aria-label': path });
     text.value = JSON.stringify(read.value, null, 2);
@@ -406,15 +949,15 @@ async function stateEditor(path, card) {
         try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
         await change('state', { path, value });
     });
-    sideOpen(card, path, [element('p', { className: 'view-note', text: T['views.stateNote'] }), text, element('div', { className: 'view-row' }, [save])]);
+    sideOpen(card, path, [element('p', { className: 'view-note', text: T['views.stateNote'] }), text, element('div', { className: 'view-row' }, [save])], id);
 }
 
-function connectionEditor(info, card, endpointName) {
+function connectionEditor(info, card, endpointName, id) {
     const parts = [element('p', { className: 'view-note', text: info.baseUrl + ' · ' + T['views.auth.' + info.auth.kind] + (info.auth.kind === 'none' ? '' : ' · ' + (info.keySet || info.clientSecretSet ? T['views.secretSet'] : T['views.secretNotSet'])) })];
     const form = async (fields) => {
         const answer = await change('connections', { id: info.id, ...fields });
         if (answer && answer.continueTo) { window.open(answer.continueTo.url, '_blank', 'noopener'); return answer; }
-        if (answer && !answer.tried) connectionEditor(await getJson('/part?kind=connections&name=' + encodeURIComponent(info.name)), card, endpointName);
+        if (answer && !answer.tried) connectionEditor(await getJson('/part?kind=connections&name=' + encodeURIComponent(info.name)), card, endpointName, id);
         return answer;
     };
     if (info.manages) {
@@ -430,14 +973,14 @@ function connectionEditor(info, card, endpointName) {
     }
     parts.push(element('h3', { text: T['views.endpoints'] }));
     for (const endpoint of info.endpoints) {
-        const output = element('pre', { className: 'view-note', style: 'white-space:pre-wrap;max-height:200px;overflow:auto' });
+        const output = element('pre', { className: 'view-note view-output' });
         const row = element('div', { className: 'view-row', 'data-endpoint': endpoint.name }, [element('b', { text: endpoint.name }), element('span', { className: 'view-note', text: endpoint.method + ' ' + endpoint.path })]);
         if (info.manages) {
             row.append(button(T['views.try'], async () => {
                 const answer = await form({ do: 'try', endpoint: endpoint.name, params: '' });
                 if (answer && answer.tried) output.textContent = answer.tried.status + '\n' + answer.tried.body;
             }));
-            row.append(button('×', () => void form({ do: 'removeEndpoint', endpoint: endpoint.name }), 'danger'));
+            row.append(removeButton(T['views.removeEndpoint'] + ' ' + endpoint.name, fill(T['views.removeEndpointAsk'], { name: endpoint.name }), () => form({ do: 'removeEndpoint', endpoint: endpoint.name })));
         }
         if (endpoint.name === endpointName) row.style.fontWeight = '600';
         parts.push(row, output);
@@ -448,7 +991,7 @@ function connectionEditor(info, card, endpointName) {
         const path = element('input', { placeholder: '/path', 'aria-label': T['views.endpointPath'], size: 12 });
         parts.push(element('div', { className: 'view-row' }, [name, method, path, button(T['views.addEndpoint'], () => void form({ do: 'endpoint', name: name.value.trim(), method: method.value, path: path.value.trim() }))]));
     }
-    sideOpen(card, info.name, parts);
+    sideOpen(card, info.name, parts, id);
 }
 function authFields(auth) {
     const fields = {};
