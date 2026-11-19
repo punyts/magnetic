@@ -138,7 +138,7 @@ describe('Connections and the http effect', () => {
         const facts = (await connectionFacts(connections, WORKSPACE)) as string;
         expect(facts).toContain('- weather (api.weather.example)');
         expect(facts).toContain('  - forecast: GET /forecast/{city}, params city, units; answers records (at days)');
-        expect(facts).toContain('run: "http"');
+        expect(facts).toContain('run: "$.functions.host.http"');
         expect(facts).not.toContain('never-tell');
     });
 

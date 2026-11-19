@@ -1,10 +1,15 @@
-import type { LogicEffectAnswer, LogicEffectFunction } from '@punyts/stateui-app/core';
+import type { FunctionCode, LogicEffectAnswer, LogicEffectFunction } from '@punyts/stateui-app/core';
+import type { InstanceCatalog, LogicInstance } from '@punyts/stateui-mcp';
 import type { Connection, Connections, ConnectionSecrets, Endpoint } from './Connections.js';
 import { CallRefused, guardedCall } from './guard.js';
 import type { GuardedAnswer, GuardOptions } from './guard.js';
 
-/** The name apps run it by: `logic.effects.<name>: { request, run: "http", ... }` */
-export const HTTP_EFFECT = 'http';
+/** Its name in the host's catalog */
+const HTTP_NAME = 'http';
+/** The path apps run it by: `logic.effects.<name>: { request, run: "$.functions.host.http", ... }` */
+export const HTTP_EFFECT = `$.functions.host.${HTTP_NAME}`;
+/** Its GUID, kept for its life */
+const HTTP_EFFECT_ID = '60871aeb-9cfa-4205-beba-9895049d94bb';
 
 /** How many calls each app may make a minute, through all its connections */
 export const CALLS_PER_MINUTE = 60;
@@ -160,13 +165,8 @@ export async function callEndpoint(connections: Connections, connection: Connect
     return guardedCall(url.toString(), { method: endpoint.method, headers, ...(body !== undefined && { body }), ...(signal !== undefined && { signal }) }, guard);
 }
 
-/**
- * The `http` effect of one app of a workspace: the request names a connection of the workspace and one of its
- * endpoints, and gives the params. Refused before any call: an unknown connection or endpoint, a missing param, an app
- * over its calls for the minute, or a connection the workspace's policy turned off. Each call is reported with its
- * workspace, app, connection, endpoint, status and time, never a secret or a body
- */
-export function httpEffect(options: {
+/** Options of the http effect of one running app */
+export interface HttpEffectOptions {
     readonly connections: Connections;
     readonly workspaceId: string;
     readonly appId: string;
@@ -175,7 +175,44 @@ export function httpEffect(options: {
     readonly guard?: GuardOptions;
     /** Whether the workspace may call out at all (an org's policy); default yes */
     readonly allowed?: () => Promise<boolean>;
-}): LogicEffectFunction {
+}
+
+/**
+ * The host's catalog: the http effect, the same entry for every app, so the validator and the guide list it. Its code is
+ * made for each running instance, bound to that app (`loadFor`); `load` without an instance refuses
+ */
+export function httpCatalog(options: Omit<HttpEffectOptions, 'appId'>): InstanceCatalog {
+    return {
+        name: 'host',
+        entries: [
+            {
+                id: HTTP_EFFECT_ID,
+                path: HTTP_EFFECT,
+                kind: 'effect',
+                runs: ['server'],
+                summary: 'Calls an endpoint of a connection of the workspace',
+                inputs: {
+                    type: 'object',
+                    properties: { connection: { type: 'string' }, endpoint: { type: 'string' }, params: { type: 'object' } },
+                    required: ['connection', 'endpoint']
+                },
+                outputs: {}
+            }
+        ],
+        load: () => {
+            throw new Error('The http effect runs only for an app');
+        },
+        loadFor: (_id: string, instance: LogicInstance) => httpEffect({ ...options, appId: instance.appId }) as FunctionCode
+    };
+}
+
+/**
+ * The `http` effect of one app of a workspace: the request names a connection of the workspace and one of its
+ * endpoints, and gives the params. Refused before any call: an unknown connection or endpoint, a missing param, an app
+ * over its calls for the minute, or a connection the workspace's policy turned off. Each call is reported with its
+ * workspace, app, connection, endpoint, status and time, never a secret or a body
+ */
+export function httpEffect(options: HttpEffectOptions): LogicEffectFunction {
     return async (request, { signal }) => {
         const asked = (request ?? {}) as Partial<HttpRequest>;
         if (typeof asked.connection !== 'string' || typeof asked.endpoint !== 'string') throw new CallRefused('An http request names a connection and an endpoint: { connection, endpoint, params }.');

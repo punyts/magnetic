@@ -97,6 +97,9 @@ export const VIEWS_CSS = [
     '.graph-leaves.left { justify-content: flex-end; }',
     '.graph .graph-more { border: 0; padding: 0; background: transparent; color: inherit; font-weight: 600; }',
     '.graph-node.outside { border-style: dashed; }',
+    // A function is hard IP: code the operator installed, marked by a bar on its edge, with no + and no editor
+    '.graph-node.hard { box-shadow: inset 4px 0 0 var(--accent, #3d5afe); } .graph-node.hard.left { box-shadow: inset -4px 0 0 var(--accent, #3d5afe); }',
+    '.view-schema { margin: 4px 0 8px; padding: 8px; overflow: auto; max-height: 220px; border-radius: 8px; font-size: 12px; background: color-mix(in srgb, currentColor 6%, transparent); }',
     '.graph-node.unused { opacity: .5; }',
     '.graph-node.chosen { outline: 2px solid var(--accent, #3d5afe); outline-offset: 2px; opacity: 1; }',
     '.graph-node b { display: block; overflow-wrap: anywhere; } .graph-node small { display: block; color: var(--muted, #666); overflow-wrap: anywhere; }',
@@ -174,7 +177,7 @@ const UNIT_TEMPLATES = {
     rules: { when: { path: '$.data.example' }, do: [] },
     tables: { inputs: [], outputs: [], rows: [] },
     computes: { inputs: [], run: '', outputs: [] },
-    effects: { request: '$.data.request', run: 'http', status: '$.data.requestStatus' }
+    effects: { request: '$.data.request', run: '$.functions.host.http', status: '$.data.requestStatus' }
 };
 
 function stored(key, fallback) { try { const value = localStorage.getItem(key); return value === null ? fallback : JSON.parse(value); } catch { return fallback; } }
@@ -382,6 +385,8 @@ function noteText(node) {
         case 'persona': return T['views.note.persona'];
         case 'instance': return fill(T['views.note.lastUsed'], { date: new Date(node.updatedAt).toLocaleDateString(document.documentElement.lang || undefined) });
         case 'endpoint': return node.missing ? fill(T['views.note.missing'], { connection: node.note }) : node.note;
+        case 'function': return joined(fill(T['views.note.function'], { kind: T['views.fn.' + node.note] || node.note, runs: node.fn.runs.map((side) => T['views.fn.' + side] || side).join(', ') }));
+        case 'library': return joined('');
         case 'model': case 'module': case 'component': case 'connection': case 'pattern': return joined(node.note);
         default: return node.note;
     }
@@ -447,7 +452,7 @@ function drawGraph() {
                 noteText(node) ? element('small', { text: noteText(node) }) : null,
                 node.more ? element('small', { text: fill(T['views.note.more'], { count: node.more }) }) : null
             ]);
-            made = element('div', { className: 'graph-node' + (LEAVES.includes(node.kind) ? ' leaf' : '') + (node.outside ? ' outside' : '') + (node.used ? '' : ' unused') + (node.current ? ' current' : ''), 'data-node': node.id }, [open, plus]);
+            made = element('div', { className: 'graph-node' + (LEAVES.includes(node.kind) ? ' leaf' : '') + (node.outside ? ' outside' : '') + (node.kind === 'function' ? ' hard' : '') + (node.used ? '' : ' unused') + (node.current ? ' current' : ''), 'data-node': node.id }, [open, plus]);
             // Pressing the chosen card again lets it go, as the panel's × and a press on the empty board do
             open.addEventListener('click', () => {
                 if (made.classList.contains('chosen') && !side.hidden) closeSide();
@@ -942,6 +947,16 @@ async function openNode(node, card) {
                 element('p', { className: 'view-note', text: noteText(node) }),
                 node.current ? null : element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/edit/' + encodeURIComponent(node.appId), text: T['views.openApp'] })])
             ], node.id);
+            case 'function': return functionPanel(node, card);
+            case 'library': {
+                // What it holds, which the board leaves out when the app does not place it
+                const functions = graph.nodes.filter((each) => each.parent === node.id && each.kind === 'function');
+                return sideOpen(card, node.label, [
+                    element('p', { className: 'view-note', text: T['views.libraryNote'] }),
+                    node.screens && node.screens.length > 0 ? element('p', { className: 'view-note', text: node.screens.join(', ') }) : null,
+                    element('div', { className: 'view-row' }, functions.map((each) => button(each.label, () => functionPanel(each, card))))
+                ], node.id);
+            }
             case 'endpoint': {
                 const connection = node.missing ? node.note : nameOf(above(node, 1));
                 return connectionEditor(await part('connections', connection), card, node.label, node.id);
@@ -949,6 +964,20 @@ async function openNode(node, card) {
             default: return sideOpen(card, node.label, [element('p', { className: 'view-note', text: kindText(node) + (noteText(node) ? ' · ' + noteText(node) : '') })], node.id);
         }
     } catch (error) { says(error.message, true); }
+}
+
+/** A function's panel: what it is and does, where it runs, and its schemas; nothing to edit */
+function functionPanel(node, card) {
+    const schema = (title, value) => value === undefined ? null : element('div', {}, [element('h4', { text: title }), element('pre', { className: 'view-schema', text: JSON.stringify(value, null, 2) })]);
+    const owner = node.fn.fixed ? node.parent.split('.')[2] : '';
+    return sideOpen(card, node.label, [
+        element('p', { className: 'view-note', text: kindText(node) + ' · ' + noteText(node) }),
+        element('p', { text: node.fn.summary }),
+        element('p', { className: 'view-note', text: node.fn.fixed ? fill(T['views.fn.fixed'], { component: owner }) : T['views.functionNote'] }),
+        element('p', { className: 'view-note', text: node.id }),
+        schema(T['views.fn.inputs'], node.fn.inputs),
+        schema(T['views.fn.outputs'], node.fn.outputs)
+    ], node.id);
 }
 
 /** A × that asks first: the question names what goes */

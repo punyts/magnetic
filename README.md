@@ -238,13 +238,16 @@ The commands are:
 
     **Statenet**, **Theme** and **Logic** each have their tools in a head and an editor at the side:
     - **Statenet:** the owner's tree by state path (`$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
-      `$.components`, `$.patterns`, `$.connections`, `$.personas` with only your own persona), every part with what this app does not use dimmed and one level
+      `$.components`, `$.patterns`, `$.connections`, `$.functions`, `$.personas` with only your own persona), every part with what this app does not use dimmed and one level
       below each, drawn on the board in place of the screens: it pans, zooms and fits like them. A + on each branch
       makes what it holds (an app, a screen, a binding, a theme, a dataset, a model, a module or one of its units) and
       puts it to use in the app. Each card opens an editor at the side, and the board moves
       the card clear of it: records, model fields, running state and connections (for managers); the app's and a
       component's screens; a theme's default and removal; the way to the Theme or Logic view and back. Removing
       anything asks first.
+      Functions are hard IP: `$.functions.<group>.<name>` and a library component's `$.components.<component>.functions.<name>`,
+      each a card with its kind and where it runs, no + and no editor; its panel shows its summary and schemas, and a
+      unit links to the function it runs.
     - **Theme:** a sheet over the board: a specimen per mode and a token table edited in place, per mode. It offers Edit for all or Clone for
       a theme other apps use.
     - **Logic:** a sheet over the board: units in a Server lane and a Browser lane, with Move to the browser or server, plus the screens'

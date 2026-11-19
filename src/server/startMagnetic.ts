@@ -30,7 +30,7 @@ import type { Mailer } from '../mail/Mailer.js';
 import { Connections } from '../connections/Connections.js';
 import { connectionFacts, paramsOf } from '../connections/facts.js';
 import type { GuardOptions } from '../connections/guard.js';
-import { CallLimits, HTTP_EFFECT, httpEffect } from '../connections/httpEffect.js';
+import { CallLimits, httpCatalog } from '../connections/httpEffect.js';
 import { connectionRoutes } from './connectionRoutes.js';
 import { viewRoutes } from './viewRoutes.js';
 import { dataRoutes } from './dataRoutes.js';
@@ -44,7 +44,6 @@ import { busyPage, isInstanceBusy } from '../http/busyPage.js';
 import { Beta } from '../beta/Beta.js';
 import { Stripe } from '../billing/Stripe.js';
 import type { StripeOptions } from '../billing/Stripe.js';
-import type { LogicInstance } from '@punyts/stateui-mcp';
 import { orgTextsOf } from '../http/orgText.js';
 import { bindingsOf, childPlacements, layoutTypeOf, logicOf, nodeAt, ownSettings, parentPath, screensOf, titleOf, treeOf } from '../inspector/editInfo.js';
 import { COMPONENT_CATEGORIES, PAGES_WORKSPACE_ID, SYSTEM_USER_ID } from '../inspector/constants.js';
@@ -513,12 +512,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     report: options.report,
                     origin: () => origin,
                     agentAnswers: false,
-                    // The http effect of each running app, bound to its workspace and app
-                    logicFunctions: (instance: LogicInstance) => ({
-                        effects: {
-                            [HTTP_EFFECT]: httpEffect({ connections, workspaceId, appId: instance.appId, limits: callLimits, report: (message, fields) => options.report.info(message, fields), guard: connectionGuard, allowed: () => connectionsAllowed(workspaceId) })
-                        }
-                    }),
+                    // The host's functions: the http effect, bound to its workspace here and to each running app when it loads
+                    functions: [httpCatalog({ connections, workspaceId, limits: callLimits, report: (message, fields) => options.report.info(message, fields), guard: connectionGuard, allowed: () => connectionsAllowed(workspaceId) })],
                     logicLimits: options.logicLimits ?? DEFAULT_LOGIC_LIMITS,
                     ...(catalogMeanings !== undefined && { catalogMeanings }),
                     ...(similarity !== undefined && { procedures: { [SIMILAR_PROCEDURE]: similarProcedure(similarity, workspaceId, () => storage.parts) } }),

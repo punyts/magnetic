@@ -83,7 +83,7 @@ describe("An app's logic calling an outside API through a connection", () => {
         await tool(tools, 'ui_logic_write', {
             app: 'weather-board',
             expectedRevision: created['revision'],
-            operations: [{ op: 'set', unit: 'effects.today', value: { request: '$.data.weather.request', run: 'http', status: '$.data.weather.status', value: '$.data.weather.answer' } }]
+            operations: [{ op: 'set', unit: 'effects.today', value: { request: '$.data.weather.request', run: '$.functions.host.http', status: '$.data.weather.status', value: '$.data.weather.answer' } }]
         });
 
         // Act
@@ -103,7 +103,7 @@ describe("An app's logic calling an outside API through a connection", () => {
         await tool(tools, 'ui_logic_write', {
             app: 'bad-board',
             expectedRevision: created['revision'],
-            operations: [{ op: 'set', unit: 'effects.none', value: { request: '$.data.call.request', run: 'http', status: '$.data.call.status', value: '$.data.call.answer' } }]
+            operations: [{ op: 'set', unit: 'effects.none', value: { request: '$.data.call.request', run: '$.functions.host.http', status: '$.data.call.status', value: '$.data.call.answer' } }]
         });
         await tool(tools, 'ui_state_set', { app: 'bad-board', path: '$.data.call.request', value: { connection: 'missing', endpoint: 'x' } });
         const status = async (): Promise<unknown> => ((await tool(tools, 'ui_state_get', { app: 'bad-board', path: '$.data.call.status' })) as { value?: unknown }).value;
@@ -139,7 +139,7 @@ describe("An app's logic calling an outside API through a connection", () => {
         await tool(orgTools, 'ui_logic_write', {
             app: 'org-board',
             expectedRevision: created['revision'],
-            operations: [{ op: 'set', unit: 'effects.today', value: { request: '$.data.weather.request', run: 'http', status: '$.data.weather.status', value: '$.data.weather.answer' } }]
+            operations: [{ op: 'set', unit: 'effects.today', value: { request: '$.data.weather.request', run: '$.functions.host.http', status: '$.data.weather.status', value: '$.data.weather.answer' } }]
         });
         const status = async (): Promise<unknown> => ((await tool(orgTools, 'ui_state_get', { app: 'org-board', path: '$.data.weather.status' })) as { value?: unknown }).value;
 

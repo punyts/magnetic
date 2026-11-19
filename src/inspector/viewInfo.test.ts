@@ -24,8 +24,8 @@ const DOCUMENT = {
             ask: { when: { path: '$.data.filter.text' }, do: [{ command: 'set', target: '$.data.forecast.request', value: { connection: 'weather', endpoint: 'today' } }] }
         },
         effects: {
-            forecast: { run: 'http', request: '$.data.forecast.request', status: '$.data.forecast.status' },
-            alerts: { run: 'http', request: '$.data.alerts.request', status: '$.data.alerts.status' }
+            forecast: { run: '$.functions.host.http', request: '$.data.forecast.request', status: '$.data.forecast.status' },
+            alerts: { run: '$.functions.host.http', request: '$.data.alerts.request', status: '$.data.alerts.status' }
         }
     },
     // The alerts effect's request is in the starting data
@@ -107,12 +107,13 @@ describe("The editor's views of an app", () => {
             ownerNames: { w2: 'Acme' },
             appNames: { a2: 'Stock' },
             manages: false,
-            persona: { name: 'work', owner: 'w1', apps: [{ id: 'A2', updatedAt: '2026-11-18T10:00:00.000Z' }, { id: 'a1', updatedAt: '2026-11-17T10:00:00.000Z' }, { id: 'gone', updatedAt: '2026-11-16T10:00:00.000Z' }] }
+            persona: { name: 'work', owner: 'w1', apps: [{ id: 'A2', updatedAt: '2026-11-18T10:00:00.000Z' }, { id: 'a1', updatedAt: '2026-11-17T10:00:00.000Z' }, { id: 'gone', updatedAt: '2026-11-16T10:00:00.000Z' }] },
+            functions: []
         });
 
         // Assert
         const node = (id: string) => tree.nodes.find((candidate) => candidate.id === id);
-        expect(tree.nodes.filter((each) => each.parent === '$').map((each) => each.id)).toEqual(['$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.components', '$.patterns', '$.connections', '$.personas']);
+        expect(tree.nodes.filter((each) => each.parent === '$').map((each) => each.id)).toEqual(['$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.components', '$.patterns', '$.connections', '$.functions', '$.personas']);
         expect(tree.nodes.every((each) => each.parent === null || (each.id.startsWith(each.parent + '.') && tree.nodes.some((other) => other.id === each.parent)))).toBe(true);
         expect(node('$.apps.tasks')).toMatchObject({ kind: 'app', label: 'Tasks', current: true, count: 3, screens: ['home', 'details'] });
         expect(node('$.apps.stock')).toMatchObject({ used: false, appId: 'a2' });
@@ -154,6 +155,47 @@ describe("The editor's views of an app", () => {
         expect(tree.edges).toContainEqual({ from: '$.models.task', to: '$.data.tasks', kind: 'model' });
         expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.logic.billing', kind: 'uses' });
         expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.connections.weather.endpoints.today', kind: 'call', label: 'forecast' });
+    });
+    it('should show the functions as hard IP: the host\'s and others\' under $.functions, a component\'s under it, each linked from the units that run it', () => {
+        // Arrange: a module's compute runs the tree layout, the app's own effect runs the host's http, and a splitPane slot places the diagram
+        const entry = (path: string, kind: 'compute' | 'effect', runs: ('server' | 'browser')[]) => ({ id: `id-${path}`, path, kind, runs, summary: `Does ${path}`, inputs: { type: 'object' as const }, outputs: { type: 'object' as const } });
+        const document = {
+            screens: { home: { root: { component: 'splitPane', start: { component: 'treeDiagram' } } } },
+            logic: { computes: { layout: { run: '$.components.treeDiagram.functions.layoutTree', inputs: {}, output: '$.data.layout' } }, effects: { fetch: { run: '$.functions.host.http', request: '$.data.request' } } }
+        };
+
+        // Act
+        const tree = ownerTreeOf({
+            app: { id: 'a1', name: 'tasks', title: 'Tasks', uses: { logic: { diagrams: {} } }, document, sharedWith: 0 },
+            apps: [{ id: 'a1', name: 'tasks', title: 'Tasks' }],
+            themes: [],
+            datasets: [],
+            models: [],
+            modules: [{ name: 'diagrams', units: [{ group: 'computes', name: 'layout' }], needs: [] }],
+            components: [],
+            patterns: [],
+            connections: [],
+            ownerNames: {},
+            appNames: {},
+            manages: false,
+            persona: { name: 'default', owner: 'w1', apps: [] },
+            functions: [entry('$.functions.host.http', 'effect', ['server']), entry('$.functions.layout.grid', 'compute', ['server', 'browser']), entry('$.components.treeDiagram.functions.layoutTree', 'compute', ['server', 'browser'])]
+        });
+
+        // Assert
+        const node = (id: string) => tree.nodes.find((candidate) => candidate.id === id);
+        expect(node('$.functions')).toMatchObject({ kind: 'branch', used: true });
+        expect(node('$.functions.host')).toMatchObject({ kind: 'branch', label: 'host', used: true });
+        expect(node('$.functions.host.http')).toMatchObject({ kind: 'function', label: 'http', note: 'effect', used: true, fn: { id: 'id-$.functions.host.http', runs: ['server'], fixed: false } });
+        expect(node('$.functions.layout')).toMatchObject({ used: false });
+        expect(node('$.functions.layout.grid')).toMatchObject({ used: false });
+        expect(node('$.components')).toMatchObject({ used: true });
+        expect(node('$.components.treeDiagram')).toMatchObject({ kind: 'library', used: true, screens: ['home'] });
+        expect(node('$.components.treeDiagram.functions.layoutTree')).toMatchObject({ kind: 'function', parent: '$.components.treeDiagram', used: true, fn: { fixed: true, summary: 'Does $.components.treeDiagram.functions.layoutTree', inputs: { type: 'object' } } });
+        expect(tree.nodes.some((each) => each.add !== undefined && each.id.includes('functions'))).toBe(false);
+        expect(tree.edges).toContainEqual({ from: '$.logic.diagrams.computes.layout', to: '$.components.treeDiagram.functions.layoutTree', kind: 'run' });
+        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.functions.host.http', kind: 'run' });
+        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.components.treeDiagram', kind: 'uses' });
     });
 
     it("should give each token its value in every mode and what the theme writes for it, base and per mode", () => {

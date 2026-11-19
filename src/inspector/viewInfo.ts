@@ -1,5 +1,5 @@
-import { buildOverlayCatalog, composeOverlays, DEFAULT_TOKENS, flattenTokens, mergeOverDefaults, mergeTokenTrees, OVERLAY_KINDS, SHIPPED_OVERLAYS, tokenTypeOf } from '@punyts/stateui-app/core';
-import type { JsonObject, ThemeSource } from '@punyts/stateui-app/core';
+import { buildOverlayCatalog, composeOverlays, DEFAULT_TOKENS, flattenTokens, functionPaths, mergeOverDefaults, mergeTokenTrees, OVERLAY_KINDS, SHIPPED_OVERLAYS, tokenTypeOf } from '@punyts/stateui-app/core';
+import type { FunctionEntry, JsonObject, ThemeSource } from '@punyts/stateui-app/core';
 import { logicRunOrder } from '@punyts/stateui-mcp';
 import type { LogicDocument } from '@punyts/stateui-mcp';
 
@@ -287,7 +287,9 @@ export type TreeKind =
     | 'connection'
     | 'endpoint'
     | 'persona'
-    | 'instance';
+    | 'instance'
+    | 'library'
+    | 'function';
 
 /** What the + of a node makes under it */
 export type TreeAdd = 'app' | 'screen' | 'binding' | 'theme' | 'dataset' | 'record' | 'model' | 'field' | 'module' | 'unit' | 'connection';
@@ -328,12 +330,17 @@ export interface TreeNode {
     readonly updatedAt?: string;
     /** What its + makes; none when there is no + */
     readonly add?: TreeAdd;
+    /**
+     * A function (hard IP): its GUID, where it runs, what it does and its schemas. `note` is its kind. `fixed` when it
+     * belongs to a component, which cannot be turned off on its own
+     */
+    readonly fn?: { readonly id: string; readonly runs: readonly string[]; readonly summary: string; readonly inputs?: unknown; readonly outputs?: unknown; readonly fixed: boolean };
 }
 
 export interface TreeEdge {
     readonly from: string;
     readonly to: string;
-    readonly kind: 'binding' | 'read' | 'call' | 'model' | 'uses' | 'instance';
+    readonly kind: 'binding' | 'read' | 'call' | 'model' | 'uses' | 'instance' | 'run';
     readonly label?: string;
 }
 
@@ -382,6 +389,8 @@ export interface TreeInput {
         readonly owner: string;
         readonly apps: readonly { readonly id: string; readonly updatedAt: string }[];
     };
+    /** The functions the server runs: the host's under `$.functions.host`, others under `$.functions.<group>`, and each library component's under `$.components.<component>.functions` */
+    readonly functions: readonly FunctionEntry[];
 }
 
 /** The most records of a dataset the tree draws */
@@ -396,7 +405,7 @@ function dataAt(document: JsonRecord, path: string): unknown {
 }
 
 /**
- * The connection and endpoint each `http` effect of the app's logic calls. An effect's request is a state path; what it
+ * The connection and endpoint each `$.functions.host.http` effect of the app's logic calls. An effect's request is a state path; what it
  * calls is in the request written there: by a command of a handler or a unit (`set` with a value naming the connection
  * and endpoint), or in the app's starting data
  */
@@ -406,7 +415,7 @@ export function callsOf(document: JsonRecord): { effect: string; connection: str
     const commands = commandsIn([document['screens'], logic]);
     const found: { effect: string; connection: string; endpoint: string }[] = [];
     for (const [name, effect] of Object.entries(effects)) {
-        if (!isRecord(effect) || effect['run'] !== 'http' || typeof effect['request'] !== 'string') continue;
+        if (!isRecord(effect) || effect['run'] !== '$.functions.host.http' || typeof effect['request'] !== 'string') continue;
         const request = effect['request'];
         const values = [dataAt(document, request), ...commands.filter((command) => command['target'] === request).map((command) => command['value'])];
         const seen = new Set<string>();
@@ -424,21 +433,24 @@ export function callsOf(document: JsonRecord): { effect: string; connection: str
 
 /** True when the node or one under it is the component */
 function places(node: unknown, component: string): boolean {
+    if (Array.isArray(node)) return node.some((child) => places(child, component));
     if (!isRecord(node)) return false;
     if (node['component'] === component) return true;
-    return isRecord(node['children']) && Object.values(node['children']).some((child) => places(child, component));
+    // Children, and the slots a node fills (`start`, `row`, `card`)
+    return Object.values(node).some((child) => places(child, component));
 }
 
 
 /**
  * The owner's statenet as a tree of state paths: `$`, then `$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
- * `$.components`, `$.patterns`, `$.connections` and `$.personas`, each holding every part of that kind the owner has. A part the
+ * `$.components`, `$.patterns`, `$.connections`, `$.functions` and `$.personas`, each holding every part of that kind the owner has. A part the
  * app being edited does not use is drawn dimmed (`used: false`). One level is drawn below a part: the app's screens,
  * bindings (`uses.data`), own state (`data`) and outside reads (`uses.external`); a dataset's records (the first
  * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints; the person's own persona with the apps
- * they have state in (`$.personas.<persona>.apps.<owner>.<app id>`). A branch the person can add to has
+ * they have state in (`$.personas.<persona>.apps.<owner>.<app id>`); the server's functions by group
+ * (`$.functions.<group>.<name>`), and a library component's under it (`$.components.<component>.functions.<name>`). A branch the person can add to has
  * `add`. The edges are what the tree does not show: what the app uses, a binding's dataset, a dataset's model, an
- * endpoint the app calls
+ * endpoint the app calls, the function a unit runs
  */
 export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeEdge[] } {
     const nodes = new Map<string, TreeNode>();
@@ -575,6 +587,62 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
         const id = `$.connections.${call.connection}.endpoints.${call.endpoint}`;
         if (!nodes.has(id)) add({ id, parent, kind: 'endpoint', label: call.endpoint, note: call.connection, used: true, missing: true });
         edges.push({ from: app, to: id, kind: 'call', label: call.effect });
+    }
+
+    // $.functions, and the functions of the library's components under $.components: hard IP, so no + and no editor.
+    // A unit links to the function it runs, as it links to data; a run named outside the logic links from the app
+    const named = new Set(functionPaths(document));
+    const logic = isRecord(document['logic']) ? document['logic'] : {};
+    const unitsOf = new Map<string, string>();
+    for (const module of input.modules) {
+        if (!modules.includes(module.name)) continue;
+        for (const unit of module.units) if (!unitsOf.has(`${unit.group}.${unit.name}`)) unitsOf.set(`${unit.group}.${unit.name}`, `$.logic.${module.name}.${unit.group}.${unit.name}`);
+    }
+    const runners = new Map<string, Set<string>>();
+    const runBy = (path: string, from: string): void => {
+        const set = runners.get(path) ?? new Set<string>();
+        set.add(from);
+        runners.set(path, set);
+    };
+    for (const [group, units] of Object.entries(logic)) {
+        if (!isRecord(units)) continue;
+        for (const [name, unit] of Object.entries(units)) for (const path of functionPaths(unit)) runBy(path, unitsOf.get(`${group}.${name}`) ?? app);
+    }
+    for (const path of named) if (!runners.has(path)) runBy(path, app);
+    const fnOf = (entry: FunctionEntry, fixed: boolean): NonNullable<TreeNode['fn']> => ({
+        id: entry.id,
+        runs: [...entry.runs],
+        summary: entry.summary,
+        ...(entry.inputs !== undefined && { inputs: entry.inputs }),
+        ...(entry.outputs !== undefined && { outputs: entry.outputs }),
+        fixed
+    });
+    const served = input.functions.filter((entry) => entry.path.startsWith('$.functions.'));
+    const usedFunction = (path: string): boolean => named.has(path);
+    branch('$.functions', '$', '$.functions', served.some((entry) => usedFunction(entry.path)));
+    for (const entry of served) {
+        const [, , group, name] = entry.path.split('.') as [string, string, string, string];
+        const parent = `$.functions.${group}`;
+        if (!nodes.has(parent)) branch(parent, '$.functions', group, served.some((each) => each.path.startsWith(`${parent}.`) && usedFunction(each.path)));
+        add({ id: entry.path, parent, kind: 'function', label: name, note: entry.kind, used: usedFunction(entry.path), fn: fnOf(entry, false) });
+    }
+    for (const entry of input.functions.filter((each) => each.path.startsWith('$.components.'))) {
+        const [, , component, , name] = entry.path.split('.') as [string, string, string, string, string];
+        const parent = `$.components.${component}`;
+        const placed = Object.entries(screens).filter(([, screen]) => isRecord(screen) && places(screen['root'], component)).map(([screen]) => screen);
+        // The component calls its functions itself wherever it is placed
+        const used = placed.length > 0 || usedFunction(entry.path);
+        if (!nodes.has(parent)) {
+            add({ id: parent, parent: '$.components', kind: 'library', label: component, note: '', used, screens: placed });
+            if (placed.length > 0) edges.push({ from: app, to: parent, kind: 'uses' });
+        }
+        add({ id: entry.path, parent, kind: 'function', label: name, note: entry.kind, used, fn: fnOf(entry, true) });
+        const components = nodes.get('$.components');
+        if (used && components !== undefined && !components.used) nodes.set('$.components', { ...components, used: true });
+    }
+    for (const [path, from] of runners) {
+        if (!nodes.has(path)) continue;
+        for (const each of from) edges.push({ from: each, to: path, kind: 'run' });
     }
 
     // $.personas: the person's own, with their state of each app laid over its definition. Others' state is theirs

@@ -184,7 +184,9 @@ export function viewRoutes(context: ViewRouteContext) {
             manages: place.manages,
             // Their own persona only, never another person's. Magnetic gives each person the default persona, whose state
             // it keeps under their id
-            persona: { name: DEFAULT_PERSONA, owner: place.workspaceId, apps: await context.personaApps(place.workspaceId, place.user.id) }
+            persona: { name: DEFAULT_PERSONA, owner: place.workspaceId, apps: await context.personaApps(place.workspaceId, place.user.id) },
+            // The functions this server runs: the host's and the component library's, shown as hard IP
+            functions: place.services.functions
         });
         return { revision: app.revision, manages: place.manages, app: app.name, ...built };
     }

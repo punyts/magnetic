@@ -175,6 +175,35 @@ test.describe("The editor's views", () => {
         await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
         await expect(sheet(page).getByRole('button', { name: '← Statenet' })).toBeHidden();
     });
+    test("a function is hard IP: the host's under $.functions and a component's under its component, each with a panel of what it does and nothing to edit", async ({ page }) => {
+        // Arrange
+        await pickView(editor, page, 'Statenet');
+        const side = sheet(page).locator('.view-side');
+        const http = node(page, '$.functions.host.http');
+
+        // Act
+        await http.click();
+
+        // Assert: labelled hard IP, with no +; the panel shows its kind, where it runs, its summary and schemas, and no editor
+        await expect(http).toContainText('Hard IP');
+        await expect(http).toHaveClass(/hard/);
+        await expect(http.locator('.graph-add')).toHaveCount(0);
+        await expect(side.getByRole('heading', { name: 'http' })).toBeVisible();
+        await expect(side).toContainText('Effect · runs on server');
+        await expect(side.getByRole('heading', { name: 'Inputs' })).toBeVisible();
+        await expect(side.locator('input, textarea, select')).toHaveCount(0);
+
+        // A component's function belongs to it and cannot be turned off. The app does not place the component, so the
+        // board leaves its functions out and its panel lists them
+        const component = node(page, '$.components.treeDiagram');
+        await expect(component).toContainText('Library component');
+        await component.click();
+        await side.getByRole('button', { name: 'layoutTree' }).click();
+        await expect(side.getByRole('heading', { name: 'layoutTree' })).toBeVisible();
+        await expect(side).toContainText('Compute · runs on server, browser');
+        await expect(side).toContainText('Part of the treeDiagram component');
+    });
+
 
     test("a chosen card is let go by the panel's ×, by pressing it again, and by a press on the empty board, not by a drag", async ({ page }) => {
         // Arrange
