@@ -17,6 +17,7 @@ test.describe('Data', () => {
 
     test('home opens the Data page', async ({ home, page }) => {
         await home.goto();
+        await home.openTab('Profile');
         await home.app.getByRole('button', { name: 'Data', exact: true }).click();
         await page.waitForURL(/\/settings\/data$/);
         await expect(page.getByRole('heading', { name: 'Data', level: 1 })).toBeVisible();

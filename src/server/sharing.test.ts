@@ -159,10 +159,37 @@ describe('Magnetic sharing', () => {
         const mine = namespaceOf(await page.text());
         expect(mine).toContain(bobId);
         expect(mine).not.toBe(namespaceOf(await owners.text()));
-        expect(home.shared).toEqual([{ id: appId, name: 'tasks', note: 'alice · use' }]);
-        expect(home.apps).toEqual([]);
+        // The share waits on bob's Your apps, marked as not his, for Accept or Reject
+        expect(home.apps).toEqual([{ id: appId, name: 'tasks', note: 'alice · use', own: false, answered: false }]);
         // Someone who never opened the link still finds nothing
         expect((await get(`/apps/${appId}`, carol)).status).toBe(404);
+    });
+
+    it('should keep an accepted share among the apps, drop a rejected one with its link, and make it wait again when the link is opened anew', async () => {
+        // Arrange
+        const kept = await createApp('kept');
+        const dropped = await createApp('dropped');
+        const keptLink = await share(kept, 'view');
+        const droppedLink = await share(dropped, 'use');
+        await get(`/s/${keptLink.token}`, bob);
+        await get(`/s/${droppedLink.token}`, bob);
+
+        // Act
+        const accepted = await post(`/shares/${kept}/accept`, bob, {});
+        const rejected = await post(`/shares/${dropped}/reject`, bob, {});
+        const after = await homeOf(magnetic, bob);
+        const closed = await get(`/apps/${dropped}`, bob);
+        await get(`/s/${droppedLink.token}`, bob);
+        const reopened = await homeOf(magnetic, bob);
+
+        // Assert
+        expect([accepted.status, rejected.status]).toEqual([200, 200]);
+        expect(after.apps.find((app) => app.id === kept)).toMatchObject({ own: false, answered: true });
+        expect(after.apps.some((app) => app.id === dropped)).toBe(false);
+        expect(closed.status).toBe(404);
+        expect(reopened.apps.find((app) => app.id === dropped)).toMatchObject({ own: false, answered: false });
+        // A waiting share comes before the apps already answered
+        expect(reopened.apps[0]?.answered).toBe(false);
     });
 
     it("should send someone without a session to sign in and back to the link, and say when a link is unknown", async () => {

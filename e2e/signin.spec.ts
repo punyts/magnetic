@@ -34,6 +34,7 @@ test.describe('Signing in and out', () => {
     test('signing out ends the session', async ({ context, home, page }) => {
         await signIn(context, 'bob');
         await home.goto();
+        await home.openTab('Profile');
         await home.app.getByRole('button', { name: 'Sign out' }).click();
         await page.waitForURL(/\/signin/);
         await page.goto('/');

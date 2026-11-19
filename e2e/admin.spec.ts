@@ -6,8 +6,10 @@ test.describe('The admin pages', () => {
     test('Admin shows on Your apps only for an admin', async ({ context, home }) => {
         await signIn(context, 'bob');
         await home.goto();
-        await expect(home.app.getByRole('button', { name: 'Agent use' })).toBeVisible();
+        await home.openTab('Profile');
+        await expect(home.app.getByRole('button', { name: 'Connections' })).toBeVisible();
         await expect(home.app.getByRole('button', { name: 'Admin', exact: true })).toBeHidden();
+        await home.openTab('Apps');
     });
 
     test('an admin reads feedback sent from the editor, marks it done, and gives a person agent use', async ({ context, home, page }, info) => {
@@ -26,6 +28,7 @@ test.describe('The admin pages', () => {
 
         // Act: from Your apps to Admin
         await home.goto();
+        await home.openTab('Profile');
         await home.app.getByRole('button', { name: 'Admin', exact: true }).click();
 
         // Assert: the overview, then the feedback

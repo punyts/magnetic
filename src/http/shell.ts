@@ -120,13 +120,16 @@ body.shell:not(.editing) .preview { display: none; }
 body.screen-names .preview-idle { color: var(--ink); font-size: calc(20px / var(--zoom, 1)); font-weight: 600; padding: 0 calc(12px / var(--zoom, 1)); text-align: center; }
 body.screen-names .preview-cover { cursor: grab; }
 body.screen-names .preview .artboard-label { display: none; }
-body.live-hidden .artboard { visibility: hidden; }
+body.live-hidden .artboard, body.no-screens .artboard { visibility: hidden; }
+.add-screen { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(12px / var(--zoom, 1)); box-sizing: border-box; border: calc(2px / var(--zoom, 1)) dashed var(--dot); border-radius: calc(12px / var(--zoom, 1)); background: transparent; color: var(--muted); font: calc(18px / var(--zoom, 1)) system-ui, sans-serif; cursor: pointer; }
+.add-screen:hover, .add-screen:focus-visible { border-color: var(--accent); color: var(--ink); outline: none; }
+.add-screen[hidden] { display: none; }
+.add-screen svg { width: calc(48px / var(--zoom, 1)); height: calc(48px / var(--zoom, 1)); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .preview-tools { display: none; position: absolute; z-index: 2; top: calc(8px / var(--zoom, 1)); right: calc(8px / var(--zoom, 1)); gap: calc(4px / var(--zoom, 1)); }
 body.screen-names .preview-tools { display: flex; }
 .preview-tool, .live-close { display: grid; place-items: center; width: calc(28px / var(--zoom, 1)); height: calc(28px / var(--zoom, 1)); padding: 0; border: calc(1px / var(--zoom, 1)) solid var(--dot); border-radius: calc(6px / var(--zoom, 1)); background: var(--paper); color: var(--muted); cursor: pointer; }
 .preview-tool[hidden], .live-close[hidden] { display: none; }
 .preview-tool:hover, .preview-tool:focus-visible, .live-close:hover, .live-close:focus-visible { color: var(--ink); border-color: var(--accent); outline: none; }
-.preview-tool.bin:hover, .preview-tool.bin:focus-visible { color: #c62828; border-color: #c62828; }
 .preview-tool svg, .live-close svg { width: 60%; height: 60%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .live-close { position: absolute; z-index: 3; transform: translate(-100%, calc(-100% - 6px / var(--zoom, 1))); }
 .preview.lifted { z-index: 3; opacity: 0.85; box-shadow: 0 calc(12px / var(--zoom, 1)) calc(32px / var(--zoom, 1)) rgba(20, 24, 40, 0.3); }
@@ -163,6 +166,9 @@ body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; he
 .overlay .cell { position: absolute; box-sizing: border-box; border: calc(1px / var(--zoom, 1)) dashed color-mix(in srgb, var(--accent) 45%, transparent); }
 .overlay .gutter { position: absolute; background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--accent) 40%, transparent) 0 calc(1.5px / var(--zoom, 1)), transparent 0 calc(5px / var(--zoom, 1))); }
 .overlay .box.target { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+/* While a component is dragged: every layout section of the screen, its name and layout inside its top left */
+.overlay .box.section { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.overlay .box.section .tag { bottom: auto; top: 0; left: 0; margin: 0; background: color-mix(in srgb, var(--accent) 70%, transparent); border-radius: 0 0 calc(3px / var(--zoom, 1)) 0; }
 .overlay .tag { position: absolute; left: -1px; bottom: 100%; margin-bottom: calc(2px / var(--zoom, 1)); padding: calc(1px / var(--zoom, 1)) calc(5px / var(--zoom, 1)); font: calc(11px / var(--zoom, 1)) system-ui, sans-serif; color: var(--paper); background: var(--accent); border-radius: calc(3px / var(--zoom, 1)); white-space: nowrap; }
 .overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
 .overlay .dot { position: absolute; width: calc(10px / var(--zoom, 1)); height: calc(10px / var(--zoom, 1)); margin: calc(-5px / var(--zoom, 1)); border-radius: 50%; background: var(--accent); }
@@ -202,6 +208,8 @@ const pending = [];
 const emitListeners = [];
 const readyListeners = [];
 const editorState = {};
+/** The app has no screens: the board's Add a screen tile is then the way on, so the blank app's hint goes */
+let noScreens = false;
 
 /** Writes fields of $.data.editor; the same value written again changes nothing */
 function ed(fields) {
@@ -421,7 +429,11 @@ async function loadBudget() {
         const line = budget.refusal
             ? (spent ? fill(T['chat.spentByHand'], { total: money(budget.total) }) : budget.refusal)
             : limited ? fill(T['chat.budgetLine'], { used: money(budget.used), total: money(budget.total), left: money(Math.max(0, budget.total - budget.used)) }) : '';
-        ed({ budgetLine: line, noBudget: line === '', chatOff: Boolean(budget.refusal) });
+        // The ring: used against the whole budget, in cents; warning from four fifths, danger once spent or refused
+        const used = limited ? Math.round(Math.min(budget.used, budget.total) * 100) : 0;
+        const total = limited ? Math.max(1, Math.round(budget.total * 100)) : 1;
+        const tone = budget.refusal || spent ? 'danger' : used >= total * 0.8 ? 'warning' : 'accent';
+        ed({ budgetLine: line, noBudget: line === '', chatOff: Boolean(budget.refusal), budgetUsed: used, budgetTotal: total, budgetTone: tone });
     } catch { /* the line stays as it was */ }
 }
 void loadBudget();
@@ -467,6 +479,7 @@ function showFocus() {
     }
     ed({ focusItems: items, noFocus: paths.length === 0 });
 }
+
 
 /** Takes one thing out of what the next request is about, by the id of its chip */
 function removeFocus(id) {
@@ -630,7 +643,7 @@ let chatOpen = false;
 let drawerTimer = null;
 function showChat(open) {
     chatOpen = open;
-    ed({ chatHidden: !open, hintHidden: open || !editorState.blank });
+    ed({ chatHidden: !open, hintHidden: open || !editorState.blank || noScreens });
 }
 function showDrawer(open) {
     clearTimeout(drawerTimer);
@@ -657,6 +670,7 @@ emitListeners.push((name, payload) => {
         case 'home': location.assign('/'); return;
         case 'open': window.open('/apps/' + encodeURIComponent(appId), '_blank', 'noopener'); return;
         case 'size': setSize(String(value), true); return;
+        case 'turn': turned = !turned; setSize(size, true); saveView(); return;
         case 'zoomIn': zoomCentre(view.zoom * 1.25); return;
         case 'zoomOut': zoomCentre(view.zoom / 1.25); return;
         case 'zoomReset': zoomCentre(1); return;
@@ -740,19 +754,30 @@ const MAX_ZOOM = 4;
 const VIEW_KEY = 'magnetic.view.' + appId;
 const view = { x: 0, y: 0, zoom: 1 };
 let size = 'desktop';
+/** The frame is turned: its width and height swap, landscape to portrait or back */
+let turned = false;
 let tool = 'use';
 let spaceHeld = false;
 let saveTimer = null;
 
 function clampZoom(zoom) { return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)); }
 
+function writeView() {
+    saveTimer = null;
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size, turned })); } catch { /* storage may be blocked */ }
+}
+
 function saveView() {
     if (saveTimer !== null) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-        saveTimer = null;
-        try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size })); } catch { /* storage may be blocked */ }
-    }, 300);
+    saveTimer = setTimeout(writeView, 300);
 }
+
+// A reload or a move away right after a change still keeps it
+addEventListener('pagehide', () => {
+    if (saveTimer === null) return;
+    clearTimeout(saveTimer);
+    writeView();
+});
 
 function render(glide) {
     world.classList.toggle('glide', Boolean(glide));
@@ -826,9 +851,15 @@ function zoomCentre(zoom) {
 
 function panBy(dx, dy) { fittedRail = null; view.x += dx; view.y += dy; render(false); }
 
+/** The frame size, in the frame's pixels: the chosen size's, swapped when the frame is turned */
+function frameSize() {
+    const [width, height] = SIZES[size];
+    return turned ? [height, width] : [width, height];
+}
+
 function setSize(id, refit) {
     size = SIZES[id] ? id : 'desktop';
-    const [width, height] = SIZES[size];
+    const [width, height] = frameSize();
     artboard.style.width = width + 'px';
     artboard.style.height = height + 'px';
     sizeLabel.textContent = width + ' × ' + height;
@@ -1081,9 +1112,15 @@ const magneticShell = {
         if (open) showChat(true);
     },
     refit: () => render(false),
+    /** The app has screens (false) or none (true): screens.js says */
+    noScreens(on) {
+        if (noScreens === on) return;
+        noScreens = on;
+        ed({ hintHidden: chatOpen || !editorState.blank || on });
+    },
     canvas: {
         /** The frame size, in the frame's pixels */
-        size: () => SIZES[size],
+        size: frameSize,
         /** Moves the board left by dx and up by dy of the frame's pixels: the live frame stays where it is on the screen when its slot moves by them */
         shift(dx, dy = 0) { view.x -= dx * view.zoom; view.y -= dy * view.zoom; render(false); },
         onSize: (listener) => sizeListeners.push(listener),
@@ -1103,6 +1140,10 @@ const magneticShell = {
     },
     /** What the next request tells the agent about, by what views.js shows: set by views.js */
     contextOf: null,
+    /** Shows what the view sends the agent, as fixed chips before the focus, each a key and a text (views.js) */
+    showContext(chips) {
+        ed({ contextItems: Object.fromEntries(chips.map((chip) => [chip.key, { text: chip.text }])) });
+    },
     editor: {
         set: ed,
         list,
@@ -1146,7 +1187,7 @@ function showAll() {
         language: document.documentElement.lang || 'en',
         blank,
         notBlank: !blank,
-        hintHidden: !blank || chatOpen,
+        hintHidden: !blank || chatOpen || noScreens,
         models: Object.fromEntries(MODELS.map((item) => [item.id, { _label: item.label }])),
         model,
         noModels: MODELS.length < 2 || PHONE.matches
@@ -1167,6 +1208,7 @@ if (document.body.classList.contains('editing')) document.body.classList.add('un
 (function startCanvas() {
     let kept = null;
     try { kept = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch { /* storage may be blocked */ }
+    turned = Boolean(kept && kept.turned === true);
     setSize((kept && kept.size) || (innerWidth < 760 ? 'phone' : 'desktop'), false);
     if (kept && [kept.x, kept.y, kept.zoom].every(Number.isFinite)) {
         view.x = kept.x;

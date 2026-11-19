@@ -93,11 +93,12 @@ test.describe('Orgs', () => {
         await page.goto('/settings/orgs');
         await page.getByRole('link', { name: new RegExp(`Apps ${slug}`) }).click();
         await expect(page.getByText(`stock-${slug}`).first()).toBeVisible();
-        // Your apps, for an org member, can reach the org's settings
+        // Your apps, for an org member, lists the org on its Orgs tab, and the org opens its settings
         const home = new HomePage(page);
         await home.goto();
-        await home.app.getByRole('button', { name: 'Orgs' }).click();
-        await page.waitForURL(/\/settings\/orgs$/);
+        await home.openTab('Orgs');
+        await home.app.getByRole('button', { name: new RegExp(`^Apps ${slug}`) }).click();
+        await page.waitForURL(/\/settings\/orgs\/[0-9a-f-]+$/);
     });
 });
 
@@ -135,6 +136,8 @@ test.describe('Invites on Your apps', () => {
         const mail = (await mailSent()).filter((sent) => sent.to === email);
         expect(mail).toEqual([expect.objectContaining({ orgName: `Waiting ${slug}`, role: 'a builder', link: expect.stringMatching(/\/invites\/[A-Za-z0-9_-]{43}$/) })]);
         const joan = await personWith(browser, email, 'Joan Joiner');
+        await expect(joan.home.app.getByText('Orgs have invited you: see Orgs.')).toBeVisible();
+        await joan.home.openTab('Orgs');
         await expect(joan.home.app.getByText(`Join Waiting ${slug}`)).toBeVisible();
         await expect(joan.home.app.getByText(/As a builder · from/)).toBeVisible();
         await joan.home.app.getByRole('button', { name: 'Join', exact: true }).click();
@@ -142,6 +145,8 @@ test.describe('Invites on Your apps', () => {
         await expect(joan.page.getByText('You are a builder here.')).toBeVisible();
         // Back on Your apps: the org is listed and the invite gone
         await joan.home.goto();
+        await expect(joan.home.app.getByText('Orgs have invited you: see Orgs.')).toBeHidden();
+        await joan.home.openTab('Orgs');
         await expect(joan.home.app.getByText(`Waiting ${slug}`, { exact: true })).toBeVisible();
         await expect(joan.home.app.getByText(`Join Waiting ${slug}`)).toBeHidden();
         await joan.page.context().close();
@@ -153,6 +158,7 @@ test.describe('Invites on Your apps', () => {
         const email = `decliner-${slug}@example.com`;
         await invited(page, slug, email);
         const dee = await personWith(browser, email, 'Dee Decliner');
+        await dee.home.openTab('Orgs');
         await expect(dee.home.app.getByText(`Join Waiting ${slug}`)).toBeVisible();
         await dee.home.app.getByRole('button', { name: 'Decline', exact: true }).click();
         await expect(dee.home.app.getByText(`Join Waiting ${slug}`)).toBeHidden();
@@ -165,11 +171,14 @@ test.describe('Invites on Your apps', () => {
         const slug = slugOf('listed');
         await makeOrg(page, `Listed ${slug}`, slug);
         await home.goto();
+        await home.openTab('Orgs');
         await expect(home.app.getByText('Your orgs', { exact: true })).toBeVisible();
         await home.app.getByRole('button', { name: new RegExp(`^Listed ${slug}`) }).click();
         await page.waitForURL(/\/settings\/orgs\/[0-9a-f-]+$/);
         await expect(page.getByText('You are an owner here.')).toBeVisible();
-        await home.goto();
+        // Back on Your apps, on the tab last shown
+        await page.goto('/');
+        await expect(home.tab('Orgs')).toHaveAttribute('aria-selected', 'true');
         await home.app.getByRole('button', { name: 'Make an org' }).click();
         await page.waitForURL(/\/settings\/orgs$/);
     });

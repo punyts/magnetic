@@ -65,15 +65,17 @@ test.describe("Magnetic's own pages", () => {
         await signIn(context, info.project.name === 'desktop' ? 'frank' : 'gina');
         await home.goto();
 
-        // Act: Edit Your apps opens it in the editor
+        // Act: Edit Your apps, on the Profile tab, opens it in the editor
+        await home.openTab('Profile');
         await home.app.getByRole('button', { name: 'Edit Your apps' }).click();
         await page.waitForURL(/\/edit\/[0-9a-f-]+$/);
         const homeId = new URL(page.url()).pathname.split('/').pop() as string;
-        await writeNodes(page, homeId, [{ op: 'add', path: '$.screens.home.children.page', key: 'mine', before: 'top', value: { component: 'text', _text: 'My corner of Magnetic' } }]);
+        await writeNodes(page, homeId, [{ op: 'add', path: '$.screens.home.children.page', key: 'mine', before: 'title', value: { component: 'text', _text: 'My corner of Magnetic' } }]);
         await home.goto();
 
         // Assert: the change shows, and stays in German
         await expect(home.app.getByText('My corner of Magnetic')).toBeVisible();
+        await home.openTab('Profile');
         await home.app.getByRole('combobox').nth(1).selectOption({ label: 'Deutsch' });
         await expect(home.app.getByRole('button', { name: 'Abmelden' })).toBeVisible();
         await expect(home.app.getByText('My corner of Magnetic')).toBeVisible();

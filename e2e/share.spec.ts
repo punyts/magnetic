@@ -48,10 +48,16 @@ test.describe('Sharing an app', () => {
         const bob = await personPage(browser, 'bob', page.viewportSize());
         await bob.goto(url);
         await expect(new AppPage(bob).app.getByText('Shared words')).toBeVisible();
-        // It shows on bob's Your apps, under Shared with you
+        // It waits on bob's Your apps, marked Shared, until bob accepts it; then it opens like his own
         const bobHome = new HomePage(bob);
         await bobHome.goto();
+        const tile = bobHome.tile(name);
+        await expect(tile.getByText('Shared', { exact: true })).toBeVisible();
+        await expect(bobHome.card(name)).toBeHidden();
+        await tile.getByRole('button', { name: 'Accept' }).click();
         await expect(bobHome.card(name)).toBeVisible();
+        await expect(tile.getByRole('button', { name: 'Accept' })).toBeHidden();
+        await expect(tile.getByText('Shared', { exact: true })).toBeVisible();
         // Revoked, and bob's link no longer opens it
         await editor.goto(editor.appId);
         await editor.button('Share').click();
@@ -61,6 +67,23 @@ test.describe('Sharing an app', () => {
         await bob.goto(url);
         await expect(bob.frameLocator('iframe').first().getByText('This link was revoked by the person who shared it.')).toBeVisible();
         await bob.context().close();
+    });
+
+    test('a share rejected on Your apps goes, and comes back waiting when its link is opened again', async ({ browser, page }) => {
+        const url = await makeLink(editor, /^look/);
+        const dan = await personPage(browser, 'dan', page.viewportSize());
+        await dan.goto(url);
+        await expect(new AppPage(dan).app.getByText('Shared words')).toBeVisible();
+        const danHome = new HomePage(dan);
+        await danHome.goto();
+        dan.once('dialog', (dialog) => void dialog.accept());
+        await danHome.tile(name).getByRole('button', { name: 'Reject' }).click();
+        await expect(danHome.tile(name)).toBeHidden();
+        await dan.goto(url);
+        await expect(new AppPage(dan).app.getByText('Shared words')).toBeVisible();
+        await danHome.goto();
+        await expect(danHome.tile(name).getByRole('button', { name: 'Accept' })).toBeVisible();
+        await dan.context().close();
     });
 
     test('a remix link gives another person a copy of their own', async ({ browser, page }) => {

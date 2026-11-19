@@ -50,6 +50,25 @@ test.describe('The editor', () => {
         }
     });
 
+    test('the frame turns between landscape and portrait, and stays turned for the next editor', async ({ page }) => {
+        test.skip((page.viewportSize()?.width ?? 1440) < 760, 'Below 760px the corner has no room for the turn button');
+        // Arrange
+        await editor.sizeSelect.selectOption({ label: 'Desktop' });
+        const turn = editor.button('Turn the frame: landscape or portrait');
+
+        // Act
+        await turn.click();
+
+        // Assert: the width and height swap, for every size, until it is turned back
+        await expect(editor.artboardSize).toHaveText(/800\s*×\s*1280/);
+        await editor.sizeSelect.selectOption({ label: 'Phone' });
+        await expect(editor.artboardSize).toHaveText(/844\s*×\s*390/);
+        await page.reload();
+        await expect(editor.artboardSize).toHaveText(/844\s*×\s*390/);
+        await turn.click();
+        await expect(editor.artboardSize).toHaveText(/390\s*×\s*844/);
+    });
+
     test('the canvas zooms in, out and to fit', async () => {
         const percent = async (): Promise<number> => Number(((await editor.zoomButton.textContent()) ?? '').replace('%', ''));
         const fitted = await percent();
@@ -162,10 +181,14 @@ test.describe('The component library', () => {
         await editor.librarySearch.fill('button');
         await editor.card('button').click();
         await expect.poll(() => editor.tool()).toBe('place');
+        // While it is placed, the screen's layout sections are outlined with their names, the screen's root first
+        await expect(page.locator('#overlay .box.section').first()).toBeVisible();
+        await expect(page.locator('#overlay .box.section .tag').first()).toContainText('home');
         const box = await editor.app.getByText('Place below').boundingBox();
         expect(box).not.toBeNull();
         if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height + 4);
         await expect(editor.app.getByRole('button')).toHaveCount(1);
+        await expect(page.locator('#overlay .box.section')).toHaveCount(0);
     });
 
     test('a component dragged from the library onto the app lands where it is dropped', async ({ page }) => {

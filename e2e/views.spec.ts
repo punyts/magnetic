@@ -75,6 +75,24 @@ test.describe("The editor's views", () => {
         await expect(server.locator('[data-unit="rules.remember"]')).toHaveCount(0);
     });
 
+    test('the chat bar shows what the view tells the agent: the view, and in Screens each layer that is on', async ({ page }) => {
+        // Arrange
+        const told = editor.editor.getByRole('list', { name: 'What the view shown tells the agent' }).getByRole('listitem');
+        await expect(told).toHaveText(['Screens']);
+
+        // Act and Assert: each view, and a layer of the screens, is a fixed chip with no ×
+        if (!isPhone(page)) {
+            await editor.button('Layout').click();
+            await expect(told).toHaveText(['Screens', 'Layout']);
+            await editor.button('Layout').click();
+        }
+        await pickView(editor, page, 'Theme');
+        await expect(told).toHaveText(['Theme']);
+        await expect(told.getByRole('button')).toHaveCount(0);
+        await pickView(editor, page, 'Statenet');
+        await expect(told).toHaveText(['Statenet']);
+    });
+
     test("the layers draw a screen's layout and data on its tile", async ({ page }) => {
         test.skip(isPhone(page), 'The layers are drawn on the tiles of the wide canvas');
         await editor.button('Layout').click();

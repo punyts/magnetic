@@ -66,6 +66,12 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'crumbs', type: 'object', default: {} },
         // What the next request is about: a chip per thing, keyed by an id the page gives it
         { op: 'set', field: 'focusItems', type: 'object', default: {} },
+        // What the view shown sends the agent: a fixed chip per part (the view, and in Screens each layer that is on)
+        { op: 'set', field: 'contextItems', type: 'object', default: {} },
+        // The person's agent use, in cents of their whole budget, and the ring's tone (accent, then warning, then danger)
+        { op: 'set', field: 'budgetUsed', type: 'number', default: 0 },
+        { op: 'set', field: 'budgetTotal', type: 'number', default: 1 },
+        { op: 'set', field: 'budgetTone', type: 'string', default: 'accent' },
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
@@ -215,7 +221,7 @@ const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64
 /** The row of a top corner: the gap between its parts as wide as the corner's own padding, so the spaces are even */
 const CORNER_ROW = { layout: { type: 'row', gap: 'md', align: 'center' } };
 
-/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size and Open; as wide as they are, up to half the window */
+/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size, its turn and Open; as wide as they are, up to half the window */
 function nameCorner(t: Texts): Record<string, unknown> {
     return float({ x: '12px', y: '12px', maxWidth: 'max(calc(50% - 32px), calc(100% - 120px))' }, {
         bar: row({
@@ -234,6 +240,8 @@ function nameCorner(t: Texts): Record<string, unknown> {
                 '<-value': `${E}.size`,
                 on: { change: emit('size') }
             },
+            // Turns the frame between landscape and portrait: its width and height swap. Below 760px the corner has no room
+            turn: icon(t['shell.turn'], 'turn', 'rotate-rectangle', { '<-hidden': `${E}.isNarrow` }),
             // Soft, so its box shows: every part of the bar is then a box with the same space either side
             open: button(t['shell.open'], 'open', { tone: 'accent', variant: 'soft' })
         }, CORNER_ROW)
@@ -348,18 +356,19 @@ function chatBar(t: Texts): Record<string, unknown> {
             clear: button(t['chat.clear'], 'focusClear')
         }, `${E}.noFocus`),
         dataLine: line({ text: bound(`${E}.dataLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noDataLine`),
-        // The person's agent use: what is used and left, or, once it is spent, that they can carry on by hand
-        budget: line({ text: bound(`${E}.budgetLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noBudget`),
         bar: {
             component: 'panel',
             padding: 'none',
             // One line however narrow, as the old chat bar was: the request narrows, the buttons keep their size. Every
             // part is one height, so the row lines them up both at one line and, at the bottom, as the request grows
             layout: { type: 'row', gap: 'md', align: 'end', wrap: false },
-            // The small controls of the bar are as tall as the request (36px), as the old bar's were
-            theme: { size: { control: { sm: '{size.control.md}' } } },
+            // The small controls of the bar are as tall as the request (36px), as the old bar's were, with icons to match
+            theme: { size: { control: { sm: '{size.control.md}' }, icon: { sm: '{size.icon.md}' } } },
             children: {
                 chat: icon(t['shell.showChat'], 'chatToggle', 'chat'),
+                // What the view shown tells the agent with each request: fixed chips, the view and in Screens each layer on, as tall
+                // as the bar's controls (a chip is three quarters of the control height)
+                view: { component: 'chipList', size: 'md', tone: 'accent', theme: { size: { control: { md: '48px' } } }, removable: false, _label: t['chat.view'], '<-items': `${E}.contextItems` },
                 input: {
                     component: 'textareaField',
                     variant: 'ghost',
@@ -373,9 +382,21 @@ function chatBar(t: Texts): Record<string, unknown> {
                     autoGrow: true,
                     rows: 1,
                     sendOnEnter: true,
-                    // Off while the person may not ask the agent (their agent use is spent); the line above says why
+                    // Off while the person may not ask the agent (their agent use is spent); the agent-use ring's tip says why
                     '<-disabled': `${E}.chatOff`,
                     on: { send: [emit('chat.send'), { command: 'clear' }] }
+                },
+                // The person's agent use as a ring, used against the whole budget; its tip says what is used and left, or,
+                // once it is spent, that they can carry on by hand
+                budget: {
+                    component: 'tooltip',
+                    side: 'top',
+                    delay: 0,
+                    '<-_text': `${E}.budgetLine`,
+                    '<-hidden': `${E}.noBudget`,
+                    // A small dial, 24px across, in the middle of the bar's height (36px)
+                    placement: { height: '36px' },
+                    trigger: { component: 'progress', shape: 'ring', size: 'sm', theme: { size: { icon: { sm: '9.6px' } } }, _label: t['chat.budgetRing'], '<-value': `${E}.budgetUsed`, '<-max': `${E}.budgetTotal`, '<-tone': `${E}.budgetTone` }
                 },
                 model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
                 send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': `${E}.chatOff`, on: { press: { command: 'send', target: '^bar.children.input' } } }
@@ -575,7 +596,7 @@ function screensPanel(t: Texts): Record<string, unknown> {
                 copy: button(t['screens.copy'], 'screenCopy', { variant: 'soft' }),
                 home: button(t['screens.makeHome'], 'screenHome', { variant: 'soft', '<-hidden': `${E}.isHome` }),
                 isHome: caption(t['screens.isHome'], { muted: true, '<-hidden': `${E}.notHome` }),
-                remove: button(t['screens.delete'], 'screenDelete', { variant: 'soft', tone: 'danger', '<-hidden': `${E}.isHome` })
+                remove: button(t['screens.delete'], 'screenDelete', { variant: 'soft', tone: 'danger' })
             }, { layout: { type: 'row', gap: 'sm', align: 'center', wrap: true } }),
             status: bound(`${E}.screensStatus`, { textRole: 'caption', tone: 'danger', '<-hidden': `${E}.noScreensStatus` })
         },

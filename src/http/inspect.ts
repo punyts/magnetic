@@ -21,7 +21,8 @@ import { SCRIPT_TEXTS } from './text.js';
  *   pointer in the editor's frame, which covers the window, so in the page's own pixels: over the app frame the drop
  *   shows where it would land, let go there it lands, and anywhere else (or Escape) it is cancelled. Dragging the
  *   selected node moves it; Alt+Arrow moves it before or after its sibling. Where it lands: between the children of a column or row, beside the nearest child in a
- *   grid, at the point in an `adhoc` layout (its placement in pixels).
+ *   grid, at the point in an `adhoc` layout (its placement in pixels). While a component is placed or a part moved,
+ *   every layout section of the screen is outlined with its name and layout, so the places it can go show.
  * - State: `$.data` as a tree, what shows, reads and writes each path, and the changes as they happen.
  */
 export const INSPECT_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.dataset.appId;
@@ -43,6 +44,10 @@ let hover = null;
 let hoverAt = null;
 let placing = null;
 let drop = null;
+/** While a component is placed or a part moved: the screen's layout sections, each a box with its name and layout */
+let sections = [];
+/** Bumped by each start and stop of placing, so a late answer for an earlier one is dropped */
+let sectionsRun = 0;
 let crumbPaths = [];
 let fieldNames = [];
 let library = [];
@@ -138,6 +143,7 @@ function draw() {
     if (selected && selected.rect && !(placing && placing.move)) addBox(selected.rect, 'selected', selected.label);
     if (!placing && hover && overLayout(hover, hoverAt)) drawLayout(hover);
     else if (!placing && hover && !(selected && hover.path === selected.path)) addBox(hover.rect, 'hover', nodeLabel(hover));
+    if (placing) for (const section of sections) addBox(section.rect, 'section', section.label);
     if (placing && drop) {
         addBox(drop.target.rect, 'target', 'into ' + nodeLabel(drop.target));
         if (drop.line) {
@@ -282,11 +288,44 @@ function startPlacing(what) {
     shell.setTool('place');
     says(what.component ? fill(T['inspect.placeComponent'], { component: what.component }) : T['inspect.placeDrop']);
     draw();
+    void showSections();
+}
+
+/** The nodes of a layout tree that lay out others, and the screen's root even while it is empty */
+function sectionsOf(box, out = [], root = true) {
+    if (root || box.layout !== null) out.push(box);
+    for (const child of box.children) sectionsOf(child, out, false);
+    return out;
+}
+
+/**
+ * Shows where a component can go: every layout section of the screen worked on, outlined with its name and layout,
+ * from the screen's layout tree (/views/screen) measured in the live frame
+ */
+async function showSections() {
+    const run = ++sectionsRun;
+    sections = [];
+    const screen = artboard.dataset.screen;
+    if (!screen) return;
+    try {
+        const response = await fetch(base + '/views/screen?screen=' + encodeURIComponent(screen));
+        if (!response.ok || run !== sectionsRun) return;
+        const info = await response.json();
+        if (!info.layout || run !== sectionsRun) return;
+        const boxes = sectionsOf(info.layout).slice(0, MAX_PATHS);
+        const answer = await host.inspect({ paths: boxes.map((box) => box.path) });
+        if (!answer || run !== sectionsRun) return;
+        const rects = new Map(answer.nodes.filter((node) => node.rect && node.rect.width > 0 && node.rect.height > 0).map((node) => [node.path, node.rect]));
+        sections = boxes.filter((box) => rects.has(box.path)).map((box) => ({ rect: rects.get(box.path), label: box.layout === null ? box.key : box.key + ' · ' + box.layout }));
+        draw();
+    } catch { /* the drop still works without the outlines */ }
 }
 
 function stopPlacing(message) {
     placing = null;
     drop = null;
+    sections = [];
+    sectionsRun += 1;
     if (shell.tool() === 'place') shell.setTool('select');
     if (message !== undefined) says(message);
     draw();

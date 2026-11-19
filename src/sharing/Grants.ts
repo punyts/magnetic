@@ -110,12 +110,20 @@ export class Grants {
         return this.find('g.workspace_id = $1 AND g.app_id = $2 ORDER BY g.created_at DESC, g.id', [ownerId, appId]);
     }
 
-    /** Records that a person opened a live link; the owner is never a member of their own app */
+    /**
+     * Records that a person opened a live link; the owner is never a member of their own app. A first opening forgets
+     * that they rejected the app, which then waits on their Your apps again (`ShareAnswers`)
+     */
     async join(grantId: string, userId: string): Promise<Grant | undefined> {
         await this.db.query(
-            `INSERT INTO link_grant_member (grant_id, user_id, first_opened_at)
-             SELECT id, $2, $3 FROM link_grant WHERE id = $1 AND revoked_at IS NULL AND workspace_id <> $2
-             ON CONFLICT DO NOTHING`,
+            `WITH joined AS (
+                INSERT INTO link_grant_member (grant_id, user_id, first_opened_at)
+                SELECT id, $2, $3 FROM link_grant WHERE id = $1 AND revoked_at IS NULL AND workspace_id <> $2
+                ON CONFLICT DO NOTHING
+                RETURNING grant_id
+             )
+             DELETE FROM share_answer a USING joined j, link_grant g
+              WHERE g.id = j.grant_id AND a.user_id = $2 AND a.app_id = g.app_id::text AND a.answer = 'rejected'`,
             [grantId, userId, this.now()]
         );
         return (await this.find('g.id = $1', [grantId]))[0];

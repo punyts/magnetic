@@ -66,6 +66,8 @@ import { LOGO_SVG } from '../http/logo.js';
 import { MAGNETIC_CSS, MAGNETIC_PAGE_CSP } from '../http/pages.js';
 import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
+import { ShareAnswers } from '../sharing/ShareAnswers.js';
+import { usd } from '../http/billingPage.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
 import { SharedData } from '../sharing/SharedData.js';
@@ -619,6 +621,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** The open view sockets of each session (by the hash of its token), closed when it signs out */
     const sessionSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
     const grants = new Grants(db);
+    const shareAnswers = new ShareAnswers(db);
     /** The open view sockets of apps shared with a person, by `<userId>/<appId>`, closed when a link is revoked */
     const sharedSockets = new Map<string, Set<(reason: string, revoked?: boolean) => void>>();
     const linkOf = (grant: Grant): string => `${publicOrigin ?? origin}/s/${grant.token}`;
@@ -985,14 +988,44 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const apps: HomeCard[] = [...all]
             .filter((app) => app.id !== homeId && app.name !== EDITOR_APP)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-            .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt) }));
-        const shared: HomeCard[] = (await sharedApps(user.id)).map((app) => ({ id: app.appId, name: app.name, note: fill(t[app.right === 'use' ? 'home.sharedUse' : 'home.sharedView'], { owner: app.ownerName }) }));
+            .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt), own: true, answered: true }));
+        // The apps shared with them: those waiting for an answer come first, those they accepted after their own, and
+        // those they rejected not at all
+        const answers = await shareAnswers.of(user.id);
+        const shared = (await sharedApps(user.id))
+            .filter((app) => answers.get(app.appId) !== 'rejected')
+            .map((app): HomeCard => ({ id: app.appId, name: app.name, note: fill(t[app.right === 'use' ? 'home.sharedUse' : 'home.sharedView'], { owner: app.ownerName }), own: false, answered: answers.get(app.appId) === 'accepted' }));
+        // The agent use they have had, against all they may have (their allowance and what they bought)
+        const spent = await budgets.spent(user.id);
+        const allowance = await budgets.allowanceOf(user.id);
+        const total = allowance === undefined ? undefined : allowance + spent.bought;
+        const usedCents = Math.round(spent.total * 100);
+        const totalCents = total === undefined ? Math.max(1, usedCents) : Math.max(1, Math.round(total * 100));
+        const usage = {
+            line: total === undefined ? fill(t['home.usageNoLimit'], { used: usd(spent.total) }) : fill(t['home.usageOf'], { used: usd(spent.total), total: usd(total) }),
+            today: fill(t['home.usageToday'], { today: usd(spent.today) }),
+            usedCents: Math.min(usedCents, totalCents),
+            totalCents,
+            tone: total === undefined ? ('accent' as const) : spent.total >= total ? ('danger' as const) : spent.total >= total * 0.8 ? ('warning' as const) : ('accent' as const)
+        };
         // The person's orgs, and the invites waiting for their verified email
         const orgWords = orgTextsOf(look.language);
         const roleWords = (role: string): string => orgWords[`orgs.role.${role}` as keyof typeof orgWords] ?? role;
         const memberships: HomeCard[] = (await orgs.of(user.id)).map((org) => ({ id: org.id, name: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }) }));
         const invites: HomeCard[] = (await orgs.pendingFor(user.id)).map((invite) => ({ id: invite.id, name: fill(t['home.inviteName'], { org: invite.org.name }), note: fill(t['home.inviteNote'], { role: roleWords(invite.role), name: invite.invitedBy }) }));
-        await homes.show(services, user.id, { apps, shared, orgs: memberships, invites, admin: await admins.is(user.id), makeOrgs: !inBeta }, look, (message, fields) => options.report.info(message, fields));
+        await homes.show(
+            services,
+            user.id,
+            {
+                apps: [...shared.filter((app) => app.answered !== true), ...apps, ...shared.filter((app) => app.answered === true)],
+                orgs: memberships,
+                invites,
+                admin: await admins.is(user.id),
+                makeOrgs: !inBeta,
+                usage,
+                person: { name: user.name, email: user.email ?? '' }
+            },
+            look, (message, fields) => options.report.info(message, fields));
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHostPage(
@@ -1233,6 +1266,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const services = await workspaces.get(who.user.id);
             const id = path === '/editor' ? await editors.id(services, who.user.id) : await editors.reset(services, who.user.id);
             sendJson(response, 200, { id });
+            return true;
+        }
+        const answer = /^\/shares\/([A-Za-z0-9-]{1,64})\/(accept|reject)$/.exec(path);
+        if (method === 'POST' && answer !== null) {
+            // An app shared with the person, answered on Your apps: accepted, it joins their apps; rejected, it goes
+            const who = await signedIn(request);
+            if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const appId = answer[1] as string;
+            if (answer[2] === 'accept') await shareAnswers.accept(who.user.id, appId);
+            else await shareAnswers.reject(who.user.id, appId);
+            sendJson(response, 200, { answered: answer[2] });
             return true;
         }
         if (method === 'POST' && (path === '/home' || path === '/home/reset')) {

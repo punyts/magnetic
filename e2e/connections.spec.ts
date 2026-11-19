@@ -35,6 +35,7 @@ test.describe('Connections', () => {
 
     test('Your apps leads to the Connections page', async ({ home, page }) => {
         await home.goto();
+        await home.openTab('Profile');
         await home.app.getByRole('button', { name: 'Connections' }).click();
         await page.waitForURL(/\/settings\/connections$/);
         await expect(page.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();

@@ -369,9 +369,9 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should space the top corners and the chat bar evenly: one gap between their parts, the same padding at both ends, one height', async () => {
         // Arrange: each floating bar with its parts, left to right
         const CORNERS: [string, string[]][] = [
-            ['nameCorner', ['home', 'name', 'workspace', 'size', 'open']],
+            ['nameCorner', ['home', 'name', 'workspace', 'size', 'turn', 'open']],
             ['shareCorner', ['views', 'feedback', 'prefs', 'share']],
-            ['chatBar', ['chat', 'input', 'model', 'send']]
+            ['chatBar', ['chat', 'view', 'input', 'budget', 'model', 'send']]
         ];
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
         type Rect = { x: number; y: number; width: number; height: number };
@@ -380,7 +380,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
             const paths = [base, ...parts.map((part) => `${base}.children.bar.children.${part}`)];
             const answer = (await page.evaluate(`window.magneticShell.editor.inspect({ paths: ${JSON.stringify(paths)} })`)) as { nodes: { path: string; rect: Rect }[] };
             const rectOf = (path: string): Rect => answer.nodes.find((node) => node.path === path)?.rect as Rect;
-            return { corner: rectOf(base), parts: paths.slice(1).map(rectOf) };
+            // A part hidden here (the budget ring without a budget) takes no place in the row
+            return { corner: rectOf(base), parts: paths.slice(1).map(rectOf).filter((rect) => rect !== undefined && rect.width > 0) };
         };
 
         // Act
@@ -397,10 +398,11 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
             expect(Math.abs(start - end), `padding ${start} and ${end}`).toBeLessThan(0.5);
         }
         // The frame size menu is as tall as Open beside it, and both corners are one height
-        expect((name.parts[3] as Rect).height).toBeCloseTo((name.parts[4] as Rect).height, 1);
+        expect((name.parts[3] as Rect).height).toBeCloseTo((name.parts[5] as Rect).height, 1);
         expect(name.corner.height).toBeCloseTo(share.corner.height, 1);
-        // Every part of the chat bar is as tall as the request at one line
-        for (const part of chat.parts) expect(part.height).toBeCloseTo((chat.parts[1] as Rect).height, 1);
+        // Every control of the chat bar is as tall as the request at one line; the view's chips and the ring are smaller
+        const request = chat.parts.reduce((tallest, part) => (part.height > tallest.height ? part : tallest));
+        for (const part of [chat.parts[0], chat.parts[chat.parts.length - 1]] as Rect[]) expect(part.height).toBeCloseTo(request.height, 1);
     }, 60_000);
 
     it("should draw the old editor's icons (41fa580) from the editor's own icon set, not the nearest icons of the set", async () => {

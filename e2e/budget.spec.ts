@@ -7,14 +7,21 @@ test.describe("The editor's agent use", () => {
         await signIn(context, user);
         await home.goto();
         const editor = await home.makeApp(uniqueName(info, 'budget'));
-        await expect(editor.editor.getByText('Agent use: $0.00 of $5.00 used, $5.00 left')).toBeVisible();
+        // The ring in the chat bar says it in its tip
+        const ring = editor.editor.getByRole('progressbar', { name: 'Agent use' });
+        const tip = editor.editor.locator('.tip:popover-open');
+        await expect(ring).toBeVisible();
+        await ring.hover();
+        await expect(tip).toHaveText('Agent use: $0.00 of $5.00 used, $5.00 left');
 
         // Act
         await spend(user, 5);
         await editor.goto(editor.appId);
 
         // Assert
-        await expect(editor.editor.getByText('You have used your $5.00 of agent use. You can carry on building by hand: select anything in your app to change it.')).toBeVisible();
+        await expect(ring).toBeVisible();
+        await ring.hover();
+        await expect(tip).toHaveText('You have used your $5.00 of agent use. You can carry on building by hand: select anything in your app to change it.');
         await expect(editor.request).toBeDisabled();
         await expect(editor.button('Send')).toBeDisabled();
     });

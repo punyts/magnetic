@@ -6,9 +6,20 @@ test.describe('Your apps', () => {
         await home.goto();
     });
 
-    test('shows making an app, the apps, the editor and the settings', async ({ home }) => {
+    test('shows making an app and the apps, with tabs for orgs, usage and the profile', async ({ home }) => {
         await expect(home.nameField).toBeVisible();
-        for (const name of ['Orgs', 'Sign out', 'Edit the editor', 'Reset the editor']) await expect(home.app.getByRole('button', { name })).toBeVisible();
+        for (const name of ['Apps', 'Orgs', 'Usage', 'Profile']) await expect(home.tab(name)).toBeVisible();
+        await home.openTab('Profile');
+        for (const name of ['Sign out', 'Edit the editor', 'Reset the editor']) await expect(home.app.getByRole('button', { name })).toBeVisible();
+        await home.openTab('Usage');
+        await expect(home.app.getByText(/You have used \$\d+\.\d\d/)).toBeVisible();
+    });
+
+    test('keeps the tab last shown', async ({ home, page }) => {
+        await home.openTab('Usage');
+        await page.reload();
+        await expect(home.tab('Usage')).toHaveAttribute('aria-selected', 'true');
+        await home.openTab('Apps');
     });
 
     test('an app needs a name', async ({ home }) => {
@@ -28,8 +39,9 @@ test.describe('Your apps', () => {
         await page.waitForURL(new RegExp(`/apps/${appId}$`));
     });
 
-    test('Orgs opens the org settings', async ({ home, page }) => {
-        await home.app.getByRole('button', { name: 'Orgs' }).click();
+    test('Make an org on the Orgs tab opens the org settings', async ({ home, page }) => {
+        await home.openTab('Orgs');
+        await home.app.getByRole('button', { name: 'Make an org' }).click();
         await page.waitForURL(/\/settings\/orgs$/);
         await expect(page.getByRole('heading', { name: 'Your orgs' })).toBeVisible();
     });
@@ -39,6 +51,7 @@ test.describe('Your apps', () => {
         await context.clearCookies();
         await signIn(context, 'dan');
         await home.goto();
+        await home.openTab('Profile');
         const [mode, language] = [home.app.getByRole('combobox').nth(0), home.app.getByRole('combobox').nth(1)];
         await mode.selectOption({ label: 'Dark' });
         await expect(page.locator('html')).toHaveAttribute('data-mode', 'dark');
@@ -50,5 +63,6 @@ test.describe('Your apps', () => {
         await home.app.getByRole('combobox').nth(1).selectOption({ label: 'English' });
         await home.app.getByRole('combobox').nth(0).selectOption({ index: 0 });
         await expect(home.app.getByRole('button', { name: 'Sign out' })).toBeVisible();
+        await home.openTab('Apps');
     });
 });

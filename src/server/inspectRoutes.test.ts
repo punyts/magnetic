@@ -202,12 +202,12 @@ describe("The editor's inspector routes", () => {
         const copied = await screens({ action: 'copy', name: 'home', to: 'home-copy' });
         const renamed = await screens({ action: 'rename', name: 'about', to: 'info' });
         const homed = await screens({ action: 'home', name: 'info' });
-        const startRefused = await screens({ action: 'delete', name: 'info' });
+        // Any screen may be deleted: the start passes to the next screen, else the one before it
+        const startDeleted = await screens({ action: 'delete', name: 'info' });
         const deleted = await screens({ action: 'delete', name: 'home-copy' });
         const taken = await screens({ action: 'add', name: 'home' });
         const unknown = await screens({ action: 'paint', name: 'home' });
         const back = await screens({ action: 'home', name: 'home' });
-        const removed = await screens({ action: 'delete', name: 'info' });
 
         // Assert
         expect(listed.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });
@@ -215,12 +215,11 @@ describe("The editor's inspector routes", () => {
         expect((copied.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'about', 'home-copy']);
         expect((renamed.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'info', 'home-copy']);
         expect(homed.body['start']).toBe('info');
-        expect(startRefused.status).toBe(400);
-        expect((deleted.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'info']);
+        expect(startDeleted.body).toMatchObject({ start: 'home-copy', screens: [{ name: 'home' }, { name: 'home-copy' }] });
+        expect(deleted.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });
         expect(taken.status).toBe(400);
         expect(unknown.status).toBe(400);
-        expect(back.body['start']).toBe('home');
-        expect(removed.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });
+        expect(back.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });
         // The copy had the home screen's nodes
         const copy = (await get(`/node?path=${encodeURIComponent('$.screens.home')}`)).body;
         expect(copy['children']).toEqual(['title', 'list']);

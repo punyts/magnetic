@@ -75,8 +75,7 @@ test.describe('Screens', () => {
         await expect(rename).toHaveValue('welcome');
         await editor.button('Open on it').click();
         await expect(editor.editor.getByText('The app opens on it', { exact: true })).toBeVisible();
-        await expect(editor.button('Delete')).toBeHidden();
-        // The old home screen can go now
+        // The old home screen goes
         await preview(page, 'home').locator('.preview-cover').click();
         await editor.button('Delete').click();
         await page.getByRole('dialog', { name: 'Screen Home' }).getByRole('button', { name: 'Delete' }).click();
@@ -205,23 +204,44 @@ test.describe('Screens', () => {
         await expect(page.locator('#artboard')).toBeHidden();
     });
 
-    test('a tile\'s bin deletes its screen once confirmed, and its ⋯ opens its menu', async ({ page }) => {
+    test('a tile has only its ⋯, whose menu deletes any screen once confirmed, the start one too', async ({ page }) => {
         // Arrange
         await zoomedOutOnSix(page);
+        await expect(page.locator('.preview .preview-tool')).toHaveCount(await page.locator('.preview').count());
 
-        // Act
-        await preview(page, 'two').hover();
-        await preview(page, 'two').getByRole('button', { name: 'Delete Two' }).click();
-        const ask = page.getByRole('dialog', { name: 'Screen Two' });
-        await expect(ask).toContainText('Delete the screen Two?');
-        await ask.getByRole('button', { name: 'Delete' }).click();
+        // Act: two, then home, the screen the app opens on
+        for (const [screen, title] of [['two', 'Two'], ['home', 'Home']] as const) {
+            await preview(page, screen).hover();
+            await preview(page, screen).getByRole('button', { name: 'More for ' + title }).click();
+            const menu = page.getByRole('dialog', { name: 'Screen ' + title });
+            await menu.getByRole('button', { name: 'Delete' }).click();
+            await expect(menu).toContainText('Delete the screen ' + title + '?');
+            await menu.getByRole('button', { name: 'Delete' }).click();
+            await expect(preview(page, screen)).toHaveCount(0);
+        }
 
-        // Assert
-        await expect(preview(page, 'two')).toHaveCount(0);
+        // Assert: both gone, and the app opens on the next screen
         await expect(editor.editor.getByText('Two', { exact: true })).toBeHidden();
-        await expect(preview(page, 'home').getByRole('button', { name: 'Delete Home' })).toBeHidden();
-        await preview(page, 'one').getByRole('button', { name: 'More for One' }).click();
-        await expect(page.getByRole('dialog', { name: 'Screen One' }).getByRole('button', { name: 'Copy' })).toBeVisible();
+        await expect(editor.editor.getByText('Home', { exact: true })).toBeHidden();
+        const answer = await page.evaluate(async () => (await fetch(location.pathname + '/screens')).json());
+        expect(answer.start).toBe('one');
+    });
+
+    test('the last screen deleted leaves one tile, Add a screen, which adds home and works on it', async ({ page }) => {
+        // Act
+        await editor.button('Delete').click();
+        await page.getByRole('dialog', { name: 'Screen Home' }).getByRole('button', { name: 'Delete' }).click();
+
+        // Assert: no live frame, only the tile; pressed, it adds home, the screen the app opens on
+        const add = page.getByRole('button', { name: 'Add a screen' });
+        await expect(add).toBeVisible();
+        await expect(page.locator('#artboard')).toBeHidden();
+        await add.click();
+        await expect(page.locator('#artboard')).toBeVisible();
+        await expect(page.locator('#artboard')).toHaveAttribute('data-screen', 'home');
+        await expect(add).toBeHidden();
+        const answer = await page.evaluate(async () => (await fetch(location.pathname + '/screens')).json());
+        expect(answer.start).toBe('home');
     });
 });
 

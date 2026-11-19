@@ -53,7 +53,7 @@ html, body.home { height: 100%; margin: 0; overflow: hidden; background: var(--p
 
 /**
  * `/assets/home.js`: what the home app emits, raised on the page by the host script as `stateui:emit`. `open` goes to
- * an app, `create` makes one (`POST /new`, answered with its id) and opens its editor, `orgs` opens the org settings, `signout` signs out, and `mode`
+ * an app, `shareAccept` and `shareReject` answer an app shared with the person (`POST /shares/<id>/accept|reject`), `create` makes one (`POST /new`, answered with its id) and opens its editor, `orgs` opens the org settings, `signout` signs out, and `mode`
  * and `language` keep the person's choice (`POST /prefs`) and load the page again in it, `editEditor` opens the person's
  * editor in the editor and `resetEditor` puts it back to Magnetic's
  */
@@ -115,6 +115,16 @@ async function answerInvite(id, join) {
     } catch { say(T['home.joinFailed']); }
 }
 
+// An app shared with the person: accepted, it joins their apps; rejected, once confirmed, it goes
+async function answerShare(id, accept) {
+    if (!accept && !confirm(T['home.rejectConfirm'])) return;
+    try {
+        const response = await fetch('/shares/' + encodeURIComponent(id) + (accept ? '/accept' : '/reject'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (!response.ok) throw new Error('refused');
+        location.reload();
+    } catch { say(T['home.answerFailed']); }
+}
+
 async function choose(change) {
     if (document.documentElement.dataset.mode === change.mode || document.documentElement.lang === change.language) return;
     try {
@@ -140,6 +150,7 @@ addEventListener('stateui:emit', (event) => {
     else if (name === 'admin') location.assign('/admin');
     else if (name === 'openOrg' && typeof payload === 'string' && APP_ID.test(payload)) location.assign('/settings/orgs/' + encodeURIComponent(payload));
     else if ((name === 'inviteJoin' || name === 'inviteDecline') && typeof payload === 'string' && APP_ID.test(payload)) void answerInvite(payload, name === 'inviteJoin');
+    else if ((name === 'shareAccept' || name === 'shareReject') && typeof payload === 'string' && APP_ID.test(payload)) void answerShare(payload, name === 'shareAccept');
     else if (name === 'signout') void fetch('/signout', { method: 'POST' }).finally(() => location.assign('/signin'));
 });
 `;

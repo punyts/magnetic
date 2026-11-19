@@ -11,6 +11,8 @@ test.describe('Agent use', () => {
 
     test('home opens the Agent use page, with the allowance and the amounts to add', async ({ home, page }) => {
         await home.goto();
+        await home.openTab('Usage');
+        await expect(home.app.getByText('You have used $0.00 of $5.00.')).toBeVisible();
         await home.app.getByRole('button', { name: 'Agent use', exact: true }).click();
         await page.waitForURL(/\/settings\/billing$/);
         await expect(page.getByRole('heading', { name: 'Agent use', level: 1 })).toBeVisible();

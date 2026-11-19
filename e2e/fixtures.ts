@@ -84,9 +84,19 @@ export class HomePage {
     get notice(): Locator {
         return this.page.locator('#notice');
     }
+    /** Opens Your apps on its Apps tab: the page keeps the tab last shown */
     async goto(): Promise<void> {
         await this.page.goto('/');
+        await this.openTab('Apps');
         await expect(this.makeButton).toBeVisible();
+    }
+    /** One of the tabs: Apps, Orgs, Usage or Profile */
+    tab(name: string): Locator {
+        return this.app.getByRole('tab', { name, exact: true });
+    }
+    async openTab(name: string): Promise<void> {
+        await this.tab(name).click();
+        await expect(this.tab(name)).toHaveAttribute('aria-selected', 'true');
     }
     get nameField(): Locator {
         return this.app.getByPlaceholder('Such as Reading list');
@@ -94,9 +104,13 @@ export class HomePage {
     get makeButton(): Locator {
         return this.app.getByRole('button', { name: 'Make', exact: true });
     }
-    /** An app's card, by the start of its name */
+    /** An app's card, by the start of its name: a card that opens its app */
     card(name: string): Locator {
         return this.app.getByRole('button', { name: new RegExp(`^${name}`) });
+    }
+    /** The tile of an app, whether or not it opens: a share waiting for an answer does not */
+    tile(name: string): Locator {
+        return this.app.locator('ui-card', { hasText: name });
     }
     /** Makes an app and waits for its editor */
     async makeApp(name: string): Promise<EditorPage> {

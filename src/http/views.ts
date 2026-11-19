@@ -206,6 +206,10 @@ function showSelector() {
         layerLook: Object.fromEntries(LAYERS.map((name) => [name, layers[name] ? 'solid' : 'ghost'])),
         layerTone: Object.fromEntries(LAYERS.map((name) => [name, layers[name] ? 'accent' : 'neutral']))
     });
+    // The chat bar shows what the view sends the agent: the view, and in Screens each layer that is on
+    const chips = [{ key: 'view', text: T['shell.view.' + view] }];
+    if (view === 'screens') for (const name of LAYERS) if (layers[name]) chips.push({ key: name, text: T['shell.layer.' + name] });
+    shell.showContext(chips);
 }
 
 function setView(name) {

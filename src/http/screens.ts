@@ -22,8 +22,10 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **Order:** a tile is dragged to another slot to move its screen there; a drop slot marks where it goes. The board
  *   moves at once and `POST /edit/<id>/screens` with `order` follows; a refusal puts it back.
  * - **Menu:** a tile's ⋯ button, a right click or the menu key opens its screen's menu: work on it, its title and name,
- *   move it earlier or later, open the app on it, copy or delete it. A tile's bin and the menu's Delete ask first, in the
- *   menu (a page's own dialog, since a browser may not show `confirm`).
+ *   move it earlier or later, open the app on it, copy or delete it. Delete asks first, in the menu (a page's own dialog,
+ *   since a browser may not show `confirm`). Any screen may be deleted: the app then opens on the next one.
+ * - **No screens:** with the last one deleted the live frame hides and the board holds one tile, Add a screen, which adds
+ *   `home` (the app opens on it) and works on it.
  * - The live frame following a route the app moved to (a navigate in the app) moves to that screen's slot too.
  * - A new document (the body's `data-revision`) reloads the list and mounts the previews again with it.
  * - The live frame's screen is its `data-screen`, and `window.magneticScreens.panelOf(name)` gives a mounted
@@ -103,6 +105,7 @@ function apply(answer) {
         const route = routeScreen();
         current = route && has(route) ? route : start || (screens[0] ? screens[0].name : null);
     }
+    if (screens.length === 0) current = null;
     if (selected !== null && !has(selected)) selected = null;
     show();
     layout();
@@ -136,7 +139,18 @@ function liveShown() { return !names || selected !== null; }
  * the board stays and the live frame takes the place of the tile pressed
  */
 function layout(keep) {
-    if (!current) return;
+    document.body.classList.toggle('no-screens', screens.length === 0);
+    shell.noScreens(screens.length === 0);
+    addTile.hidden = screens.length > 0;
+    if (!current) {
+        for (const [name, preview] of previews) dropPreview(name, preview);
+        unselect.hidden = true;
+        if (screens.length === 0) {
+            const [width, height] = shell.canvas.size();
+            Object.assign(addTile.style, { left: '0px', top: '0px', width: width + 'px', height: height + 'px' });
+        }
+        return;
+    }
     const [width, height] = shell.canvas.size();
     const beforeX = Number(artboard.dataset.slotX || 0);
     const beforeY = Number(artboard.dataset.slotY || 0);
@@ -164,9 +178,6 @@ function layout(keep) {
         preview.idle.textContent = screen.title;
         preview.more.setAttribute('aria-label', fill(T['screens.more'], { name: screen.title }));
         preview.more.title = fill(T['screens.more'], { name: screen.title });
-        preview.bin.setAttribute('aria-label', T['screens.delete'] + ' ' + screen.title);
-        preview.bin.title = T['screens.delete'];
-        preview.bin.hidden = screen.name === start;
     });
     // The × that deselects sits at the live frame's top right while it shows a selected screen
     Object.assign(unselect.style, { left: slot.x + width + 'px', top: slot.y + 'px' });
@@ -227,11 +238,10 @@ function makePreview(name) {
     const tools = document.createElement('div');
     tools.className = 'preview-tools';
     const more = toolButton('more', ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'], (x, y) => openMenu(name, x, y));
-    const bin = toolButton('bin', ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'], (x, y) => openMenu(name, x, y, true));
-    tools.append(more, bin);
+    tools.append(more);
     element.append(label, idle, holder, cover, tools);
     world.append(element);
-    const preview = { element, label: labelText, holder, cover, idle, more, bin, panel: null, visible: false };
+    const preview = { element, label: labelText, holder, cover, idle, more, panel: null, visible: false };
     previews.set(name, preview);
     seen.observe(element);
     return preview;
@@ -350,6 +360,19 @@ unselect.append(icon(['M6 6l12 12', 'M18 6L6 18']));
 unselect.addEventListener('pointerdown', (event) => event.stopPropagation());
 unselect.addEventListener('click', () => deselect());
 if (world) world.append(unselect);
+
+/** The one tile of an app with no screens: it adds home, which the app then opens on, and works on it */
+const addTile = document.createElement('button');
+addTile.type = 'button';
+addTile.className = 'add-screen';
+addTile.hidden = true;
+addTile.append(icon(['M12 5v14', 'M5 12h14']), document.createTextNode(T['screens.addFirst']));
+addTile.addEventListener('pointerdown', (event) => event.stopPropagation());
+addTile.addEventListener('click', async () => {
+    const name = freeName('home');
+    if (await change({ action: 'add', name })) choose(name);
+});
+if (world) world.append(addTile);
 
 /** The board's zoom and where the world's origin is on the page, to turn a pointer into the frame's pixels */
 function toWorld(clientX, clientY) {
@@ -473,7 +496,7 @@ function menuField(label, value, save) {
     return form;
 }
 
-/** Deletes a screen; the one worked on goes to the screen the app opens on */
+/** Deletes a screen; the one worked on goes to the screen the app opens on now, or to none with the last one gone */
 async function remove(name) {
     const wasCurrent = name === current;
     if (!(await change({ action: 'delete', name }))) return false;
@@ -519,7 +542,7 @@ function menuParts(name, confirming) {
     if (index < screens.length - 1) parts.push(menuButton(T['screens.later'], async () => { closeMenu(); await reorder(movedTo(name, index + 1)); }));
     if (name !== start) parts.push(menuButton(T['screens.makeHome'], async () => { if (await change({ action: 'home', name })) closeMenu(); }));
     parts.push(menuButton(T['screens.copy'], async () => { if (await change({ action: 'copy', name, to: freeName(name + '-copy') })) closeMenu(); }));
-    if (name !== start) parts.push(menuButton(T['screens.delete'], () => { fillMenu(name, true); }, 'danger'));
+    parts.push(menuButton(T['screens.delete'], () => { fillMenu(name, true); }, 'danger'));
     return parts;
 }
 
@@ -627,7 +650,7 @@ async function onEmit(name, payload) {
         }
         case 'screenDelete': {
             // The question is the page's own, by the middle of the window: a browser may not show confirm
-            if (!current || current === start) return;
+            if (!current) return;
             openMenu(current, innerWidth / 2 - 130, innerHeight / 3, true);
             return;
         }
