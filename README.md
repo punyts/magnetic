@@ -238,7 +238,7 @@ The commands are:
 
     **Statenet**, **Theme** and **Logic** each have their tools in a head and an editor at the side:
     - **Statenet:** the owner's tree by state path (`$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
-      `$.components`, `$.patterns`, `$.connections`), every part with what this app does not use dimmed and one level
+      `$.components`, `$.patterns`, `$.connections`, `$.personas` with only your own persona), every part with what this app does not use dimmed and one level
       below each, drawn on the board in place of the screens: it pans, zooms and fits like them. A + on each branch
       makes what it holds (an app, a screen, a binding, a theme, a dataset, a model, a module or one of its units) and
       puts it to use in the app. Each card opens an editor at the side, and the board moves

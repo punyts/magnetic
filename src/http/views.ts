@@ -39,6 +39,8 @@ export const VIEWS_CSS = [
     '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
     '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet.on-canvas .view-body { margin-top: 12px; }',
+    '.view-sheet.on-canvas .view-head h2 { display: none; }',
+    '.view-sheet.on-canvas .view-head:not(:has(.view-tools > *, .view-status:not(:empty), .view-back:not([hidden]))) { display: none; }',
     '.view-sheet.on-canvas .view-main { visibility: hidden; }',
     '@media (min-width: 760px) { .view-sheet.on-canvas .view-side { align-self: flex-start; max-height: 100%; } }',
     '.view-sheet.on-canvas .view-side { pointer-events: auto; border-left: 0; border-top: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
@@ -54,6 +56,11 @@ export const VIEWS_CSS = [
     '.view-main { flex: 1; overflow: auto; padding: 16px; position: relative; }',
     '.view-side { width: min(360px, 45%); overflow-x: hidden; overflow-y: auto; padding: 16px; border-left: 1px solid var(--line, #e3e3e3); }',
     '.view-side[hidden] { display: none; }',
+    '.view-side-head { display: flex; align-items: flex-start; gap: 8px; } .view-side-head h3 { flex: 1; min-width: 0; margin-top: 0; overflow-wrap: anywhere; }',
+    '.view-sheet .view-close, .view-close { flex: none; width: 32px; height: 32px; margin: -6px -6px 0 0; padding: 0; border: 0; display: grid; place-items: center; cursor: pointer; border-radius: 50%; color: inherit; background: transparent; }',
+    '.glyph { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }',
+    '.view-close .glyph { width: 14px; height: 14px; }',
+    '.view-sheet .view-close:hover, .view-close:hover { background: color-mix(in srgb, currentColor 14%, transparent); }',
     '@media (max-width: 759.98px) { .view-body { flex-direction: column; } .view-side { width: auto; border-left: 0; border-top: 1px solid var(--line, #e3e3e3); max-height: 50%; } }',
     '.view-sheet button, .view-sheet select, .view-sheet input, .view-sheet textarea { font: inherit; }',
     '.view-sheet button { border: 1px solid var(--line, #ccc); background: transparent; color: inherit; border-radius: 999px; padding: 3px 12px; cursor: pointer; }',
@@ -75,15 +82,18 @@ export const VIEWS_CSS = [
     '.graph-leaves .graph-kind { display: none; }',
     '.graph .graph-open { flex: 1; min-width: 0; display: block; text-align: left; margin: 0; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; }',
     '.graph-node.leaf .graph-open { padding: 5px 8px; }',
-    '.graph .graph-add { flex: none; width: 24px; height: 24px; margin: 6px 6px 0 0; padding: 0; border-radius: 50%; line-height: 1; font-weight: 600; color: var(--accent, #3d5afe); background: var(--paper, #fff); }',
-    '.graph-group .graph-add { margin: 0 0 0 6px; width: 20px; height: 20px; }',
+    // A + is a handle on the card's outer edge, where the lines to what it holds start: shown on hover, focus and the
+    // chosen card, and always where there is no hover (touch)
+    '.graph .graph-add { position: absolute; z-index: 2; top: 50%; right: -13px; display: grid; place-items: center; width: 24px; height: 24px; margin: -12px 0 0; padding: 0; border: 2px solid var(--accent, #3d5afe); border-radius: 50%; color: var(--ink, #111); background: var(--paper, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.3); cursor: pointer; opacity: 0; transform: scale(.7); transition: opacity .12s, transform .12s; }',
+    '.graph .left > .graph-add { right: auto; left: -13px; }',
+    '.graph .graph-add .glyph { width: 10px; height: 10px; stroke-width: 2.25; }',
+    '.graph :is(.graph-node, .graph-group):is(:hover, :focus-within, .chosen) > .graph-add { opacity: 1; transform: none; }',
+    '.graph .graph-add:hover, .graph .graph-add:focus-visible { transform: scale(1.15); outline: none; color: var(--paper, #fff); background: var(--accent, #3d5afe); }',
+    '@media (hover: none) { .graph .graph-add { opacity: 1; transform: none; } }',
     '.graph-node.current { border: 2px solid var(--accent, #3d5afe); }',
-    '.graph-group { position: absolute; z-index: 1; display: flex; align-items: center; padding: 3px 6px 3px 12px; border-radius: 999px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--accent, #3d5afe); background: color-mix(in srgb, var(--accent, #3d5afe) 14%, var(--paper, #fff)); pointer-events: auto; }',
+    '.graph-group { position: absolute; z-index: 1; display: flex; align-items: center; padding: 3px 12px; border-radius: 999px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--accent, #3d5afe); background: color-mix(in srgb, var(--accent, #3d5afe) 14%, var(--paper, #fff)); pointer-events: auto; }',
     '.graph-group.path { font-family: ui-monospace, monospace; }',
-    '.graph-group:not(:has(.graph-add)) { padding-right: 12px; }',
     '.graph-group.unused { opacity: .55; }',
-    '.graph-node.left, .graph-group.left { flex-direction: row-reverse; } .graph-node.left .graph-add { margin: 6px 0 0 6px; }',
-    '.graph-group.left { padding: 3px 12px 3px 6px; } .graph-group.left .graph-add { margin: 0 6px 0 0; } .graph-group.left:not(:has(.graph-add)) { padding-left: 12px; }',
     '.graph-leaves.left { justify-content: flex-end; }',
     '.graph .graph-more { border: 0; padding: 0; background: transparent; color: inherit; font-weight: 600; }',
     '.graph-node.outside { border-style: dashed; }',
@@ -97,7 +107,9 @@ export const VIEWS_CSS = [
     // A record table scrolls on its own, sideways; the panel never does
     '.records-wrap { overflow-x: auto; max-width: 100%; margin: 8px 0; }',
     '.records tr.adding td { border-bottom: 0; padding-top: 8px; }',
-    '.view-sheet button.remove { min-width: 28px; min-height: 28px; padding: 0 6px; font-size: 16px; line-height: 1; }',
+    '.view-sheet button.remove { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; flex: none; vertical-align: middle; }',
+    '.view-sheet button.remove .glyph { width: 10px; height: 10px; }',
+    '.view-sheet button.remove:hover { background: color-mix(in srgb, currentColor 14%, transparent); }',
     '.view-field { display: grid; gap: 2px; margin: 8px 0; } .view-field > span { font-size: 12px; color: var(--muted, #666); }',
     '.view-output { white-space: pre-wrap; max-height: 200px; overflow: auto; }',
     '.view-back { font-weight: 600; }',
@@ -187,6 +199,25 @@ function element(tag, attributes, children) {
     return made;
 }
 function button(text, run, className) { const made = element('button', { type: 'button', text, className }); made.addEventListener('click', run); return made; }
+/** Plus and cross drawn as strokes, so they sit at the centre of a round button whatever the font */
+const GLYPHS = { plus: 'M6 1v10M1 6h10', cross: 'M2 2l8 8M10 2l-8 8' };
+function glyph(name) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'glyph');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', GLYPHS[name]);
+    svg.append(path);
+    return svg;
+}
+/** A round button showing a glyph; label is its accessible name */
+function glyphButton(name, label, run, className) {
+    const made = element('button', { type: 'button', className }, [glyph(name)]);
+    made.setAttribute('aria-label', label);
+    made.addEventListener('click', run);
+    return made;
+}
 
 const sheet = element('section', { className: 'view-sheet', id: 'view-sheet', hidden: true, 'aria-live': 'polite' });
 const heading = element('h2');
@@ -308,6 +339,16 @@ editor.onEmit((name, payload) => {
         void drawLayers();
     }
 });
+// A press on the empty board, not a drag that pans it, lets the chosen card go and closes its panel
+const canvasBoard = document.getElementById('board');
+let pressed = null;
+canvasBoard.addEventListener('pointerdown', (event) => {
+    pressed = view === 'statenet' && event.button === 0 && (event.target === canvasBoard || event.target === world) ? { x: event.clientX, y: event.clientY } : null;
+}, true);
+canvasBoard.addEventListener('pointerup', (event) => {
+    if (pressed && !side.hidden && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 5) closeSide();
+    pressed = null;
+}, true);
 shell.onEscape(() => { if (view !== 'screens' && !side.hidden) { closeSide(); return true; } return false; });
 
 // ---- Statenet ------------------------------------------------------------------------------------------------------
@@ -332,19 +373,21 @@ function noteText(node) {
         case 'app': return node.current ? T['views.note.authority'] + (node.count ? ' · ' + fill(T['views.note.shared'], { count: node.count }) : '') : T['views.note.anotherApp'];
         case 'theme': return joined(node.isDefault ? T['views.note.defaultTheme'] : '');
         case 'binding': return '$.data.' + node.note;
-        case 'persona': return fill(T['views.note.persona'], { model: node.note });
+        case 'personal': return fill(T['views.note.personal'], { model: node.note });
         case 'dataset': return joined(node.note ? fill(T['views.note.ofModel'], { model: node.note }) : '');
         case 'record': return '';
         case 'unit': return T['views.unit.' + (UNIT_KINDS[node.note] || '')] || node.note;
         case 'shared': return fill(T['views.note.sharedBy'], { name: node.note || T['views.note.anotherOwner'] });
         case 'otherApp': return fill(T['views.note.otherApp'], { path: node.note });
+        case 'persona': return T['views.note.persona'];
+        case 'instance': return fill(T['views.note.lastUsed'], { date: new Date(node.updatedAt).toLocaleDateString(document.documentElement.lang || undefined) });
         case 'endpoint': return node.missing ? fill(T['views.note.missing'], { connection: node.note }) : node.note;
         case 'model': case 'module': case 'component': case 'connection': case 'pattern': return joined(node.note);
         default: return node.note;
     }
 }
 /** The leaves below a part: drawn smaller */
-const LEAVES = ['screen', 'binding', 'persona', 'state', 'record', 'field', 'unit', 'endpoint', 'shared', 'otherApp'];
+const LEAVES = ['screen', 'binding', 'personal', 'state', 'record', 'field', 'unit', 'endpoint', 'shared', 'otherApp', 'instance'];
 
 /** How many parts a branch shows that the app does not use, before a pill for the rest */
 const UNUSED_SHOWN = 6;
@@ -393,8 +436,7 @@ function drawGraph() {
     const items = new Map();
     for (const node of graph.nodes) {
         if (!shown.has(node.id)) continue;
-        const plus = node.add ? button('+', () => void addUnder(node, items.get(node.id).element), 'graph-add') : null;
-        if (plus) plus.setAttribute('aria-label', fill(T['views.addTo'], { path: node.id }));
+        const plus = node.add ? glyphButton('plus', fill(T['views.addTo'], { path: node.id }), () => void addUnder(node, items.get(node.id).element), 'graph-add') : null;
         let made;
         if (node.kind === 'branch' || node.kind === 'owner') {
             made = element('div', { className: 'graph-group path' + (node.used ? '' : ' unused'), 'data-node': node.id, title: node.id }, [element('span', { text: node.label }), plus]);
@@ -406,7 +448,11 @@ function drawGraph() {
                 node.more ? element('small', { text: fill(T['views.note.more'], { count: node.more }) }) : null
             ]);
             made = element('div', { className: 'graph-node' + (LEAVES.includes(node.kind) ? ' leaf' : '') + (node.outside ? ' outside' : '') + (node.used ? '' : ' unused') + (node.current ? ' current' : ''), 'data-node': node.id }, [open, plus]);
-            open.addEventListener('click', () => void openNode(node, made));
+            // Pressing the chosen card again lets it go, as the panel's × and a press on the empty board do
+            open.addEventListener('click', () => {
+                if (made.classList.contains('chosen') && !side.hidden) closeSide();
+                else void openNode(node, made);
+            });
         }
         items.set(node.id, { element: made, pill: node.kind === 'branch' || node.kind === 'owner', kind: node.kind, id: node.id, children: [], parent: null });
     }
@@ -599,7 +645,8 @@ function sideOpen(card, title, children, id) {
     if (card) card.classList.add('chosen');
     if (id) light(id);
     side.dataset.node = id || '';
-    side.replaceChildren(element('h3', { text: title }), ...children.filter(Boolean));
+    const close = glyphButton('cross', T['views.close'], closeSide, 'view-close');
+    side.replaceChildren(element('div', { className: 'view-side-head' }, [element('h3', { text: title }), close]), ...children.filter(Boolean));
     side.hidden = false;
     if (card && graphBoard && graphBoard.contains(card)) reveal(card);
 }
@@ -874,7 +921,7 @@ async function openNode(node, card) {
             case 'app': return appEditor(node, card);
             case 'screen': setView('screens'); if (window.magneticScreens) window.magneticScreens.choose(node.label); return undefined;
             case 'binding': return datasetEditor(await part('data', node.note), card, node.id);
-            case 'persona': return stateEditor('$.data.' + node.label, card, node.id);
+            case 'personal': return stateEditor('$.data.' + node.label, card, node.id);
             case 'state': return stateEditor(node.note, card, node.id);
             case 'dataset': {
                 await datasetEditor(await part('data', nameOf(node)), card, node.id);
@@ -889,6 +936,12 @@ async function openNode(node, card) {
             case 'unit': return moduleUnitEditor(node, card);
             case 'component': return componentEditor(node, card);
             case 'connection': return connectionEditor(await part('connections', nameOf(node)), card, undefined, node.id);
+            case 'persona': return sideOpen(card, node.label, [element('p', { className: 'view-note', text: T['views.personaNote'] })], node.id);
+            case 'instance': return sideOpen(card, node.label, [
+                element('p', { className: 'view-note', text: T['views.instanceNote'] }),
+                element('p', { className: 'view-note', text: noteText(node) }),
+                node.current ? null : element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/edit/' + encodeURIComponent(node.appId), text: T['views.openApp'] })])
+            ], node.id);
             case 'endpoint': {
                 const connection = node.missing ? node.note : nameOf(above(node, 1));
                 return connectionEditor(await part('connections', connection), card, node.label, node.id);
@@ -900,9 +953,7 @@ async function openNode(node, card) {
 
 /** A × that asks first: the question names what goes */
 function removeButton(label, question, run) {
-    const made = button('×', () => { if (confirm(question)) void run(); }, 'danger remove');
-    made.setAttribute('aria-label', label);
-    return made;
+    return glyphButton('cross', label, () => { if (confirm(question)) void run(); }, 'danger remove');
 }
 
 function datasetEditor(part, card, id) {

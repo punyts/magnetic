@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { DEFAULT_PERSONA } from '@punyts/stateui-mcp';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { User } from '../accounts/Accounts.js';
 import type { Connections } from '../connections/Connections.js';
@@ -23,6 +24,8 @@ export interface ViewRouteContext {
     readonly changeConnection: (user: User, form: URLSearchParams) => Promise<{ readonly tried?: { readonly status: string; readonly body: string }; readonly continueTo?: { readonly url: string; readonly host: string } }>;
     /** The datasets other owners shared with a workspace */
     readonly sharedDatasets: (workspaceId: string) => Promise<readonly { readonly owner: string; readonly ownerName: string; readonly dataset: string; readonly fields: readonly string[] }[]>;
+    /** The apps a persona has state in, by the id its state is kept under, the most recently used first */
+    readonly personaApps: (workspaceId: string, ownerId: string) => Promise<readonly { readonly id: string; readonly updatedAt: string }[]>;
     /** How many links the app is shared through */
     readonly sharedCount: (workspaceId: string, appId: string) => Promise<number>;
     readonly report: (message: string, fields?: Record<string, unknown>) => void;
@@ -178,7 +181,10 @@ export function viewRoutes(context: ViewRouteContext) {
             connections,
             ownerNames,
             appNames,
-            manages: place.manages
+            manages: place.manages,
+            // Their own persona only, never another person's. Magnetic gives each person the default persona, whose state
+            // it keeps under their id
+            persona: { name: DEFAULT_PERSONA, owner: place.workspaceId, apps: await context.personaApps(place.workspaceId, place.user.id) }
         });
         return { revision: app.revision, manages: place.manages, app: app.name, ...built };
     }

@@ -158,6 +158,22 @@ describe("The editor's view routes", () => {
         expect(outside.status).toBe(400);
     });
 
+    it("should show the person's own persona under $.personas, with the app once they have state in it, and no one else's", async () => {
+        // Arrange: state of the person's own in the app
+        await post('state', { path: '$.data.mine.m2', value: { title: 'Kept', done: false } });
+
+        // Act
+        const answer = await get('graph');
+
+        // Assert
+        const nodes = answer.body['nodes'] as { id: string; parent: string | null; kind: string; current?: boolean; appId?: string }[];
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.personas.default', parent: '$.personas', kind: 'persona', label: 'default' }));
+        expect(nodes.filter((node) => node.parent === '$.personas')).toHaveLength(1);
+        const instance = nodes.find((node) => node.kind === 'instance' && node.current === true);
+        expect(instance?.id).toMatch(new RegExp(`^\\$\\.personas\\.default\\.apps\\.[^.]+\\.${appId}$`));
+        expect(answer.body['edges']).toContainEqual({ from: '$.apps.notes', to: instance?.id, kind: 'instance' });
+    });
+
     it("should answer a theme's tokens in each mode and the other apps that use it, and write one mode's value", async () => {
         // Arrange
         const before = await get('theme');

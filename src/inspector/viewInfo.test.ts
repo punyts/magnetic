@@ -106,18 +106,19 @@ describe("The editor's views of an app", () => {
             connections: [{ name: 'weather', host: 'api.example.com', endpoints: [{ name: 'today', method: 'GET', path: '/today' }] }, { name: 'mail', host: 'mail.example.com', endpoints: [] }],
             ownerNames: { w2: 'Acme' },
             appNames: { a2: 'Stock' },
-            manages: false
+            manages: false,
+            persona: { name: 'work', owner: 'w1', apps: [{ id: 'A2', updatedAt: '2026-11-18T10:00:00.000Z' }, { id: 'a1', updatedAt: '2026-11-17T10:00:00.000Z' }, { id: 'gone', updatedAt: '2026-11-16T10:00:00.000Z' }] }
         });
 
         // Assert
         const node = (id: string) => tree.nodes.find((candidate) => candidate.id === id);
-        expect(tree.nodes.filter((each) => each.parent === '$').map((each) => each.id)).toEqual(['$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.components', '$.patterns', '$.connections']);
+        expect(tree.nodes.filter((each) => each.parent === '$').map((each) => each.id)).toEqual(['$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.components', '$.patterns', '$.connections', '$.personas']);
         expect(tree.nodes.every((each) => each.parent === null || (each.id.startsWith(each.parent + '.') && tree.nodes.some((other) => other.id === each.parent)))).toBe(true);
         expect(node('$.apps.tasks')).toMatchObject({ kind: 'app', label: 'Tasks', current: true, count: 3, screens: ['home', 'details'] });
         expect(node('$.apps.stock')).toMatchObject({ used: false, appId: 'a2' });
         expect(node('$.apps.tasks.screens.details')).toMatchObject({ kind: 'screen', parent: '$.apps.tasks.screens' });
         expect(node('$.apps.tasks.uses.data.tasks')).toMatchObject({ kind: 'binding', note: 'tasks' });
-        expect(node('$.apps.tasks.uses.data.mine')).toMatchObject({ kind: 'persona', note: 'note' });
+        expect(node('$.apps.tasks.uses.data.mine')).toMatchObject({ kind: 'personal', note: 'note' });
         expect(node('$.apps.tasks.data.filter')).toMatchObject({ kind: 'state', note: '$.data.filter' });
         expect(node('$.apps.tasks.data.tasks')).toBeUndefined();
         expect(node('$.apps.tasks.uses.external.prices')).toMatchObject({ kind: 'shared', note: 'Acme', outside: true });
@@ -136,6 +137,15 @@ describe("The editor's views of an app", () => {
         expect(node('$.connections.weather')).toMatchObject({ used: true, note: 'api.example.com' });
         expect(node('$.connections.mail')).toMatchObject({ used: false });
         expect(node('$.connections.weather.endpoints.alerts')).toMatchObject({ missing: true, note: 'weather' });
+        // Only the person's own persona, with the apps of the workspace they have state in, the app being edited marked
+        expect(node('$.personas')).toMatchObject({ used: true });
+        expect(node('$.personas.work')).toMatchObject({ kind: 'persona', label: 'work', used: true });
+        expect(tree.nodes.filter((each) => each.parent === '$.personas.work').map((each) => [each.id, each.label, each.used])).toEqual([
+            ['$.personas.work.apps.w1.a2', 'Stock', false],
+            ['$.personas.work.apps.w1.a1', 'Tasks', true]
+        ]);
+        expect(node('$.personas.work.apps.w1.a1')).toMatchObject({ kind: 'instance', current: true, appId: 'a1', updatedAt: '2026-11-17T10:00:00.000Z' });
+        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.personas.work.apps.w1.a1', kind: 'instance' });
         // The +: what each branch makes; none for components and patterns, nor for connections without the right to manage them
         expect(['$.apps', '$.apps.tasks.screens', '$.apps.tasks.uses.data', '$.themes', '$.data', '$.models', '$.logic', '$.models.task', '$.logic.billing'].map((id) => node(id)?.add)).toEqual(['app', 'screen', 'binding', 'theme', 'dataset', 'model', 'module', 'field', 'unit']);
         expect([node('$.components')?.add, node('$.patterns')?.add, node('$.connections')?.add]).toEqual([undefined, undefined, undefined]);

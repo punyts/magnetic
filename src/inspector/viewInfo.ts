@@ -271,7 +271,7 @@ export type TreeKind =
     | 'app'
     | 'screen'
     | 'binding'
-    | 'persona'
+    | 'personal'
     | 'state'
     | 'shared'
     | 'otherApp'
@@ -285,7 +285,9 @@ export type TreeKind =
     | 'component'
     | 'pattern'
     | 'connection'
-    | 'endpoint';
+    | 'endpoint'
+    | 'persona'
+    | 'instance';
 
 /** What the + of a node makes under it */
 export type TreeAdd = 'app' | 'screen' | 'binding' | 'theme' | 'dataset' | 'record' | 'model' | 'field' | 'module' | 'unit' | 'connection';
@@ -322,6 +324,8 @@ export interface TreeNode {
     readonly missing?: boolean;
     /** A dataset: how many records it has beyond the ones drawn */
     readonly more?: number;
+    /** An instance: when the person's state of the app was last saved */
+    readonly updatedAt?: string;
     /** What its + makes; none when there is no + */
     readonly add?: TreeAdd;
 }
@@ -329,7 +333,7 @@ export interface TreeNode {
 export interface TreeEdge {
     readonly from: string;
     readonly to: string;
-    readonly kind: 'binding' | 'read' | 'call' | 'model' | 'uses';
+    readonly kind: 'binding' | 'read' | 'call' | 'model' | 'uses' | 'instance';
     readonly label?: string;
 }
 
@@ -368,6 +372,16 @@ export interface TreeInput {
     readonly appNames: Readonly<Record<string, string>>;
     /** Whether the person manages the workspace's connections: only then does `$.connections` have a + */
     readonly manages: boolean;
+    /**
+     * The person's own persona: its name (a persona is the person's own context, such as `work`; Magnetic gives each
+     * person `default` only), the owner of the apps (the workspace), and the apps of it they have state in, the most
+     * recently used first. Never another person's. The person themself is `$.user`, not a persona
+     */
+    readonly persona: {
+        readonly name: string;
+        readonly owner: string;
+        readonly apps: readonly { readonly id: string; readonly updatedAt: string }[];
+    };
 }
 
 /** The most records of a dataset the tree draws */
@@ -418,10 +432,11 @@ function places(node: unknown, component: string): boolean {
 
 /**
  * The owner's statenet as a tree of state paths: `$`, then `$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
- * `$.components`, `$.patterns` and `$.connections`, each holding every part of that kind the owner has. A part the
+ * `$.components`, `$.patterns`, `$.connections` and `$.personas`, each holding every part of that kind the owner has. A part the
  * app being edited does not use is drawn dimmed (`used: false`). One level is drawn below a part: the app's screens,
  * bindings (`uses.data`), own state (`data`) and outside reads (`uses.external`); a dataset's records (the first
- * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints. A branch the person can add to has
+ * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints; the person's own persona with the apps
+ * they have state in (`$.personas.<persona>.apps.<owner>.<app id>`). A branch the person can add to has
  * `add`. The edges are what the tree does not show: what the app uses, a binding's dataset, a dataset's model, an
  * endpoint the app calls
  */
@@ -468,7 +483,7 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
             add({ id, parent: appData, kind: 'binding', label: binding, note: use['dataset'], used: true });
             edges.push({ from: id, to: `$.data.${use['dataset']}`, kind: 'binding', label: `$.data.${binding}` });
         } else if (typeof use['model'] === 'string') {
-            add({ id, parent: appData, kind: 'persona', label: binding, note: use['model'], used: true });
+            add({ id, parent: appData, kind: 'personal', label: binding, note: use['model'], used: true });
             edges.push({ from: id, to: `$.models.${use['model']}`, kind: 'model' });
         }
     }
@@ -560,6 +575,20 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
         const id = `$.connections.${call.connection}.endpoints.${call.endpoint}`;
         if (!nodes.has(id)) add({ id, parent, kind: 'endpoint', label: call.endpoint, note: call.connection, used: true, missing: true });
         edges.push({ from: app, to: id, kind: 'call', label: call.effect });
+    }
+
+    // $.personas: the person's own, with their state of each app laid over its definition. Others' state is theirs
+    const titles = new Map(input.apps.map((each) => [each.id.toLowerCase(), each]));
+    const persona = `$.personas.${input.persona.name}`;
+    const mine = input.persona.apps.filter((each) => titles.has(each.id.toLowerCase()));
+    branch('$.personas', '$', '$.personas', mine.some((each) => each.id.toLowerCase() === input.app.id.toLowerCase()));
+    add({ id: persona, parent: '$.personas', kind: 'persona', label: input.persona.name, note: '', used: true });
+    for (const each of mine) {
+        const of = titles.get(each.id.toLowerCase()) as { id: string; name: string; title: string };
+        const current = of.id.toLowerCase() === input.app.id.toLowerCase();
+        const id = `${persona}.apps.${input.persona.owner}.${of.id.toLowerCase()}`;
+        add({ id, parent: persona, kind: 'instance', label: current ? input.app.title : of.title, note: of.name, used: current, appId: of.id, updatedAt: each.updatedAt, ...(current && { current: true }) });
+        edges.push({ from: `$.apps.${of.name}`, to: id, kind: 'instance' });
     }
     return { nodes: [...nodes.values()], edges };
 }

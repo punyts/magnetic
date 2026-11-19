@@ -34,7 +34,8 @@ test.describe("The editor's views", () => {
     test('the selector switches between the screens and the app views, and the view is kept for the app', async ({ page }) => {
         await expect(sheet(page)).toBeHidden();
         await pickView(editor, page, 'Statenet');
-        await expect(sheet(page).getByRole('heading', { name: 'Statenet' })).toBeVisible();
+        // On the board the view needs no heading: the selector names it
+        await expect(sheet(page).getByRole('heading', { name: 'Statenet' })).toBeHidden();
         // The graph is on the board in place of the screens, and pans and zooms with it: the app itself is a card under
         // $.apps
         await expect(appCard(page)).toBeVisible();
@@ -71,19 +72,25 @@ test.describe("The editor's views", () => {
         const appPath = (await app.getAttribute('data-node')) as string;
         expect(appPath).toMatch(/^\$\.apps\./);
         await expect(node(page, `${appPath}.screens.home`)).toBeVisible();
+        // The person's own persona, and no one else's
+        await expect(node(page, '$.personas.default')).toContainText('Persona');
+        await expect(graph(page).locator('[data-node^="$.personas."].graph-node:not(.leaf)')).toHaveCount(1);
         // Read from one board at once: a change to the app may draw a new one. The branches of $ share its two sides,
         // the first ones right in order and the rest left; on each side a part stands further out than its branch
         const places = await graph(page).evaluate((board, paths) => paths.map((path) => {
             const card = board.querySelector(`[data-node="${path}"]`) as HTMLElement;
             return [card.offsetLeft + card.offsetWidth / 2, card.classList.contains('left') ? -1 : 1] as const;
         }), ['$', '$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath]);
-        const [[root], ...rest] = places;
+        const root = places[0]![0];
+        const rest = places.slice(1);
         const ways = rest.slice(0, 6).map(([x, way]) => { expect(Math.sign(x - root)).toBe(way); return way; });
         expect(ways).toContain(1);
         expect(ways).toContain(-1);
         expect(ways.indexOf(-1)).toBe(ways.lastIndexOf(1) + 1);
-        const [[apps, appsWay], [themes, themesWay]] = rest;
-        const [[themeX, themeWay], [appX, appWay]] = rest.slice(6);
+        const [apps, appsWay] = rest[0]!;
+        const [themes, themesWay] = rest[1]!;
+        const [themeX, themeWay] = rest[6]!;
+        const [appX, appWay] = rest[7]!;
         expect([themeWay, appWay]).toEqual([themesWay, appsWay]);
         expect((themeX - themes) * themesWay).toBeGreaterThan(0);
         expect((appX - apps) * appsWay).toBeGreaterThan(0);
@@ -167,6 +174,59 @@ test.describe("The editor's views", () => {
         await sheet(page).getByRole('button', { name: '← Statenet' }).click();
         await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
         await expect(sheet(page).getByRole('button', { name: '← Statenet' })).toBeHidden();
+    });
+
+    test("a chosen card is let go by the panel's ×, by pressing it again, and by a press on the empty board, not by a drag", async ({ page }) => {
+        // Arrange
+        await pickView(editor, page, 'Statenet');
+        const side = sheet(page).locator('.view-side');
+        const card = appCard(page);
+        const chosen = graph(page).locator('.chosen');
+        /** A point of the board with no card, head or panel over it */
+        const empty = async (): Promise<{ x: number; y: number }> => {
+            const found = await page.evaluate(() => {
+                const board = document.getElementById('board') as HTMLElement;
+                const box = board.getBoundingClientRect();
+                for (let y = box.top + 20; y < box.bottom - 20; y += 16) {
+                    for (let x = box.left + 20; x < box.right - 20; x += 16) {
+                        const at = document.elementFromPoint(x, y);
+                        if (at === board || at?.id === 'world') return { x, y };
+                    }
+                }
+                return null;
+            });
+            expect(found).not.toBeNull();
+            return found as { x: number; y: number };
+        };
+
+        // Act and Assert: the ×
+        await card.locator('.graph-open').click();
+        await expect(side).toBeVisible();
+        await expect(chosen).toHaveCount(1);
+        await side.getByRole('button', { name: 'Close' }).click();
+        await expect(side).toBeHidden();
+        await expect(chosen).toHaveCount(0);
+
+        // The card pressed again
+        await card.locator('.graph-open').click();
+        await expect(side).toBeVisible();
+        await card.locator('.graph-open').click();
+        await expect(side).toBeHidden();
+        await expect(chosen).toHaveCount(0);
+
+        // A drag of the board keeps it; a press on the empty board lets it go
+        await card.locator('.graph-open').click();
+        await expect(side).toBeVisible();
+        const point = await empty();
+        await page.mouse.move(point.x, point.y);
+        await page.mouse.down();
+        await page.mouse.move(point.x + 40, point.y + 30, { steps: 4 });
+        await page.mouse.up();
+        await expect(side).toBeVisible();
+        const again = await empty();
+        await page.mouse.click(again.x, again.y);
+        await expect(side).toBeHidden();
+        await expect(chosen).toHaveCount(0);
     });
 
     test("a logic module added while Statenet shows gets a card, which opens the Logic view with its rule and leads back", async ({ page }, info) => {
