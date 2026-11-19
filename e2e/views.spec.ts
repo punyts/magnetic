@@ -52,7 +52,7 @@ test.describe("The editor's views", () => {
         await expect(editor.app.getByText('Home words')).toBeVisible();
     });
 
-    test("the Statenet graph is the owner's tree by state path: each part under its branch, nothing covering anything", async ({ page }, info) => {
+    test("the Statenet graph is the owner's tree by state path: its branches on both sides of $, each part under its branch, nothing covering anything", async ({ page }, info) => {
         // Arrange: a theme of the app's own
         const name = uniqueName(info, 'tree');
         await pickView(editor, page, 'Theme');
@@ -63,7 +63,7 @@ test.describe("The editor's views", () => {
         // Act
         await pickView(editor, page, 'Statenet');
 
-        // Assert: $ at the left, its branches, then the parts in them; the app's screens under it
+        // Assert: $ in the middle, its branches either side, then the parts in them; the app's screens under it
         const theme = node(page, `$.themes.${name}`);
         await expect(theme).toBeVisible();
         await expect(theme).not.toHaveClass(/unused/);
@@ -71,13 +71,22 @@ test.describe("The editor's views", () => {
         const appPath = (await app.getAttribute('data-node')) as string;
         expect(appPath).toMatch(/^\$\.apps\./);
         await expect(node(page, `${appPath}.screens.home`)).toBeVisible();
-        // Read from one board at once: a change to the app may draw a new one
-        const left = await graph(page).evaluate((board, paths) => paths.map((path) => (board.querySelector(`[data-node="${path}"]`) as HTMLElement).offsetLeft), ['$', '$.themes', `$.themes.${name}`, '$.apps', appPath]);
-        const [root, themes, themeLeft, apps, appLeft] = left as [number, number, number, number, number];
-        expect(root).toBeLessThan(themes);
-        expect(themes).toBeLessThan(themeLeft);
-        expect(apps).toBeLessThan(appLeft);
-        expect(appLeft).toBe(themeLeft);
+        // Read from one board at once: a change to the app may draw a new one. The branches of $ share its two sides,
+        // the first ones right in order and the rest left; on each side a part stands further out than its branch
+        const places = await graph(page).evaluate((board, paths) => paths.map((path) => {
+            const card = board.querySelector(`[data-node="${path}"]`) as HTMLElement;
+            return [card.offsetLeft + card.offsetWidth / 2, card.classList.contains('left') ? -1 : 1] as const;
+        }), ['$', '$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath]);
+        const [[root], ...rest] = places;
+        const ways = rest.slice(0, 6).map(([x, way]) => { expect(Math.sign(x - root)).toBe(way); return way; });
+        expect(ways).toContain(1);
+        expect(ways).toContain(-1);
+        expect(ways.indexOf(-1)).toBe(ways.lastIndexOf(1) + 1);
+        const [[apps, appsWay], [themes, themesWay]] = rest;
+        const [[themeX, themeWay], [appX, appWay]] = rest.slice(6);
+        expect([themeWay, appWay]).toEqual([themesWay, appsWay]);
+        expect((themeX - themes) * themesWay).toBeGreaterThan(0);
+        expect((appX - apps) * appsWay).toBeGreaterThan(0);
         // Of the owner's other apps the first six show, and a pill shows the rest
         expect(await graph(page).locator('.graph-node.unused[data-node^="$.apps."]').count()).toBeLessThanOrEqual(6);
         const boxes = await graph(page).locator('.graph-node, .graph-group').evaluateAll((all) => all.map((each) => { const box = each.getBoundingClientRect(); return [box.left, box.top, box.width, box.height] as const; }));

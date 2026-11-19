@@ -13,7 +13,7 @@ import { SCRIPT_TEXTS } from './text.js';
  *   `$.external` ones as from outside; Logic marks the nodes with handlers, lists the app's units that touch the
  *   screen down its left edge, each marked Server or Browser, and draws an arrow to each screen it leads to.
  * - **Statenet**: the owner's tree by state path, drawn on the board from `GET /edit/<id>/views/graph`: `$`, its
- *   branches, every part with what the app does not use dimmed, and one level below a part. Pressing a node opens its
+ *   branches shared between its right and left sides, every part with what the app does not use dimmed, and one level below a part. Pressing a node opens its
  *   editor at the side: a dataset's records, a model's fields, a path of the state, a module's unit, a connection and
  *   its endpoints (for those who manage connections). A + on a branch or a part opens a form that makes what it holds
  *   and puts it to use in the app.
@@ -82,6 +82,9 @@ export const VIEWS_CSS = [
     '.graph-group.path { font-family: ui-monospace, monospace; }',
     '.graph-group:not(:has(.graph-add)) { padding-right: 12px; }',
     '.graph-group.unused { opacity: .55; }',
+    '.graph-node.left, .graph-group.left { flex-direction: row-reverse; } .graph-node.left .graph-add { margin: 6px 0 0 6px; }',
+    '.graph-group.left { padding: 3px 12px 3px 6px; } .graph-group.left .graph-add { margin: 0 6px 0 0; } .graph-group.left:not(:has(.graph-add)) { padding-left: 12px; }',
+    '.graph-leaves.left { justify-content: flex-end; }',
     '.graph .graph-more { border: 0; padding: 0; background: transparent; color: inherit; font-weight: 600; }',
     '.graph-node.outside { border-style: dashed; }',
     '.graph-node.unused { opacity: .5; }',
@@ -414,7 +417,6 @@ function drawGraph() {
         const parent = node.parent === null ? null : items.get(node.parent);
         if (!parent) { root = item; continue; }
         item.parent = parent;
-        item.side = 1;
         parent.children.push(item);
     }
     // A branch with parts left out ends in a pill that shows them all; an opened one in a pill that shows fewer
@@ -426,14 +428,14 @@ function drawGraph() {
             if (left > 0) graphOpened.add(id); else graphOpened.delete(id);
             drawGraph();
         }, 'graph-more');
-        const more = { element: element('div', { className: 'graph-group more' }, [toggle]), pill: true, kind: 'more', id: id + '#more', children: [], parent: item, side: 1 };
+        const more = { element: element('div', { className: 'graph-group more' }, [toggle]), pill: true, kind: 'more', id: id + '#more', children: [], parent: item };
         item.children.push(more);
     }
     // The leaves of a part (its records, fields, screens, bindings, units) wrap in one block beside it, not a row each
     for (const item of items.values()) {
         const held = item.children.filter((child) => !child.pill);
         if (held.length < 2 || !held.every((child) => LEAVES.includes(child.kind) && child.children.length === 0)) continue;
-        const block = { element: element('div', { className: 'graph-leaves' }, held.map((leaf) => leaf.element)), pill: false, kind: 'leaves', id: item.id + '#leaves', children: [], parent: item, side: 1, leaves: held };
+        const block = { element: element('div', { className: 'graph-leaves' }, held.map((leaf) => leaf.element)), pill: false, kind: 'leaves', id: item.id + '#leaves', children: [], parent: item, leaves: held };
         item.children = [block, ...item.children.filter((child) => child.pill)];
     }
     const edges = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -445,7 +447,7 @@ function drawGraph() {
     world.append(board);
     layOut(root, board);
     for (const block of treeItems(root)) {
-        for (const leaf of block.leaves || []) Object.assign(leaf, { x: block.x + leaf.element.offsetLeft, y: block.y + leaf.element.offsetTop, w: leaf.element.offsetWidth, h: leaf.element.offsetHeight });
+        for (const leaf of block.leaves || []) Object.assign(leaf, { side: block.side, x: block.x + leaf.element.offsetLeft, y: block.y + leaf.element.offsetTop, w: leaf.element.offsetWidth, h: leaf.element.offsetHeight });
     }
     drawEdges(root, graph, edges);
     shell.canvas.fitTo(() => ({ x: 0, y: 0, width: board.offsetWidth, height: board.offsetHeight }));
@@ -497,6 +499,24 @@ function layOut(root, board) {
     root.x = 0;
     root.y = -root.h / 2;
     root.depth = 0;
+    root.side = 1;
+    // The branches of $ share the two sides: the first ones go right and the rest left, split where the two heights
+    // come closest, so each side reads down in the branches' order
+    const heights = root.children.map((item) => stack([item], 1, 0, []));
+    const total = heights.reduce((sum, height) => sum + height, 0);
+    let split = root.children.length;
+    let best = Infinity;
+    for (let count = 1, right = 0; count <= root.children.length; count++) {
+        right += heights[count - 1];
+        const apart = Math.abs(right - (total - right));
+        if (apart < best) { best = apart; split = count; }
+    }
+    const sideOf = (item, way) => {
+        item.side = way;
+        for (const each of [item, ...(item.leaves || [])]) each.element.classList.toggle('left', way < 0);
+        for (const child of item.children) sideOf(child, way);
+    };
+    root.children.forEach((item, index) => sideOf(item, index < split ? 1 : -1));
     for (const side of [1, -1]) {
         const list = root.children.filter((item) => item.side === side);
         if (list.length === 0) continue;
@@ -508,7 +528,7 @@ function layOut(root, board) {
         for (let depth = 1; depth < widths.length; depth++) start[depth] = start[depth - 1] + side * ((depth > 1 ? widths[depth - 1] : 0) + COLUMN_GAP);
         // The branches and the parts in them stand in columns; what a part holds sits just beside it
         for (const item of list.flatMap(treeItems)) {
-            if (item.depth > 2 && side > 0) item.x = item.parent.x + item.parent.w + COLUMN_GAP;
+            if (item.depth > 2) item.x = side > 0 ? item.parent.x + item.parent.w + COLUMN_GAP : item.parent.x - COLUMN_GAP - item.w;
             else item.x = side > 0 ? start[item.depth] : start[item.depth] - item.w;
         }
     }
@@ -539,16 +559,32 @@ function drawEdges(root, graph, svg) {
         svg.append(path);
     };
     const middle = (item) => item.y + item.h / 2;
-    for (const item of all) for (const child of item.children) curve(item.x + item.w, middle(item), child.x, middle(child), child.pill ? 'branch' : '');
-    // Across the tree: from the right of the one higher up to the right of the other, bowing out to the right
+    for (const item of all) {
+        for (const child of item.children) {
+            if (child.side < 0) curve(item.x, middle(item), child.x + child.w, middle(child), child.pill ? 'branch' : '');
+            else curve(item.x + item.w, middle(item), child.x, middle(child), child.pill ? 'branch' : '');
+        }
+    }
+    // Across the tree: on one side, from the outer edge of one to the outer edge of the other, bowing outwards; from
+    // one side to the other, between their inner edges
     for (const edge of graph.edges) {
         const a = items.get(edge.from);
         const b = items.get(edge.to);
         if (!a || !b) continue;
-        const x = Math.max(a.x + a.w, b.x + b.w);
         const bow = 40 + Math.abs(middle(a) - middle(b)) / 8;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M' + (a.x + a.w) + ',' + middle(a) + ' C' + (x + bow) + ',' + middle(a) + ' ' + (x + bow) + ',' + middle(b) + ' ' + (b.x + b.w) + ',' + middle(b));
+        if (a.side < 0 && b.side < 0) {
+            const x = Math.min(a.x, b.x) - bow;
+            path.setAttribute('d', 'M' + a.x + ',' + middle(a) + ' C' + x + ',' + middle(a) + ' ' + x + ',' + middle(b) + ' ' + b.x + ',' + middle(b));
+        } else if (a.side > 0 && b.side > 0) {
+            const x = Math.max(a.x + a.w, b.x + b.w) + bow;
+            path.setAttribute('d', 'M' + (a.x + a.w) + ',' + middle(a) + ' C' + x + ',' + middle(a) + ' ' + x + ',' + middle(b) + ' ' + (b.x + b.w) + ',' + middle(b));
+        } else {
+            const x1 = a.side < 0 ? a.x + a.w : a.x;
+            const x2 = b.side < 0 ? b.x + b.w : b.x;
+            const bend = Math.max(24, Math.abs(x2 - x1) / 2) * (x2 >= x1 ? 1 : -1);
+            path.setAttribute('d', 'M' + x1 + ',' + middle(a) + ' C' + (x1 + bend) + ',' + middle(a) + ' ' + (x2 - bend) + ',' + middle(b) + ' ' + x2 + ',' + middle(b));
+        }
         path.setAttribute('class', 'across ' + edge.kind);
         path.dataset.from = edge.from;
         path.dataset.to = edge.to;
