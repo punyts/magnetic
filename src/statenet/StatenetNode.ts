@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { ClaimPolicy, generateGrantKey } from '@punyts/state-sync/authority';
 import type { Authority, GrantKey, NamespaceHost } from '@punyts/state-sync/authority';
-import { issueNodeCertificate, startOwnerMesh } from '@punyts/statenet';
+import { issueNodeCertificate, MESH_PROTOCOL, renewNodeCertificate, startOwnerMesh } from '@punyts/statenet';
 import type { DirectoryView, KeyPair, NodeRole, OwnerMesh } from '@punyts/statenet';
 import type { InstancePlacement, PartKind, Services } from '@punyts/stateui-mcp';
 import { listenToPartChanges, PgDirectory, PgOwnershipStore } from '@punyts/stateui-pg';
@@ -12,7 +12,8 @@ import type { SecretBox } from '../auth/secrets.js';
 /** The owner of the owner_key row that signs node certificates */
 export const STATENET_AUTHORITY = 'statenet';
 /** How long a node certificate lasts; a server issues its own at every start */
-const CERTIFICATE_MS = 30 * 24 * 3_600_000;
+/** How long a node certificate lasts: a node gets its next one while it runs, a server from itself, a relay over its link */
+const CERTIFICATE_MS = 7 * 24 * 3_600_000;
 
 /** How a Magnetic server takes part in the statenet with the others on its database */
 export interface StatenetOptions {
@@ -61,6 +62,11 @@ export class StatenetAuthority {
         const authority = await this.keys();
         return { certificate: issueNodeCertificate({ nodeId, role, region, publicKey, expires: Date.now() + CERTIFICATE_MS }, authority.privateKey), authorityPublicKey: authority.publicKey };
     }
+
+    /** The next certificate of one the authority signed and that has not ended: the same node, role and key, a later end */
+    async renew(certificate: string): Promise<string | undefined> {
+        return renewNodeCertificate(certificate, await this.keys(), Date.now() + CERTIFICATE_MS, Date.now());
+    }
 }
 
 /** What the node needs of the server: its workspaces, opened on first use */
@@ -95,7 +101,11 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
     const region = options.region ?? '';
     const heartbeatMs = options.heartbeatMs ?? 2_000;
     const keys: KeyPair = generateGrantKey();
-    const { certificate, authorityPublicKey } = await new StatenetAuthority(db, box).issue(nodeId, 'owner', keys.publicKey, region);
+    const authority = new StatenetAuthority(db, box);
+    const issued = await authority.issue(nodeId, 'owner', keys.publicKey, region);
+    const authorityPublicKey = issued.authorityPublicKey;
+    let certificate = issued.certificate;
+    let certifiedAt = Date.now();
     const directory = new PgDirectory(db);
     let view: DirectoryView = { nodes: [], owners: {}, keys: {} };
     /** The workspaces of namespaces this server placed, so it records each once */
@@ -134,7 +144,7 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         const grantKeys: Record<string, GrantKey> = {};
         for (const row of keyRows) grantKeys[row.kid] = { ownerId: row.owner_id, publicKey: row.public_key, ...(row.retired_at !== null && { retiredAt: row.retired_at.getTime() }) };
         const before = JSON.stringify(view.nodes);
-        view = { nodes: nodes.map((node) => ({ id: node.id, role: node.role, region: node.region ?? '', endpoint: node.endpoint ?? '' })), owners: {}, keys: grantKeys };
+        view = { nodes: nodes.map((node) => ({ id: node.id, role: node.role, region: node.region ?? '', endpoint: node.endpoint ?? '', ...(node.publicKey === undefined || node.publicKey === '' ? {} : { publicKey: node.publicKey }) })), owners: {}, keys: grantKeys };
         if (JSON.stringify(view.nodes) !== before) mesh?.directoryChanged();
     };
 
@@ -143,8 +153,16 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         nodeId,
         region,
         keys,
-        certificate,
+        certificate: () => certificate,
         authorityPublicKey,
+        // another server links only while the directory lists it with the key it shows; a relay is not in the directory
+        // (nothing registers it until relays sit above the servers), so its certificate lets it in
+        requireListed: ['owner'],
+        reread: () => readDirectory(),
+        certify: async (presented, claims) => {
+            if (claims.role === 'owner' && !view.nodes.some((node) => node.id === claims.nodeId && node.publicKey === claims.publicKey)) return undefined;
+            return authority.renew(presented);
+        },
         ownership: new PgOwnershipStore(db),
         host,
         directory: () => view,
@@ -155,14 +173,19 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         report: (message) => report(message, { node: nodeId })
     });
     const running = mesh;
-    await directory.register({ id: nodeId, role: 'owner', region, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: 1 });
+    await directory.register({ id: nodeId, role: 'owner', region, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
     await readDirectory();
 
     const beat = setInterval(() => {
         void (async () => {
-            if (!(await directory.heartbeat(nodeId))) await directory.register({ id: nodeId, role: 'owner', region, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: 1 });
+            if (!(await directory.heartbeat(nodeId))) await directory.register({ id: nodeId, role: 'owner', region, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
             await directory.sweep(heartbeatMs * 5);
             await readDirectory();
+            // the server's own certificate, signed again well before it ends
+            if (Date.now() - certifiedAt > CERTIFICATE_MS / 2) {
+                certificate = (await authority.issue(nodeId, 'owner', keys.publicKey, region)).certificate;
+                certifiedAt = Date.now();
+            }
             // a workspace whose instances this server owns stays open while they are owned, though their views are at other servers
             for (const address of running.node.owned()) {
                 const workspaceId = recorded.get(address);
