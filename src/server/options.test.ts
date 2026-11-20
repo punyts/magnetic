@@ -91,7 +91,7 @@ describe('parseOptions', () => {
         expect(parseOptions([], {}).betaOrg).toBeUndefined();
         expect(parseOptions([], { MAGNETIC_BETA_ORG: 'beta', MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' }).betaOrg).toBe('beta');
         expect(parseOptions(['--beta-org', 'trial'], { MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' }).betaOrg).toBe('trial');
-        expect(() => parseOptions([], { MAGNETIC_BETA_ORG: 'beta' })).toThrow('needs MAGNETIC_SECRET_KEY');
+        expect(parseOptions([], { MAGNETIC_BETA_ORG: 'beta' }).betaOrg).toBe('beta');
         expect(() => parseOptions([], { MAGNETIC_BETA_ORG: 'Beta Org', MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' })).toThrow('Invalid beta org');
         expect(parseOptions(['--user-allowance', '2', '--daily-budget', 'off'], {})).toMatchObject({ userAllowance: 2, dailyBudget: undefined });
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
@@ -107,11 +107,11 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--top-ups', '10.001'], {})).toThrow('Invalid top-ups');
     });
 
-    it('should run as one of several servers with a mesh port, from flags over the environment, and only with the secret key', () => {
+    it('should run as one of several servers with a mesh port, from flags over the environment', () => {
         const secret = { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' };
         expect(parseOptions([], secret).statenet).toBeUndefined();
         expect(parseOptions(['--mesh-port', '4310', '--mesh-url', 'ws://magnetic-2:4310', '--node-id', 'magnetic-2'], { ...secret, MAGNETIC_MESH_HOST: '0.0.0.0', MAGNETIC_NODE_ID: 'other' }).statenet).toEqual({ meshPort: 4310, meshHost: '0.0.0.0', meshUrl: 'ws://magnetic-2:4310', nodeId: 'magnetic-2' });
-        expect(() => parseOptions(['--mesh-port', '4310'], {})).toThrow('MAGNETIC_SECRET_KEY');
+        expect(parseOptions(['--mesh-port', '4310'], {}).statenet).toEqual({ meshPort: 4310 });
         expect(() => parseOptions(['--mesh-port', '4310', '--mesh-url', 'http://x'], secret)).toThrow('Invalid mesh URL');
         expect(parseOptions(['relay-certificate', '--node-id', 'relay-1', '--out', 'certs'], secret)).toMatchObject({ command: 'relay-certificate', nodeId: 'relay-1', out: 'certs' });
     });
@@ -133,6 +133,28 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--mesh-port', '4310', '--group', 'two words'], secret)).toThrow('Invalid group');
         expect(() => parseOptions(['aggregate'], secret)).toThrow('--mesh-port');
         expect(() => parseOptions(['migrate', '--aggregate-role', 'magnetic_aggregate'], {})).toThrow('--app-role');
+    });
+
+    it('should also serve on a network address, with TLS files or none, and never behind a proxy', () => {
+        // Arrange
+        const env = { MAGNETIC_NETWORK_HOST: '192.168.1.20' };
+
+        // Act
+        const made = parseOptions([], env);
+        const given = parseOptions(['--network-host', '192.168.1.30', '--tls-cert', 'server.crt', '--tls-key', 'server.key'], env);
+
+        // Assert
+        expect(parseOptions([], {}).network).toBeUndefined();
+        expect(made.network).toEqual({ host: '192.168.1.20' });
+        expect(made.host).toBe('127.0.0.1');
+        expect(given.network).toEqual({ host: '192.168.1.30', tlsCert: 'server.crt', tlsKey: 'server.key' });
+        expect(parseOptions(['--network-host', 'desk.local'], {}).network).toEqual({ host: 'desk.local' });
+        expect(() => parseOptions(['--network-host', '0.0.0.0'], {})).toThrow('Invalid network host');
+        expect(() => parseOptions(['--network-host', '127.0.0.1'], {})).toThrow('Invalid network host');
+        expect(() => parseOptions(['--network-host', 'a b'], {})).toThrow('Invalid network host');
+        expect(() => parseOptions(['--network-host', '192.168.1.20', '--tls-cert', 'server.crt'], {})).toThrow('go together');
+        expect(() => parseOptions(['--tls-cert', 'server.crt', '--tls-key', 'server.key'], {})).toThrow('for --network-host');
+        expect(() => parseOptions(['--network-host', '192.168.1.20', '--public-origin', 'https://magnetic.example'], {})).toThrow('--public-origin alone');
     });
 
     it.each([['--effort', 'extreme'], ['--daily-budget', '-1'], ['--monthly-budget', 'lots'], ['--model', 'two words']])('should refuse %s %s', (flag, value) => {

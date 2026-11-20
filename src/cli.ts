@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
+import { localSecretKey, localTls } from './server/localTls.js';
 import { sesMailer } from './mail/Mailer.js';
 import { join } from 'node:path';
 import { generateKeyPair } from '@punyts/statenet';
@@ -39,6 +41,19 @@ async function embedderOf(kind: 'local' | 'hash' | 'off', modelCache: string | u
     return localEmbedder(modelCache === undefined ? {} : { cacheDir: modelCache });
 }
 
+/**
+ * The network listener's address and TLS: the operator's files, or a certificate for the address and this machine's
+ * name from the local authority in `<dataDir>/tls` (docs/design/statenet-network.md, S10)
+ */
+async function networkOf(network: { host: string; tlsCert?: string; tlsKey?: string }, dataDir: string): Promise<{ host: string; key: string; cert: string }> {
+    if (network.tlsCert !== undefined && network.tlsKey !== undefined) return { host: network.host, key: await readFile(network.tlsKey, 'utf8'), cert: await readFile(network.tlsCert, 'utf8') };
+    const machine = hostname().toLowerCase();
+    const names = [...new Set([network.host.toLowerCase(), machine, `${machine}.local`])].filter((name) => /^[a-z0-9.:-]+$/.test(name));
+    const tls = await localTls(join(dataDir, 'tls'), machine, names);
+    if (tls.made) process.stderr.write(`magnetic: made a certificate for ${names.join(', ')}; other computers trust ${tls.authorityFile} once\n`);
+    return { host: network.host, key: tls.key, cert: tls.cert };
+}
+
 async function main(): Promise<void> {
     let options;
     try {
@@ -61,6 +76,13 @@ async function main(): Promise<void> {
         return;
     }
     const database = createDatabase({ url: options.databaseUrl });
+    /** MAGNETIC_SECRET_KEY, or the one this data directory keeps, made on first use */
+    const secretKey = async (): Promise<string> => {
+        if (options.secretKey !== undefined) return options.secretKey;
+        const local = await localSecretKey(options.dataDir);
+        if (local.made) process.stderr.write(`magnetic: made a secret key in ${join(options.dataDir, 'secret-key')}; keep it, or set MAGNETIC_SECRET_KEY\n`);
+        return local.key;
+    };
     if (options.command === 'migrate') {
         try {
             const applied = await migrate(database, ALL_MIGRATIONS);
@@ -112,11 +134,10 @@ async function main(): Promise<void> {
     }
     if (options.command === 'relay-certificate') {
         try {
-            if (options.secretKey === undefined) throw new Error('relay-certificate needs MAGNETIC_SECRET_KEY, which keeps the statenet\'s certificate authority');
             if (options.nodeId === undefined) throw new Error('relay-certificate needs the relay\'s --node-id');
             await assertMigrated(database, ALL_MIGRATIONS);
             const keys = generateKeyPair();
-            const issued = await new StatenetAuthority(database, new SecretBox(options.secretKey)).issue(options.nodeId, 'relay', keys.publicKey, options.statenet?.region ?? '');
+            const issued = await new StatenetAuthority(database, new SecretBox(await secretKey())).issue(options.nodeId, 'relay', keys.publicKey, options.statenet?.region ?? '');
             await mkdir(options.out, { recursive: true });
             const keyFile = join(options.out, `${options.nodeId}.key.json`);
             const certificateFile = join(options.out, `${options.nodeId}.certificate`);
@@ -131,13 +152,13 @@ async function main(): Promise<void> {
     }
     if (options.command === 'aggregate') {
         const statenet = options.statenet;
-        if (statenet === undefined || options.secretKey === undefined) throw new Error('The aggregate needs --mesh-port and MAGNETIC_SECRET_KEY');
+        if (statenet === undefined) throw new Error('The aggregate needs --mesh-port');
         await assertMigrated(database, ALL_MIGRATIONS);
         const reporter = createReporter({ categories: ['info', 'warning', 'error'] });
         reporter.addListener((_timestamp, category, message, details) => {
             process.stderr.write(`[magnetic-aggregate] ${category} ${message}${details === undefined ? '' : ` ${JSON.stringify(details)}`}\n`);
         });
-        const aggregate = await startMagneticAggregate(database, new SecretBox(options.secretKey), {
+        const aggregate = await startMagneticAggregate(database, new SecretBox(await secretKey()), {
             nodeId: statenet.nodeId ?? 'aggregate-1',
             ...(statenet.meshHost === undefined ? {} : { host: statenet.meshHost }),
             port: statenet.meshPort,
@@ -206,10 +227,12 @@ async function main(): Promise<void> {
     const providers: OidcProvider[] = options.linkedIn === undefined ? [] : [linkedInProvider(options.linkedIn.clientId, options.linkedIn.clientSecret, { pkce: options.linkedIn.pkce })];
     const mock = options.mockProvider ? await startMockOidcProvider() : undefined;
     if (mock !== undefined) providers.push({ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret });
+    const network = options.network === undefined ? undefined : await networkOf(options.network, options.dataDir);
     const server = await startMagnetic({
         database,
         ...(embedder !== undefined && { embedder }),
         host: options.host,
+        ...(network !== undefined && { network }),
         port: options.port,
         ...(options.runtimePort !== undefined && { runtimePort: options.runtimePort }),
         report: reporter.report,
@@ -222,7 +245,7 @@ async function main(): Promise<void> {
         ...(options.privacy !== undefined && { privacy: options.privacy }),
         providers,
         allowHttpProviders: mock !== undefined,
-        ...(options.secretKey !== undefined && { secretKey: options.secretKey }),
+        secretKey: await secretKey(),
         ...(options.mail !== undefined && { mailer: sesMailer(options.mail) }),
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         ...(options.stripe !== undefined && { payments: { stripe: options.stripe, ...(options.topUps !== undefined && { topUps: options.topUps }) } }),
@@ -234,6 +257,7 @@ async function main(): Promise<void> {
     else process.stderr.write(`magnetic: agent ${options.model} by default (${options.effort}), budget ${[options.userAllowance !== undefined && `$${options.userAllowance} per user in all${options.allowanceUsers !== undefined ? ` for the first ${options.allowanceUsers}` : ''}${options.betaOrg !== undefined ? ` of the beta org ${options.betaOrg}` : ''}`, options.dailyBudget !== undefined && `$${options.dailyBudget} per user per day`, `$${options.monthlyBudget} per month`].filter(Boolean).join(', ')}${process.env['ANTHROPIC_API_KEY'] === undefined ? '; ANTHROPIC_API_KEY is not set, so agent turns will fail' : ''}\n`);
     if (options.stripe !== undefined) process.stderr.write(`magnetic: agent use can be bought through Stripe; its webhook is ${server.origin}/billing/stripe\n`);
     process.stderr.write(`magnetic: ${server.origin}\n`);
+    if (server.networkOrigin !== undefined) process.stderr.write(`magnetic: on the local network at ${server.networkOrigin}\n`);
 
     let stopping = false;
     const stop = (): void => {

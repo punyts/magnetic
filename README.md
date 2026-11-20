@@ -99,9 +99,9 @@ The commands are:
   then exit (after changing `--embedding`);
 - `feedback`: print the latest hundred bugs, comments and feature requests sent from the editor, then exit;
 - `relay-certificate`: write a key pair and a node certificate for a `statenet-relay` (`--node-id`) to `--out`, and
-  print the authority key the relay checks its parents with. Needs `MAGNETIC_SECRET_KEY`;
+  print the authority key the relay checks its parents with. Uses `MAGNETIC_SECRET_KEY` or the data directory's key;
 - `aggregate`: run the statenet's aggregate, the one writer of people's state, which relays link up to (`--mesh-port`,
-  `--node-id`). It connects as the aggregate's role and needs `MAGNETIC_SECRET_KEY`.
+  `--node-id`). It connects as the aggregate's role and uses `MAGNETIC_SECRET_KEY` or the data directory's key.
 
 `magnetic --help` prints the same options as this table (`HELP_TEXT` in `src/server/options.ts`).
 
@@ -117,6 +117,8 @@ The commands are:
 | `--port <n>` | `MAGNETIC_PORT` | `4300` | Port of the pages and sockets |
 | `--runtime-port <n>` | `MAGNETIC_RUNTIME_PORT` | the next port | Port of the runtime origin, which serves only the app frame |
 | `--host <address>` | `MAGNETIC_HOST` | `127.0.0.1` | Address to bind |
+| `--network-host <address>` | `MAGNETIC_NETWORK_HOST` | none | Also serve over HTTPS on this address of the local network, on the same ports, while `--host` stays loopback. No development sign-in there: people sign in with a link from a device already signed in. Not with `--public-origin` |
+| `--tls-cert <file>`, `--tls-key <file>` | `MAGNETIC_TLS_CERT`, `MAGNETIC_TLS_KEY` | a certificate from the local authority in `<data dir>/tls` | The network address's certificate and key, PEM |
 | `--dev-user <name>` | `MAGNETIC_DEV_USERS` (comma-separated) | none | A test user who signs in with a button and no provider; repeat for more. Loopback hosts only |
 | `--seed <scenario>` | `MAGNETIC_SEED` | none | Seeds the beta's people to sign in as, for development: `beta` (3 places left) or `beta-full`. Needs `--beta-org`. Loopback hosts only |
 | `--starter <kind>` | `MAGNETIC_STARTER` | `showcase` | What a new workspace holds: the component showcase, or `none` |
@@ -131,10 +133,10 @@ The commands are:
 | `--daily-budget <usd>` | `MAGNETIC_DAILY_BUDGET` | `1` | Dollars each person may spend per UTC day, or `off` |
 | `--user-allowance <usd>` | `MAGNETIC_USER_ALLOWANCE` | none | Dollars each person may spend ever, a one-time allowance such as the beta's |
 | `--allowance-users <n>` | `MAGNETIC_ALLOWANCE_USERS` | everyone | Only the first n people (by first sign-in) get the allowance; the others may buy agent use |
-| `--beta-org <slug>` | `MAGNETIC_BETA_ORG` | none | The beta org: people join it through the beta link on Admin, and only its first `--allowance-users` members get the allowance. Needs `MAGNETIC_SECRET_KEY` |
+| `--beta-org <slug>` | `MAGNETIC_BETA_ORG` | none | The beta org: people join it through the beta link on Admin, and only its first `--allowance-users` members get the allowance |
 | `--monthly-budget <usd>` | `MAGNETIC_MONTHLY_BUDGET` | `100` | Dollars the server may spend per UTC month |
 | `--top-ups <usd,...>` | `MAGNETIC_TOP_UPS` | `10,25,50` | The amounts of agent use people may buy after their allowance |
-| `--mesh-port <n>` | `MAGNETIC_MESH_PORT` | none: the server runs alone | Runs as one of several servers on one database, linking to the others and to relays on this port (`0` for any free port). Needs `MAGNETIC_SECRET_KEY` |
+| `--mesh-port <n>` | `MAGNETIC_MESH_PORT` | none: the server runs alone | Runs as one of several servers on one database, linking to the others and to relays on this port (`0` for any free port). The servers share one `MAGNETIC_SECRET_KEY` |
 | `--mesh-host <address>` | `MAGNETIC_MESH_HOST` | `--host` | Address the mesh binds |
 | `--mesh-url <url>` | `MAGNETIC_MESH_URL` | the address it listens on | The URL the other servers and relays reach this one's mesh at, such as `ws://magnetic-2:4310` |
 | `--group <name>` | `MAGNETIC_GROUP` | the host's name | The group of servers that run together and link to each other directly |
@@ -145,13 +147,21 @@ The commands are:
 | | `ANTHROPIC_API_KEY` | none | The Claude API key of the agent |
 | | `MAGNETIC_LINKEDIN_CLIENT_ID`, `MAGNETIC_LINKEDIN_CLIENT_SECRET` | none | LinkedIn's client. Environment only, so the secret stays out of the process list |
 | | `MAGNETIC_LINKEDIN_PKCE` | `false` | `true` sends a PKCE challenge to LinkedIn, which takes it only from apps it enabled as native; a web app's sign-in then fails with `invalid_client` |
-| | `MAGNETIC_SECRET_KEY` | none | A random secret of 16 or more characters. It seals each org's own OpenID Connect client secret and every owner's signing key, and keeps the statenet's certificate authority. Without it there is no org sign-in, no grants of state, no mesh and no beta org |
+| | `MAGNETIC_SECRET_KEY` | none | A random secret of 16 or more characters. It seals each org's own OpenID Connect client secret and every owner's signing key, and keeps the statenet's certificate authority. Without it the server makes one in `<data dir>/secret-key` on first run and keeps it there; servers that share a database must share one key |
 | | `MAGNETIC_MAIL_FROM` | none | A verified Amazon SES address that invites and feedback are emailed from. Without it, an invite's link is only shown to the person who made it |
 | | `MAGNETIC_MAIL_REGION` | `us-east-2` | The SES region; credentials come from the machine |
 | | `MAGNETIC_OPERATOR`, `MAGNETIC_CONTACT_EMAIL` | none | Who runs the server and where privacy requests go; both or neither. Both set: `/privacy` says, without a sign-in, what Magnetic keeps, why, who else sees it and how to have it deleted |
 | | `MAGNETIC_ADMIN_EMAILS` (comma-separated) | none | People whose verified email is listed are admins (`/admin`) |
 | | `MAGNETIC_STRIPE_SECRET_KEY`, `MAGNETIC_STRIPE_WEBHOOK_SECRET` | none | Stripe's secret key and the signing secret of the webhook `<origin>/billing/stripe`; both, or no buying of agent use |
 
+
+### On the local network
+`npm run magnetic -- --network-host 192.168.1.20` (this machine's address on the network) serves the same server at
+`https://192.168.1.20:4300` as well as `http://127.0.0.1:4300`. On first start it makes a certificate authority in
+`data/tls` and a certificate for the address and the machine's name; another computer trusts `data/tls/authority.crt`
+once (on Windows, `certutil -user -addstore Root authority.crt`), or accepts the browser's warning. The firewall must
+let other computers reach ports 4300 and 4301. Sign in here, open Your apps, Profile, "Sign in on another device", and
+open the link on the other computer within ten minutes.
 ## How it works
 
 - **The server is stateui-mcp's browser endpoint.** `startMagnetic` runs `startHttpServer` of `@punyts/stateui-mcp`

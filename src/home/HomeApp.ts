@@ -279,6 +279,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                             children: {
                                                 connections: link('connections', t['home.connections']),
                                                 data: link('data', t['home.data']),
+                                                device: link('device', t['home.device']),
                                                 admin: link('admin', t['home.admin'], { '<-hidden': `${H}.notAdmin` }),
                                                 signout: link('signout', t['home.signOut'], { variant: 'ghost' })
                                             }

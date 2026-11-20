@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
-import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import type { Report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
@@ -63,6 +63,7 @@ import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
 import { run } from '../stateui/run.js';
 import type { HomeCard } from '../home/HomeApp.js';
 import type { User } from '../accounts/Accounts.js';
+import { DEVICE_LINK_MINUTES, DeviceLinks } from '../accounts/DeviceLinks.js';
 import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
 import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
 import type { OidcProvider } from '../auth/OidcSignIn.js';
@@ -189,6 +190,12 @@ export interface MagneticOptions {
     /** How often the embedding worker looks for work; default 2 s */
     readonly embedEveryMs?: number;
     readonly host: string;
+    /**
+     * Also serve over HTTPS on an address of the local network, on the same ports (docs/design/statenet-network.md,
+     * S10). Development sign-in and the providers are not offered there; people sign in with a link from a device
+     * already signed in (`/settings/device`). Not with `publicOrigin`
+     */
+    readonly network?: NetworkListener;
     /** 0 picks a free port */
     readonly port: number;
     /** The port of the runtime origin; default the next port (a free one when `port` is 0) */
@@ -277,6 +284,8 @@ export const DEFAULT_TOP_UPS: readonly number[] = [10, 25, 50];
 
 export interface RunningMagnetic {
     readonly origin: string;
+    /** The origin of the network listener, when there is one (`network`) */
+    readonly networkOrigin?: string;
     /** The database the server was given */
     readonly database: Database;
     readonly port: number;
@@ -410,6 +419,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     await assertMigrated(db, ALL_MIGRATIONS);
     const accounts = new Accounts(db);
     const sessions = new Sessions(db);
+    const deviceLinks = new DeviceLinks(db);
     const stamps = new Stamps(db);
     // Magnetic's own apps are made by one server at a time, as several may share the database
     const exclusive = databaseExclusive(db);
@@ -450,13 +460,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const similarity = index === undefined ? undefined : new RecordSimilarity(index, owners);
     index?.start(options.embedEveryMs);
     let origin = '';
+    let networkOrigin: string | undefined;
+    if (options.network !== undefined && options.publicOrigin !== undefined) throw new Error('A server behind a proxy (publicOrigin) is not also served on the local network (network)');
+    /** A request that came over the network listener, where only a link from another device signs in */
+    const fromNetwork = (request: IncomingMessage): boolean => options.network !== undefined && isNetworkRequest(request);
     let runtimePort = 0;
     const publicOrigin = options.publicOrigin?.replace(/\/+$/, '');
     const runtimeOrigin = options.runtimeOrigin?.replace(/\/+$/, '');
     if (runtimeOrigin !== undefined && publicOrigin === undefined) throw new Error('A runtime origin needs a public origin beside it');
     if (runtimeOrigin !== undefined && new URL(runtimeOrigin).host === new URL(publicOrigin as string).host) throw new Error('The runtime origin must be another host than the public origin, so an app cannot reach the session cookie');
     const secure = options.secureCookies ?? publicOrigin?.startsWith('https://') ?? false;
-    /** In the beta (docs/design/magnetic-beta.md) people sign in only with the server's providers, and nobody makes an org */
+    /** In the beta (docs/design/magnetic-beta.md) nobody makes an org */
     const inBeta = options.agent?.budgets?.betaOrg !== undefined;
     const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
     const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
@@ -465,13 +479,21 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (!inBeta || !(await budgets.allowanceFull())) return { notice: '', noNotice: true };
         return { notice: fill(t['signin.betaFullText'], { places: String(budgetLimits.allowanceUsers), provider: providerButtons[0]?.label ?? '' }), noNotice: false };
     };
-    /** The sign-in page, a StateUI app in the browser's language: a button per provider and per development user */
-    const signInPageOf = async (request: IncomingMessage, next: string, error?: string): Promise<string> => {
+    /**
+     * The sign-in page, a StateUI app in the browser's language: a button per provider and per development user. Over
+     * the network listener it offers neither, only how to sign in with a link from another device, and with `link`
+     * one button that uses that link
+     */
+    const signInPageOf = async (request: IncomingMessage, next: string, error?: string, link?: { readonly token: string; readonly name: string }): Promise<string> => {
         const look: PageLook = { language: languageOf(request.headers['accept-language']), mode: 'system' };
         const t = textsOf(look.language);
         const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
         const app = await pageOf(request, PAGE_APPS.signIn);
-        const work = sso.available && !inBeta;
+        const network = fromNetwork(request);
+        const work = sso.available && !network;
+        const providers = network ? [] : providerButtons;
+        const people = link !== undefined ? [{ id: link.token, label: fill(t['signin.linkAs'], { name: link.name }) }] : network ? [] : devUsers.map((name) => ({ id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }));
+        const notice = network && link === undefined ? { notice: t['signin.networkText'], noNotice: false } : await betaNotice(t);
         return appPage({
             look,
             title: t['signin.title'],
@@ -483,16 +505,16 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 '$.data.signin': {
                     error: error ?? '',
                     noError: error === undefined,
-                    ...(await betaNotice(t)),
-                    providers: Object.fromEntries(providerButtons.map((provider, index) => [`p${index}`, { id: provider.name, label: provider.label }])),
-                    noProviders: providerButtons.length === 0,
-                    devUsers: Object.fromEntries(devUsers.map((name, index) => [`u${index}`, { id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }])),
-                    noDevUsers: devUsers.length === 0,
+                    ...notice,
+                    providers: Object.fromEntries(providers.map((provider, index) => [`p${index}`, { id: provider.name, label: provider.label }])),
+                    noProviders: providers.length === 0,
+                    devUsers: Object.fromEntries(people.map((person, index) => [`u${index}`, person])),
+                    noDevUsers: people.length === 0,
                     noSso: !work,
-                    noNone: providerButtons.length > 0 || devUsers.length > 0 || work
+                    noNone: providers.length > 0 || people.length > 0 || work || network
                 }
             },
-            actions: { provider: { go: `/auth/{id}${query}` }, dev: { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
+            actions: { provider: { go: `/auth/{id}${query}` }, dev: link !== undefined ? { post: '/signin/link', form: { token: '{id}', next } } : { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
     };
     /** A share link's page, a StateUI app: why the link does not open an app, or the offer to remix it */
@@ -1015,7 +1037,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** The runtime origin as the browser of a request reaches it */
     function runtimeOriginOf(request: IncomingMessage): string {
         if (runtimeOrigin !== undefined) return runtimeOrigin;
-        return `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
+        return `${fromNetwork(request) ? 'https' : 'http'}://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
     }
 
     /** Sends one of Magnetic's own pages made as a StateUI app: the app runs in the page, on the page bundle */
@@ -1162,7 +1184,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const url = new URL(request.url ?? '/', 'http://localhost');
         const path = url.pathname;
         const method = request.method ?? 'GET';
-        const cookie = (token: string, maxAge: number): string => sessionCookie(token, { maxAge, secure });
+        // the network listener is HTTPS, so its cookies are Secure
+        const secureHere = secure || fromNetwork(request);
+        const cookie = (token: string, maxAge: number): string => sessionCookie(token, { maxAge, secure: secureHere });
 
         if (method === 'GET' && path === '/assets/logo.svg') {
             response.writeHead(200, { ...COMMON_HEADERS, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
@@ -1187,7 +1211,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (method === 'POST' && path === '/signin/dev') {
             const form = await readForm(request);
             const name = form.get('user');
-            if (name === null || !devUsers.includes(name)) throw new HttpError(403, 'Not a development user of this server', 'forbidden');
+            if (name === null || !devUsers.includes(name) || fromNetwork(request)) throw new HttpError(403, 'Not a development user of this server', 'forbidden');
             const profile = options.devProfiles?.[name];
             const user = await accounts.signIn({ provider: 'dev', subject: name }, profile === undefined ? { name } : { name: profile.name, ...(profile.email !== undefined && { email: profile.email, emailVerified: true }) });
             await joinBeta(user.id);
@@ -1195,8 +1219,43 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, safeNext(form.get('next')), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
             return true;
         }
-        const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure, path: '/auth' });
-        if (method === 'GET' && path === '/signin/sso' && !inBeta) {
+        const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure: secureHere, path: '/auth' });
+        if (method === 'GET' && path === '/settings/device') {
+            // Sign in another device: a link that signs in as this person once, within ten minutes, at the address
+            // other devices reach (the network listener's, when there is one)
+            const who = await signedIn(request);
+            if (who === undefined) {
+                redirect(response, `/signin?next=${encodeURIComponent('/settings/device')}`);
+                return true;
+            }
+            const look = await lookOf(request, who.user.id);
+            const t = textsOf(look.language);
+            const link = `${networkOrigin ?? publicOrigin ?? origin}/signin/link/${await deviceLinks.make(who.user.id)}`;
+            sendAppPage(request, response, await linkPageOf(request, look, t['home.device'], fill(t['device.text'], { link, minutes: String(DEVICE_LINK_MINUTES) })));
+            return true;
+        }
+        const deviceLink = /^\/signin\/link\/([A-Za-z0-9_-]{43})$/.exec(path);
+        if (method === 'GET' && deviceLink !== null) {
+            // Opening the link only asks to confirm, so a preview of it signs nobody in
+            const token = deviceLink[1] as string;
+            const userId = await deviceLinks.peek(token);
+            const user = userId === undefined ? undefined : await accounts.user(userId);
+            if (user === undefined) sendAppPage(request, response, await signInPageOf(request, '/', textsOf(languageOf(request.headers['accept-language']))['signin.linkUsed']), 404);
+            else sendAppPage(request, response, await signInPageOf(request, '/', undefined, { token, name: user.name }));
+            return true;
+        }
+        if (method === 'POST' && path === '/signin/link') {
+            const form = await readForm(request);
+            const userId = await deviceLinks.use(form.get('token') ?? undefined);
+            if (userId === undefined) {
+                sendAppPage(request, response, await signInPageOf(request, '/', textsOf(languageOf(request.headers['accept-language']))['signin.linkUsed']), 400);
+                return true;
+            }
+            options.report.info('Signed in with a link from another device', { userId, network: fromNetwork(request) });
+            redirect(response, safeNext(form.get('next')), cookie(await sessions.start(userId), SESSION_DAYS * 24 * 60 * 60));
+            return true;
+        }
+        if (method === 'GET' && path === '/signin/sso' && !fromNetwork(request)) {
             // "Sign in with your work email": the org that verified the email's domain, through its own provider
             const next = safeNext(url.searchParams.get('next'));
             const email = (url.searchParams.get('email') ?? '').trim().slice(0, 320);
@@ -1791,6 +1850,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         host: options.host,
         port: options.port,
         runtimePort: options.runtimePort ?? (options.port === 0 ? 0 : options.port + 1),
+        ...(options.network !== undefined && { network: options.network }),
         ...(runtimeOrigin !== undefined && publicOrigin !== undefined && { publicOrigins: { main: publicOrigin, runtime: runtimeOrigin } }),
         tenant,
         routes: async (request, response) => {
@@ -1814,16 +1874,18 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     });
     runtimePort = http.runtimePort;
     origin = http.origin.replace('//0.0.0.0', '//127.0.0.1').replace('//[::]', '//[::1]');
+    networkOrigin = http.networkOrigin;
     const sweep = setInterval(() => void workspaces.sweep(), 60_000);
     sweep.unref();
     // Each org's retentionDays: its old chats, and the state of people no longer in it, go once an hour
     const retention = setInterval(() => void policies.applyRetention().catch((error: unknown) => options.report.info('Retention sweep failed', { error: error instanceof Error ? error.message : String(error) })), 3_600_000);
     retention.unref();
-    options.report.info('Magnetic started', { origin, devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
+    options.report.info('Magnetic started', { origin, ...(networkOrigin !== undefined && { networkOrigin }), devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
 
     let stopped = false;
     return {
         origin,
+        ...(networkOrigin !== undefined && { networkOrigin }),
         database: db,
         port: http.port,
         runtimePort: http.runtimePort,

@@ -159,7 +159,7 @@ describe('Signing up in the beta', () => {
         await test.drop();
     });
 
-    it('should offer no sign-in by work email, nor let anyone make an org', async () => {
+    it('should offer sign-in by work email, but not let anyone make an org', async () => {
         // Arrange
         const bob = await signIn('bob');
 
@@ -169,8 +169,9 @@ describe('Signing up in the beta', () => {
         const make = await fetch(`${magnetic.origin}/settings/orgs`, { method: 'POST', redirect: 'manual', headers: { Cookie: bob.cookie, Origin: magnetic.origin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Mine&slug=mine' });
 
         // Assert
-        expect(signInPage).toContain('"noSso":true');
+        expect(signInPage).toContain('"noSso":false');
         expect(byEmail.status).toBe(404);
+        expect(await byEmail.text()).toContain('No organisation signs in here');
         expect(make.status).toBe(403);
         expect(await make.text()).toContain('Making an org is not open yet.');
         expect(await (await get('/settings/orgs', bob.cookie)).text()).not.toContain('Make an org');

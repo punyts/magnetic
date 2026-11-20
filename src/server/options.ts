@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 export interface CliOptions {
     /** The command: run the server (default), apply the migrations, or import a file data folder */
     command: 'serve' | 'migrate' | 'import' | 'reindex' | 'relay-certificate' | 'feedback' | 'aggregate';
@@ -13,6 +15,11 @@ export interface CliOptions {
     appRole: string | undefined;
     dataDir: string;
     host: string;
+    /**
+     * Also serve over HTTPS on this address of the local network (docs/design/statenet-network.md, S10), with these
+     * PEM files, or a certificate a local authority makes in `<dataDir>/tls` when they are absent
+     */
+    network: { host: string; tlsCert?: string; tlsKey?: string } | undefined;
     port: number;
     runtimePort: number | undefined;
     devUsers: string[];
@@ -29,7 +36,10 @@ export interface CliOptions {
     mockProvider: boolean;
     /** LinkedIn's client, from the environment only so the secret stays out of the process list */
     linkedIn: { clientId: string; clientSecret: string; pkce: boolean } | undefined;
-    /** The server's secret key, from the environment only: it seals the sign-in secrets orgs keep here */
+    /**
+     * The server's secret key, from the environment only: it seals the sign-in secrets orgs keep here and the statenet's
+     * authority. Absent, the commands use the one made in `<dataDir>/secret-key`
+     */
     secretKey: string | undefined;
     /** Invites are emailed through Amazon SES from this verified address, in this region; undefined sends none */
     mail: { from: string; region: string } | undefined;
@@ -93,12 +103,21 @@ Options:
                          needs @huggingface/transformers), hash (word hashing, no model) or off
                          (env MAGNETIC_EMBEDDING, default local)
   --model-cache <dir>    Where the local model is kept (env MAGNETIC_MODEL_CACHE)
-  --data-dir <dir>       For import: the data folder of an earlier, file-based Magnetic
-                         (env MAGNETIC_DATA_DIR, default ./data)
+  --data-dir <dir>       Where the server keeps its own files: the secret key it makes without
+                         MAGNETIC_SECRET_KEY, and the local network's certificates (tls/). For import:
+                         the data folder of an earlier, file-based Magnetic (env MAGNETIC_DATA_DIR, default ./data)
   --port <number>        Port of the pages and sockets (env MAGNETIC_PORT, default ${DEFAULT_PORT})
   --runtime-port <n>     Port of the runtime origin that serves the app frame
                          (env MAGNETIC_RUNTIME_PORT, default the next port)
   --host <address>       Address to bind (env MAGNETIC_HOST, default 127.0.0.1)
+  --network-host <address> Also serve over HTTPS on this address of the local network, such as
+                         192.168.1.20, on the same ports, so other computers reach the server while --host stays
+                         loopback (env MAGNETIC_NETWORK_HOST). Development sign-in is not offered there: people sign
+                         in with a link made on a device already signed in. The certificate is --tls-cert and
+                         --tls-key, or one a local authority makes in <data dir>/tls; the other computers trust its
+                         authority.crt once. Not with --public-origin
+  --tls-cert <file>      The network address's certificate, PEM (env MAGNETIC_TLS_CERT); with --tls-key
+  --tls-key <file>       Its private key, PEM (env MAGNETIC_TLS_KEY)
   --dev-user <name>      A test user who signs in with a button, no provider; repeat for more
                          (env MAGNETIC_DEV_USERS, comma-separated). Loopback hosts only
   --seed <scenario>      Seeds the beta's people to sign in as, for development: beta (a few places
@@ -121,7 +140,8 @@ Sign in with LinkedIn (environment only):
 
 Orgs' own sign-in (environment only):
   MAGNETIC_SECRET_KEY              A random secret of 16 or more characters that seals the client secret of each
-                                   org's own OpenID Connect provider. Without it, orgs cannot set one up.
+                                   org's own OpenID Connect provider and the statenet's authority. Without it,
+                                   the server makes one in <data dir>/secret-key on first run and keeps it there.
                                    Their redirect URI is <origin>/auth/sso/callback
 
 Email (environment only):
@@ -161,7 +181,7 @@ Buying agent use after the allowance (environment only; both, or no buying):
   --mock-agent           A scripted agent that adds each request as a text on the app's first screen,
                          to try the editor without an API key (env MAGNETIC_MOCK_AGENT=true). Loopback hosts only
 
-Several servers on one database (each a node of the statenet; needs MAGNETIC_SECRET_KEY):
+Several servers on one database (each a node of the statenet; all with one MAGNETIC_SECRET_KEY, or one data directory):
   --mesh-port <number>   Run as one of several servers, linking to the others and to relays on this port
                          (env MAGNETIC_MESH_PORT; 0 for any free port). Without it the server runs alone
   --mesh-host <address>  Address the mesh binds (env MAGNETIC_MESH_HOST, default --host)
@@ -301,6 +321,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let modelCache = env['MAGNETIC_MODEL_CACHE'];
     let dataDir = env['MAGNETIC_DATA_DIR'] ?? './data';
     let host = env['MAGNETIC_HOST'] ?? '127.0.0.1';
+    let networkHost = env['MAGNETIC_NETWORK_HOST']?.trim() || undefined;
+    let tlsCert = env['MAGNETIC_TLS_CERT']?.trim() || undefined;
+    let tlsKey = env['MAGNETIC_TLS_KEY']?.trim() || undefined;
     let port = env['MAGNETIC_PORT'] !== undefined ? parsePort(env['MAGNETIC_PORT']) : DEFAULT_PORT;
     let runtimePort = env['MAGNETIC_RUNTIME_PORT'] !== undefined ? parsePort(env['MAGNETIC_RUNTIME_PORT']) : undefined;
     let starter = env['MAGNETIC_STARTER'] !== undefined ? parseStarter(env['MAGNETIC_STARTER']) : 'showcase';
@@ -386,6 +409,15 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 break;
             case '--host':
                 host = value();
+                break;
+            case '--network-host':
+                networkHost = value();
+                break;
+            case '--tls-cert':
+                tlsCert = value();
+                break;
+            case '--tls-key':
+                tlsKey = value();
                 break;
             case '--port':
                 port = parsePort(value());
@@ -485,14 +517,21 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (databaseUrl !== undefined && !/^postgres(ql)?:\/\//.test(databaseUrl)) throw new UsageError('Invalid database URL: it starts with postgres://');
     if (meshUrl !== undefined && !/^wss?:\/\/[^/]+/.test(meshUrl)) throw new UsageError(`Invalid mesh URL: ${meshUrl} (ws:// or wss://, such as ws://magnetic-2:4310)`);
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
-    if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
     if (relays !== undefined && meshPort === undefined) throw new UsageError('Linking up to relays (--relays) needs --mesh-port');
     if (group !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(group)) throw new UsageError(`Invalid group: ${group} (letters, digits, '.', '_' and '-')`);
-    if (command === 'aggregate' && (meshPort === undefined || secretKey === undefined)) throw new UsageError('The aggregate needs --mesh-port and MAGNETIC_SECRET_KEY');
+    if (command === 'aggregate' && meshPort === undefined) throw new UsageError('The aggregate needs --mesh-port');
     if (aggregateRole !== undefined && appRole === undefined) throw new UsageError('--aggregate-role takes the writing of state from the app role: give --app-role too');
     if (betaOrg !== undefined && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(betaOrg)) throw new UsageError(`Invalid beta org: ${betaOrg} (an org slug: lower-case letters, digits and dashes)`);
-    if (betaOrg !== undefined && secretKey === undefined) throw new UsageError('The beta org (--beta-org) needs MAGNETIC_SECRET_KEY, which signs the beta link');
     if (seed !== undefined && betaOrg === undefined) throw new UsageError('Seeding the beta (--seed) needs --beta-org');
+    if ((tlsCert === undefined) !== (tlsKey === undefined)) throw new UsageError('--tls-cert and --tls-key go together');
+    if (tlsCert !== undefined && networkHost === undefined) throw new UsageError('--tls-cert and --tls-key are for --network-host');
+    if (networkHost !== undefined) {
+        const name = networkHost.toLowerCase();
+        if (['0.0.0.0', '::', '[::]', '127.0.0.1', '::1', 'localhost'].includes(name)) throw new UsageError(`Invalid network host: ${networkHost} (one address of this machine on the local network, such as 192.168.1.20)`);
+        if (!/^[a-z0-9.-]+$/.test(name) && isIP(name) === 0) throw new UsageError(`Invalid network host: ${networkHost}`);
+        if (publicOrigin !== undefined) throw new UsageError('--network-host is for a server reached on the local network; behind a proxy, give --public-origin alone');
+    }
+    const network = networkHost === undefined ? undefined : { host: networkHost, ...(tlsCert !== undefined && { tlsCert }), ...(tlsKey !== undefined && { tlsKey }) };
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(relays !== undefined && { relays }) };
-    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }
