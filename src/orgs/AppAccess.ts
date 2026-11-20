@@ -239,7 +239,7 @@ export async function moveAppToOrg(
             // People's state of the app keeps its addresses: the mover's own was already at their id (the personal
             // workspace's default persona), which is their persona in the org
             for (const table of ['state_node', 'state_change', 'namespace_head']) {
-                await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND split_part(address, '/', 2) = $3 AND split_part(address, '/', 3) = 'user'`, [personal, target, appId.toLowerCase()]);
+                await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND split_part(address, '/', 3) = $3 AND split_part(address, '/', 2) = 'apps'`, [personal, target, appId.toLowerCase()]);
             }
             for (const table of ['app_file', 'app_file_content', 'preview_error']) {
                 await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND app_id = $3`, [personal, target, appId]);

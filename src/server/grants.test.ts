@@ -61,7 +61,7 @@ describe('Grants of state', () => {
 
     it('should share part of your state, let it be passed on only narrower, and revoke everything passed on with it', async () => {
         // Arrange
-        const address = `${aliceId}/${APP}/user`;
+        const address = `${aliceId}/apps/${APP}`;
 
         // Act
         const shared = (await (await json('/grants', alice, 'POST', { subject: bobId, address, prefix: '$.data', rights: ['read', 'write'] })).json()) as { id: string; token: string };
@@ -84,7 +84,7 @@ describe('Grants of state', () => {
 
     it('should show Shared by me, with the grants on your state and Revoke', async () => {
         // Arrange
-        await json('/grants', alice, 'POST', { subject: carolId, address: `${aliceId}/${APP}/user`, prefix: '$.data.notes', rights: ['read'] });
+        await json('/grants', alice, 'POST', { subject: carolId, address: `${aliceId}/apps/${APP}`, prefix: '$.data.notes', rights: ['read'] });
 
         // Act
         const page = await (await fetch(`${magnetic.origin}/settings/shared`, { headers: { Cookie: alice } })).text();
@@ -100,7 +100,7 @@ describe('Grants of state', () => {
 
     it('should keep verifying grants of a rotated key until they expire, and sign new ones with the new key', async () => {
         // Arrange
-        const address = `${aliceId}/${APP}/user`;
+        const address = `${aliceId}/apps/${APP}`;
         const issued = (await (await json('/grants', alice, 'POST', { subject: bobId, address, prefix: '$.data', rights: ['read'] })).json()) as { id: string; token: string };
 
         // Act
@@ -128,7 +128,7 @@ describe('Grants of state', () => {
         const event = (await magnetic.database.query<{ detail: { grantId?: string } }>("SELECT detail FROM audit_event WHERE org_id = $1 AND action = 'instance.support_view'", [org.id])).rows[0];
         const token = await grants.tokenFor(grant);
         await json(`/orgs/${org.id}/members/${bobId}`, bob, 'DELETE');
-        const afterLeaving = await grants.check({ subject: orgSubject(org.id), grant: token }, { address: `${bobId}/${appId}/user`, path: '$', right: 'read' });
+        const afterLeaving = await grants.check({ subject: orgSubject(org.id), grant: token }, { address: `${bobId}/apps/${appId}`, path: '$', right: 'read' });
 
         // Assert
         expect(viewed.status).toBe(200);
@@ -144,8 +144,8 @@ describe('Grants of state', () => {
         await json(`/orgs/${org.id}/policy`, alice, 'POST', { grantsInOrg: true });
 
         // Act
-        const outside = await json('/grants', bob, 'POST', { subject: carolId, address: `${bobId}/${appId}/user`, prefix: '$', rights: ['read'] });
-        const inside = await json('/grants', bob, 'POST', { subject: aliceId, address: `${bobId}/${appId}/user`, prefix: '$', rights: ['read'] });
+        const outside = await json('/grants', bob, 'POST', { subject: carolId, address: `${bobId}/apps/${appId}`, prefix: '$', rights: ['read'] });
+        const inside = await json('/grants', bob, 'POST', { subject: aliceId, address: `${bobId}/apps/${appId}`, prefix: '$', rights: ['read'] });
 
         // Assert
         expect(outside.status).toBe(403);

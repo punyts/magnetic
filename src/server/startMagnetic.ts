@@ -817,13 +817,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         changeConnection: (user, form) => handleConnections.change(user, form),
         sharedDatasets: async (workspaceId) => (stateGrants === undefined ? [] : sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)),
         personaApps: async (workspaceId, ownerId) => {
-            // The person's own state of each app is at `<ownerId>/<appId>/user`
-            const like = ownerId.replace(/[\\%_]/g, '\\$&') + '/%/user';
+            // The person's own state of each app is at `<ownerId>/apps/<appId>`
+            const like = ownerId.replace(/[\\%_]/g, '\\$&') + '/apps/%';
             const rows = await db.transaction(
                 async (tx) => (await tx.query<{ address: string; updated_at: Date }>("SELECT address, updated_at FROM namespace_head WHERE workspace_id = $1 AND address LIKE $2 ORDER BY updated_at DESC, address", [workspaceId, like])).rows,
                 { workspaceIds: [workspaceId] }
             );
-            return rows.map((row) => ({ id: row.address.split('/')[1] as string, updatedAt: row.updated_at.toISOString() }));
+            return rows.map((row) => ({ id: row.address.split('/')[2] as string, updatedAt: row.updated_at.toISOString() }));
         },
         sharedCount: async (workspaceId, appId) => (await grants.forApp(workspaceId, appId)).filter((grant) => grant.revokedAt === undefined).length,
         kept: new EditorViews(db),

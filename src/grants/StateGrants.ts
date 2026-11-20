@@ -46,13 +46,22 @@ export interface IssueInput {
     readonly by?: string;
 }
 
-/** The address of a workspace's dataset, for grants: the records stay in the data part, this names them */
-export const datasetAddress = (workspaceId: string, dataset: string): string => `${workspaceId}/${dataset}/data`;
+/**
+ * The address of a workspace's dataset, for grants: `$.data.<dataset>` of its owner's tree, `<owner>/data/<dataset>`
+ * (docs/design/statenet-network.md, "`$` is the owner"). The records stay in the data part; this names them
+ */
+export const datasetAddress = (workspaceId: string, dataset: string): string => `${workspaceId}/data/${dataset}`;
 
 /** The workspace and dataset an address names, when it names a dataset */
 export function datasetOf(address: string): { readonly owner: string; readonly dataset: string } | undefined {
-    const [owner, dataset, scope] = address.split('/');
-    return scope === 'data' && owner !== undefined && dataset !== undefined ? { owner, dataset } : undefined;
+    const [owner, branch, dataset] = address.split('/');
+    return branch === 'data' && owner !== undefined && dataset !== undefined ? { owner, dataset } : undefined;
+}
+
+/** The app an address names (`<owner>/apps/<appId>`; `*` for every app of the owner), when it names one */
+export function appOf(address: string): string | undefined {
+    const [, branch, appId] = address.split('/');
+    return branch === 'apps' ? appId : undefined;
 }
 
 interface GrantRow {
@@ -72,7 +81,8 @@ interface GrantRow {
 }
 
 const COLUMNS = 'id, kind, issuer, subject, address, prefix, rights, parent_grant, org_id, issued_at, expires_at, revoked_at, last_used_at';
-const ADDRESS = /^[^/\s]{1,200}\/([^/\s]{1,200}|\*)\/(app|user|data)$/;
+/** `<owner>/apps/<app>` (or `*` for every app of the owner), or `<owner>/data/<dataset>` */
+const ADDRESS = /^[^/\s]{1,200}\/(apps\/([^/\s]{1,200}|\*)|data\/[^/\s]{1,200})$/;
 const PREFIX = /^\$(\.[^.\s]+)*$/;
 
 function toRecord(row: GrantRow): GrantRecord {
@@ -110,7 +120,7 @@ export class StateGrants {
 
     async issue(input: IssueInput, now: Date = new Date()): Promise<{ id: string; token: string }> {
         const { issuer, subject, address, prefix, rights } = input;
-        if (!ADDRESS.test(address)) throw new OrgError(400, 'An address is <owner>/<app>/<app or user>, or <owner>/<dataset>/data.');
+        if (!ADDRESS.test(address)) throw new OrgError(400, 'An address is <owner>/apps/<app>, or <owner>/data/<dataset>.');
         if (!PREFIX.test(prefix)) throw new OrgError(400, 'A prefix is a "$." path.');
         if (rights.length === 0 || !rights.every((right) => right === 'read' || right === 'write')) throw new OrgError(400, 'Rights are read, write or both.');
         if (subject.trim() === '' || subject.length > 200) throw new OrgError(400, 'A grant needs a subject.');
@@ -119,7 +129,7 @@ export class StateGrants {
         let kind: GrantKind = 'share';
         if (input.parentId === undefined) {
             if (issuer !== ownerOfAddress(address)) throw new OrgError(403, 'Only the owner of the state can share it, or pass on a grant they hold.');
-            if (address.includes('/*/')) throw new OrgError(400, 'A share names one app.');
+            if (address.endsWith('/*')) throw new OrgError(400, 'A share names one app.');
         } else {
             const parent = await this.row(this.db, input.parentId);
             if (parent === undefined || parent.revoked_at !== null || (parent.expires_at !== null && parent.expires_at <= now)) throw new OrgError(404, 'That grant is not there any more.');
@@ -208,7 +218,7 @@ export class StateGrants {
     async datasetShares(workspaceId: string, now: Date = new Date()): Promise<GrantRecord[]> {
         return (
             await this.db.query<GrantRow>(
-                `SELECT ${COLUMNS} FROM state_grant WHERE split_part(address, '/', 1) = $1 AND split_part(address, '/', 3) = 'data' AND kind = 'share' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY issued_at DESC LIMIT 500`,
+                `SELECT ${COLUMNS} FROM state_grant WHERE split_part(address, '/', 1) = $1 AND split_part(address, '/', 2) = 'data' AND kind = 'share' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY issued_at DESC LIMIT 500`,
                 [workspaceId, now]
             )
         ).rows.map(toRecord);
@@ -218,7 +228,7 @@ export class StateGrants {
     async datasetsSharedWith(workspaceId: string, now: Date = new Date()): Promise<GrantRecord[]> {
         return (
             await this.db.query<GrantRow>(
-                `SELECT ${COLUMNS} FROM state_grant WHERE subject = $1 AND split_part(address, '/', 3) = 'data' AND 'read' = ANY(rights) AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY issued_at DESC LIMIT 500`,
+                `SELECT ${COLUMNS} FROM state_grant WHERE subject = $1 AND split_part(address, '/', 2) = 'data' AND 'read' = ANY(rights) AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY issued_at DESC LIMIT 500`,
                 [workspaceId, now]
             )
         ).rows.map(toRecord);
@@ -244,7 +254,7 @@ export class StateGrants {
             id,
             userId,
             orgSubject(orgId),
-            `${userId}/*/user`,
+            `${userId}/apps/*`,
             orgId,
             now
         ]);
@@ -265,7 +275,7 @@ export class StateGrants {
     private async orgOfAddress(tx: Queryable, address: string): Promise<string | undefined> {
         const data = datasetOf(address);
         if (data !== undefined) return (await tx.query<{ org_id: string }>("SELECT org_id::text FROM workspace WHERE id::text = $1 AND kind = 'org'", [data.owner])).rows[0]?.org_id;
-        const appId = address.split('/')[1];
+        const appId = appOf(address);
         if (appId === undefined || appId === '*') return undefined;
         return (await tx.query<{ org_id: string }>('SELECT w.org_id FROM app_setting s JOIN workspace w ON w.id = s.workspace_id WHERE s.app_id::text = $1 AND w.org_id IS NOT NULL', [appId])).rows[0]?.org_id;
     }

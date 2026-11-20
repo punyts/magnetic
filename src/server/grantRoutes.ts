@@ -47,7 +47,7 @@ export function grantRoutes(context: GrantRouteContext): (request: IncomingMessa
 
     async function namesOf(grantList: Awaited<ReturnType<StateGrants['sharedBy']>>): Promise<{ names: Map<string, string>; apps: Map<string, string> }> {
         const subjects = [...new Set(grantList.map((grant) => grant.subject))].filter((subject) => /^[0-9a-f-]{36}$/i.test(subject));
-        const appIds = [...new Set(grantList.map((grant) => grant.address.split('/')[1] ?? ''))].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+        const appIds = [...new Set(grantList.map((grant) => grant.address.split('/')[2] ?? ''))].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
         const names = new Map((await context.db.query<{ id: string; name: string }>('SELECT id::text, name FROM app_user WHERE id::text = ANY($1::text[])', [subjects])).rows.map((row) => [row.id, row.name] as const));
         // An app's name is behind row-level security; Shared by me shows the names of the person's own apps and their orgs' apps it can read
         const apps = new Map<string, string>();

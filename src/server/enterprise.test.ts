@@ -310,7 +310,7 @@ describe('Enterprise controls', () => {
         // Act
         const removed = await magnetic.policies.applyRetention(now);
         const left = await magnetic.database.transaction(
-            async (tx) => ({ chats: (await tx.query('SELECT text FROM chat_entry WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows, instances: (await tx.query("SELECT split_part(address, '/', 1) AS persona FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 2) = $2", [workspaceId, appId])).rows }),
+            async (tx) => ({ chats: (await tx.query('SELECT text FROM chat_entry WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows, instances: (await tx.query("SELECT split_part(address, '/', 1) AS persona FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 3) = $2", [workspaceId, appId])).rows }),
             { workspaceIds: [workspaceId] }
         );
 

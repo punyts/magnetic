@@ -5,7 +5,7 @@ describe('The page for an instance still on another server', () => {
     it('should know the errors of an instance on another server, and no others', () => {
         expect(isInstanceBusy(new Error("The app's instance is busy on another server; try again"))).toBe(true);
         expect(isInstanceBusy(new Error("The app's instance runs on another server"))).toBe(true);
-        expect(isInstanceBusy(new Error('No app at alice/x/user'))).toBe(false);
+        expect(isInstanceBusy(new Error('No app at alice/apps/x'))).toBe(false);
         expect(isInstanceBusy('busy')).toBe(false);
     });
 

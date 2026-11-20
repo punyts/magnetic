@@ -51,7 +51,7 @@ export class AppInstances {
                            FROM namespace_head h
                            JOIN org_member m ON m.org_id = $3 AND m.user_id::text = split_part(h.address, '/', 1)
                            JOIN app_user u ON u.id = m.user_id
-                          WHERE h.workspace_id = $1 AND h.address = split_part(h.address, '/', 1) || '/' || $2 || '/user'
+                          WHERE h.workspace_id = $1 AND h.address = split_part(h.address, '/', 1) || '/apps/' || $2
                           ORDER BY h.updated_at DESC, persona`,
                         [workspaceId, appId, orgId]
                     )

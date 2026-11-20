@@ -128,7 +128,7 @@ export class OrgPolicies {
                     // The state of people no longer in the org (and the workspace's own preview state) not changed since the cutoff
                     const gone = (
                         await tx.query<{ address: string }>(
-                            `SELECT address FROM namespace_head WHERE workspace_id = $1 AND updated_at < $2 AND split_part(address, '/', 3) = 'user'
+                            `SELECT address FROM namespace_head WHERE workspace_id = $1 AND updated_at < $2 AND split_part(address, '/', 2) = 'apps'
                                 AND split_part(address, '/', 1) NOT IN (SELECT user_id::text FROM org_member WHERE org_id = $3)`,
                             [org.workspace_id, cutoff, org.org_id]
                         )
