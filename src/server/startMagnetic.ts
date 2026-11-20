@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import type { Report } from '@punyts/core';
@@ -8,7 +8,10 @@ import { Stamps } from '../storage/Stamps.js';
 import { Accounts } from '../accounts/Accounts.js';
 import { ClaudeModel } from '../agent/AgentModel.js';
 import type { AgentModel } from '../agent/AgentModel.js';
-import { AgentTurns, CONTEXT_TOGGLES } from '../agent/AgentTurns.js';
+import { AgentTurns, CONTEXT_TOGGLES, WITHHELD_TOOLS } from '../agent/AgentTurns.js';
+import { agentRoutes } from '../agent/agentRoutes.js';
+import type { SignInButton } from '../agent/agentRoutes.js';
+import { AgentTokens } from '../accounts/AgentTokens.js';
 import type { ContextToggle, TurnLimits } from '../agent/AgentTurns.js';
 import { Budgets, DEFAULT_BUDGETS } from '../agent/Budgets.js';
 import type { BudgetLimits } from '../agent/Budgets.js';
@@ -114,6 +117,8 @@ export const DEFAULT_SOCKET_MESSAGES_PER_SECOND = 50;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 const MAX_FORM_BYTES = 4096;
+/** The largest tool call an agent signed in as a person sends (`/agent/call`) */
+const MAX_AGENT_CALL_BYTES = 10 * 1024 * 1024;
 const MAX_TURN_BYTES = 16_384;
 const MAX_REQUEST_CHARS = 4000;
 /** The routes of the editor's inspector under `/edit/<id>` */
@@ -420,6 +425,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const accounts = new Accounts(db);
     const sessions = new Sessions(db);
     const deviceLinks = new DeviceLinks(db);
+    const agentTokens = new AgentTokens(db);
     const stamps = new Stamps(db);
     // Magnetic's own apps are made by one server at a time, as several may share the database
     const exclusive = databaseExclusive(db);
@@ -481,10 +487,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     };
     /**
      * The sign-in page, a StateUI app in the browser's language: a button per provider and per development user. Over
-     * the network listener it offers neither, only how to sign in with a link from another device, and with `link`
-     * one button that uses that link
+     * the network listener it offers neither, only how to sign in with a link from another device. With `button` it
+     * offers only that one: a device link's "Continue as", or allowing an agent; it posts `token` (its id) and `next`
      */
-    const signInPageOf = async (request: IncomingMessage, next: string, error?: string, link?: { readonly token: string; readonly name: string }): Promise<string> => {
+    const signInPageOf = async (request: IncomingMessage, next: string, error?: string, button?: SignInButton): Promise<string> => {
         const look: PageLook = { language: languageOf(request.headers['accept-language']), mode: 'system' };
         const t = textsOf(look.language);
         const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
@@ -492,8 +498,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const network = fromNetwork(request);
         const work = sso.available && !network;
         const providers = network ? [] : providerButtons;
-        const people = link !== undefined ? [{ id: link.token, label: fill(t['signin.linkAs'], { name: link.name }) }] : network ? [] : devUsers.map((name) => ({ id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }));
-        const notice = network && link === undefined ? { notice: t['signin.networkText'], noNotice: false } : await betaNotice(t);
+        const people = button !== undefined ? [{ id: button.id, label: button.label }] : network ? [] : devUsers.map((name) => ({ id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }));
+        const notice = button?.notice !== undefined ? { notice: button.notice, noNotice: false } : network && button === undefined ? { notice: t['signin.networkText'], noNotice: false } : await betaNotice(t);
         return appPage({
             look,
             title: t['signin.title'],
@@ -514,7 +520,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     noNone: providers.length > 0 || people.length > 0 || work || network
                 }
             },
-            actions: { provider: { go: `/auth/{id}${query}` }, dev: link !== undefined ? { post: '/signin/link', form: { token: '{id}', next } } : { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
+            actions: { provider: { go: `/auth/{id}${query}` }, dev: button?.go !== undefined ? { go: button.go } : button?.post !== undefined ? { post: button.post, form: { token: '{id}', next } } : { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
     };
     /** A share link's page, a StateUI app: why the link does not open an app, or the offer to remix it */
@@ -923,6 +929,34 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         redirect: (response, location) => redirect(response, location),
         report: (message, fields) => options.report.info(message, fields)
     });
+    /** A standalone stateui-mcp signed in as a person, running the tools in their own workspace (statenet-network.md, S10b) */
+    const handleAgent = agentRoutes({
+        tokens: agentTokens,
+        signedIn,
+        signInPage: (request, next, error, button) => signInPageOf(request, next, error, button),
+        sendAppPage: (request, response, html, status) => sendAppPage(request, response, html, status),
+        readForm,
+        readJson: (request) => readJsonBody(request, MAX_AGENT_CALL_BYTES),
+        sendJson,
+        redirect: (response, location) => redirect(response, location),
+        report: (message, fields) => options.report.info(message, fields),
+        workspace: async (userId) => {
+            const refused = await personalRefusal(userId);
+            if (refused !== undefined) return { refused };
+            const release = workspaces.retain(userId);
+            try {
+                const services = await workspaces.get(userId);
+                return {
+                    tools: toolsOf(services).filter((tool) => !WITHHELD_TOOLS.has(tool.name)),
+                    instructions: buildServerInstructions(services.categoryIndex, (services.presets ?? []).map((preset) => preset.name)),
+                    release
+                };
+            } catch (error) {
+                release();
+                throw error;
+            }
+        }
+    });
 
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
@@ -1241,7 +1275,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const userId = await deviceLinks.peek(token);
             const user = userId === undefined ? undefined : await accounts.user(userId);
             if (user === undefined) sendAppPage(request, response, await signInPageOf(request, '/', textsOf(languageOf(request.headers['accept-language']))['signin.linkUsed']), 404);
-            else sendAppPage(request, response, await signInPageOf(request, '/', undefined, { token, name: user.name }));
+            else sendAppPage(request, response, await signInPageOf(request, '/', undefined, { id: token, label: fill(textsOf(languageOf(request.headers['accept-language']))['signin.linkAs'], { name: user.name }), post: '/signin/link' }));
             return true;
         }
         if (method === 'POST' && path === '/signin/link') {
@@ -1480,6 +1514,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleConnections(request, response, method, path)) return true;
         if (await handleData(request, response, method, path)) return true;
+        if (await handleAgent(request, response, method, path)) return true;
         if (await handleAdmin(request, response, method, path, url.searchParams)) return true;
         if (await handleBeta(request, response, method, path)) return true;
         if (await handleBilling(request, response, method, path, url.searchParams)) return true;

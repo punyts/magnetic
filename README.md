@@ -162,6 +162,12 @@ The commands are:
 once (on Windows, `certutil -user -addstore Root authority.crt`), or accepts the browser's warning. The firewall must
 let other computers reach ports 4300 and 4301. Sign in here, open Your apps, Profile, "Sign in on another device", and
 open the link on the other computer within ten minutes.
+
+An agent on another computer works on your apps through stateui-mcp:
+`stateui-mcp --statenet https://192.168.1.20:4300 --statenet-ca authority.crt`. It opens this server's sign-in in the
+browser; sign in (with a device link, then open the page it printed again) and allow it. It works only in your own
+workspace, and stops when you sign out of that browser.
+
 ## How it works
 
 - **The server is stateui-mcp's browser endpoint.** `startMagnetic` runs `startHttpServer` of `@punyts/stateui-mcp`
