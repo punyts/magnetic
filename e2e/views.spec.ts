@@ -196,6 +196,41 @@ test.describe("The editor's views", () => {
         await expect(side.getByRole('textbox', { name: 'rules.ping' })).toBeVisible();
     });
 
+    test("a dataset is made from Statenet's + with its first record, and a record's value is edited in the side panel", async ({ page }, info) => {
+        // Arrange: a model of alice's, from a dataset made as the agent would
+        const seeded = uniqueName(info, 'parts');
+        const dataset = uniqueName(info, 'bins');
+        await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset: seeded, records: { bolt: { name: 'Bolt' } } });
+        await pickView(editor, page, 'Statenet');
+        const side = sheet(page).locator('.view-side');
+
+        // Act: the dataset, of that model, with its first record
+        await add(graph(page).getByRole('button', { name: 'Add to $.data', exact: true }));
+        await expect(side.getByRole('heading', { name: 'New dataset' })).toBeVisible();
+        await side.getByRole('textbox', { name: 'Name', exact: true }).fill(dataset);
+        await side.getByRole('combobox', { name: 'Model' }).selectOption(`${seeded}-item`);
+        await side.getByRole('textbox', { name: 'name', exact: true }).fill('Nut');
+        await side.getByRole('button', { name: 'Create' }).click();
+
+        // Assert: its card, and its record in its panel
+        const card = node(page, `$.data.${dataset}`);
+        await expect(card).toBeVisible();
+        await press(card);
+        await expect(side.getByRole('heading', { name: dataset })).toBeVisible();
+        const value = side.getByRole('textbox', { name: /^\S+ name$/ });
+        await expect(value).toHaveValue('Nut');
+
+        // Act: the value edited in place
+        await value.fill('Washer');
+        await value.press('Tab');
+        await expect(sheet(page).getByRole('status')).toHaveText('Saved');
+
+        // Assert: read again when the card is opened again
+        await side.getByRole('button', { name: 'Close' }).click();
+        await press(card);
+        await expect(side.getByRole('textbox', { name: /^\S+ name$/ })).toHaveValue('Washer');
+    });
+
     test('a card of the graph opens its editor beside it: the app leads to its screens, a theme to the Theme view and back', async ({ page }, info) => {
         // Arrange: a theme of the app's own
         const name = uniqueName(info, 'card');
@@ -242,7 +277,7 @@ test.describe("The editor's views", () => {
         await expect(side.getByRole('heading', { name: 'http' })).toBeVisible();
         await expect(side).toContainText('Effect · runs on server');
         await expect(side.getByRole('heading', { name: 'Inputs' })).toBeVisible();
-        await expect(side.locator('input, textarea, select')).toHaveCount(0);
+        await expect(side.locator('input:visible, textarea:visible, select:visible')).toHaveCount(0);
 
         // A component's function belongs to it and cannot be turned off. The app does not place the component, so the
         // board leaves its functions out and its panel lists them

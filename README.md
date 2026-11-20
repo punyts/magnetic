@@ -246,7 +246,8 @@ The commands are:
       puts it to use in the app. Each card opens an editor at the side, and the canvas moves
       the card clear of it: records, model fields, running state and connections (for managers); the app's and a
       component's screens; a theme's default and removal; the way to the Theme or Logic view and back. Removing
-      anything asks first.
+      anything asks first. The side panel is a page of Magnetic's too (`magnetic-side`): one panel of sections, each
+      shown when the part has it.
       Functions are hard IP: `$.functions.<group>.<name>` and a library component's `$.components.<component>.functions.<name>`,
       each a card with its kind and where it runs, no + and no editor; its panel shows its summary and schemas, and a
       unit links to the function it runs.

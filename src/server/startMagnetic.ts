@@ -55,6 +55,7 @@ import { SCREENS } from '../screens/ScreensPage.js';
 import { STATENET } from '../statenet/StatenetPage.js';
 import { THEME } from '../theme/ThemePage.js';
 import { LOGIC } from '../logic/LogicPage.js';
+import { SIDE } from '../side/SidePage.js';
 import type { PageAppDocument } from '../pages/PageApps.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
@@ -124,7 +125,8 @@ const EDITOR_PAGES: ReadonlyMap<string, PageSpec> = new Map([
     ['/assets/screens.json', SCREENS],
     ['/assets/statenet.json', STATENET],
     ['/assets/theme.json', THEME],
-    ['/assets/logic.json', LOGIC]
+    ['/assets/logic.json', LOGIC],
+    ['/assets/side.json', SIDE]
 ]);
 
 /** An app part, as the views find it */
@@ -578,7 +580,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** Magnetic's own pages as its code makes them, in the system workspace */
     const pageApps = new PageApps(fixedWorkspace(SYSTEM_USER_ID), toolsOf, stamps, exclusive);
     /** Magnetic's own pages as admins edit and publish them (docs/design/magnetic-editable.md) */
-    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC], exclusive);
+    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC, SIDE], exclusive);
     /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
     const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
     /** Each person's editor, made from Magnetic's version and kept when they change it */

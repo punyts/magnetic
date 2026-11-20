@@ -1,3 +1,4 @@
+import { FIELD_TYPES, METHODS, SIDE_BLANK } from '../side/SidePage.js';
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
@@ -52,39 +53,12 @@ export const VIEWS_CSS = [
     '.view-status { margin-left: auto; color: var(--muted, #666); font-size: 13px; }',
     '.view-status.refused { color: #b3261e; }',
     '.view-body { flex: 1; display: flex; min-height: 0; }',
-    '.view-side { width: min(360px, 45%); overflow-x: hidden; overflow-y: auto; padding: 16px; border-left: 1px solid var(--line, #e3e3e3); }',
+    '.view-side { width: min(360px, 45%); overflow-x: hidden; overflow-y: auto; border-left: 1px solid var(--line, #e3e3e3); }',
     '.view-side[hidden] { display: none; }',
-    '.view-side-head { display: flex; align-items: flex-start; gap: 8px; } .view-side-head h3 { flex: 1; min-width: 0; margin-top: 0; overflow-wrap: anywhere; }',
-    '.view-sheet .view-close, .view-close { flex: none; width: 32px; height: 32px; margin: -6px -6px 0 0; padding: 0; border: 0; display: grid; place-items: center; cursor: pointer; border-radius: 50%; color: inherit; background: transparent; }',
-    '.glyph { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }',
-    '.view-close .glyph { width: 14px; height: 14px; }',
-    '.view-sheet .view-close:hover, .view-close:hover { background: color-mix(in srgb, currentColor 14%, transparent); }',
     '@media (max-width: 759.98px) { .view-body { flex-direction: column; } .view-side { width: auto; border-left: 0; border-top: 1px solid var(--line, #e3e3e3); max-height: 50%; } .view-sheet.on-canvas .view-side { margin-top: auto; } }',
-    '.view-sheet button, .view-sheet select, .view-sheet input, .view-sheet textarea { font: inherit; }',
-    '.view-sheet button { border: 1px solid var(--line, #ccc); background: transparent; color: inherit; border-radius: 999px; padding: 3px 12px; cursor: pointer; }',
-    '.view-sheet button.on { background: var(--accent, #3d5afe); border-color: var(--accent, #3d5afe); color: #fff; }',
-    '.view-sheet button.danger { color: #b3261e; }',
-    '.view-sheet input, .view-sheet select, .view-sheet textarea { border: 1px solid var(--line, #ccc); border-radius: 6px; padding: 3px 6px; background: var(--paper, #fff); color: inherit; }',
-    '.view-sheet textarea { width: 100%; box-sizing: border-box; min-height: 220px; font-family: ui-monospace, monospace; font-size: 12px; }',
-    '.view-sheet h3 { font-size: 14px; margin: 16px 0 8px; } .view-sheet h3:first-child { margin-top: 0; }',
-    '.view-note { color: var(--muted, #666); font-size: 13px; margin: 4px 0; }',
-    '.view-ask { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent, #3d5afe) 10%, transparent); }',
-    '.view-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }',
     // Statenet
     '.statenet { position: absolute; inset: 0; z-index: 2; } .statenet[hidden] { display: none; }',
     '.statenet > .stateui-panel { position: absolute; inset: 0; }',
-    '.view-schema { margin: 4px 0 8px; padding: 8px; overflow: auto; max-height: 220px; border-radius: 8px; font-size: 12px; background: color-mix(in srgb, currentColor 6%, transparent); }',
-    // A record table scrolls on its own, sideways; the panel never does
-    '.records-wrap { overflow-x: auto; max-width: 100%; margin: 8px 0; }',
-    '.records tr.adding td { border-bottom: 0; padding-top: 8px; }',
-    '.view-sheet button.remove { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; flex: none; vertical-align: middle; }',
-    '.view-sheet button.remove .glyph { width: 10px; height: 10px; }',
-    '.view-sheet button.remove:hover { background: color-mix(in srgb, currentColor 14%, transparent); }',
-    '.view-field { display: grid; gap: 2px; margin: 8px 0; } .view-field > span { font-size: 12px; color: var(--muted, #666); }',
-    '.view-output { white-space: pre-wrap; max-height: 200px; overflow: auto; }',
-    '.view-link { color: var(--accent, #3d5afe); font-weight: 600; }',
-    '.view-side .view-row button.screen { border-radius: 8px; }',
-    '.records { border-collapse: collapse; font-size: 12px; } .records td, .records th { border-bottom: 1px solid var(--line, #eee); padding: 2px 4px; text-align: left; } .records input { width: 110px; }',
     // The layers on the screen cards: each in its app's own pixels, following the card and scaled as the canvas scales it
     '.views-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }',
     '.views-layer[hidden] { display: none; }',
@@ -124,6 +98,10 @@ const UNIT_TEMPLATES = {
     computes: { inputs: [], run: '', outputs: [] },
     effects: { request: '$.data.request', run: '$.functions.host.http', status: '$.data.requestStatus' }
 };
+/** The side panel's fields with every section hidden, and the choices its forms offer (src/side/SidePage.ts) */
+const SIDE_BLANK = ${JSON.stringify(SIDE_BLANK)};
+const FIELD_TYPES = ${JSON.stringify(FIELD_TYPES)};
+const METHODS = ${JSON.stringify(METHODS)};
 
 function stored(key, fallback) { try { const value = localStorage.getItem(key); return value === null ? fallback : JSON.parse(value); } catch { return fallback; } }
 function store(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage may be blocked */ } }
@@ -146,27 +124,6 @@ function element(tag, attributes, children) {
     for (const child of children || []) if (child) made.append(child);
     return made;
 }
-function button(text, run, className) { const made = element('button', { type: 'button', text, className }); made.addEventListener('click', run); return made; }
-/** Plus and cross drawn as strokes, so they sit at the centre of a round button whatever the font */
-const GLYPHS = { plus: 'M6 1v10M1 6h10', cross: 'M2 2l8 8M10 2l-8 8' };
-function glyph(name) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 12 12');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('class', 'glyph');
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', GLYPHS[name]);
-    svg.append(path);
-    return svg;
-}
-/** A round button showing a glyph; label is its accessible name */
-function glyphButton(name, label, run, className) {
-    const made = element('button', { type: 'button', className }, [glyph(name)]);
-    made.setAttribute('aria-label', label);
-    made.addEventListener('click', run);
-    return made;
-}
-
 const sheet = element('section', { className: 'view-sheet', id: 'view-sheet', hidden: true, 'aria-live': 'polite' });
 const status = element('p', { className: 'view-status', role: 'status' });
 const side = element('aside', { className: 'view-side', hidden: true });
@@ -184,7 +141,7 @@ function says(text, refused) {
 function unchoose() { if (chosenUnit !== null) { chosenUnit = null; drawLogic(); } }
 function closeSide() {
     side.hidden = true;
-    side.replaceChildren();
+    sideActs = {};
     unchoose();
     chosenBox = null;
     if (view === 'statenet') netWrite({ selected: '', inset: insetOf() });
@@ -405,7 +362,7 @@ netHolder.addEventListener('stateui:emit', (event) => {
         case 'press': closeSide(); return;
         case 'add': {
             const node = graph && graph.nodes.find((each) => each.id === id);
-            if (node && node.add) { chosenBox = null; void addUnder(node, null); }
+            if (node && node.add) { chosenBox = null; void addUnder(node); }
             return;
         }
         case 'view':
@@ -437,8 +394,8 @@ function choose(id, box) {
     const node = graph.nodes.find((each) => each.id === id);
     if (!node) return;
     chosenBox = box && typeof box === 'object' ? { id, box } : null;
-    if (node.kind === 'branch' || node.kind === 'owner') sideOpen(null, node.label, [element('p', { className: 'view-note', text: node.id })], node.id);
-    else void openNode(node, null);
+    if (node.kind === 'branch' || node.kind === 'owner') void sideShow(node.id, { title: node.label, ...notes('', '', node.id) });
+    else void openNode(node);
 }
 
 function kindText(node) { return T['views.kind.' + node.kind] || node.kind; }
@@ -569,25 +526,88 @@ function drawGraph() {
     netWrite({ nodes: [...nodes, ...pills], links, selected: side.hidden ? '' : side.dataset.node || '' });
 }
 
-function sideOpen(card, title, children, id) {
+// ---- The side panel: a page of Magnetic's --------------------------------------------------------------------------
+
+/*
+ * The side panel is Magnetic's page magnetic-side (src/side/SidePage.ts), mounted once in the sheet's side and kept.
+ * Opening a part writes the blank (every section hidden) and then the part's own fields to its $.data.side, and keeps
+ * what each of its emits does for that part (sideActs). Its code is kept here as it changes, so a form's Create reads it
+ */
+const SIDE = '$.data.side';
+let sidePanel = null;
+let sideMounting = null;
+/** What the panel's emits do for the part it shows, by emit */
+let sideActs = {};
+/** The code the panel shows, as last typed */
+let sideCode = '';
+
+function sideWrite(fields) {
+    if (sidePanel) sidePanel.write(Object.entries(fields).map(([name, value]) => ({ path: SIDE + '.' + name, value })));
+}
+function mountSide() {
+    if (sidePanel) return Promise.resolve(true);
+    if (sideMounting) return sideMounting;
+    sideMounting = (async () => {
+        try {
+            const response = await fetch('/assets/side.json', { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error(T['views.refused']);
+            const served = await response.json();
+            sidePanel = host.mount(side, { document: served.document, icons: served.icons, inPage: true }, T['views.close']);
+            return true;
+        } catch (error) {
+            says(error.message, true);
+            return false;
+        } finally {
+            sideMounting = null;
+        }
+    })();
+    return sideMounting;
+}
+side.addEventListener('stateui:emit', (event) => {
+    const { name, payload } = event.detail || {};
+    if (name === 'close') { closeSide(); return; }
+    if (name === 'code') { sideCode = typeof payload === 'string' ? payload : sideCode; return; }
+    const run = sideActs[name];
+    if (run) void Promise.resolve(run(payload)).catch((error) => says(error.message, true));
+});
+
+/**
+ * Shows a part at the side: its fields over the blank, and what its emits do. The chosen card is lit, and brought into
+ * view beside the panel, which now covers part of the canvas
+ */
+async function sideShow(id, fields, acts) {
     unchoose();
-    if (card) card.classList.add('chosen');
     side.dataset.node = id || '';
-    const close = glyphButton('cross', T['views.close'], closeSide, 'view-close');
-    side.replaceChildren(element('div', { className: 'view-side-head' }, [element('h3', { text: title }), close]), ...children.filter(Boolean));
     side.hidden = false;
+    if (!(await mountSide())) return;
+    sideActs = acts || {};
+    sideCode = typeof fields.code === 'string' ? fields.code : '';
+    const all = { ...SIDE_BLANK, ...fields };
+    all.noNotes = all.noNote && all.noDetail && all.noPath;
+    all.noActions = ['noOpenApp', 'noOpenLogic', 'noEditTheme', 'noMakeDefault', 'noRemoveTheme', 'noUse', 'noOpenConnections'].every((flag) => all[flag]);
+    sideWrite(all);
     if (view !== 'statenet' || !net) return;
-    // The chosen card is lit, and brought into view beside the panel, which now covers part of the canvas
     netWrite({ selected: id || '', inset: insetOf() });
     if (chosenBox && chosenBox.id === id) netCommand('lookAt', chosenBox.box);
 }
 
-/** A row of buttons, one per screen, each showing that screen in the Screens view */
-function screenButtons(names) {
-    return element('div', { className: 'view-row' }, names.map((name) => button(name, () => {
-        setView('screens');
-        if (window.magneticScreens) window.magneticScreens.choose(name);
-    }, 'screen')));
+/** The panel's fields for a note, a line of text and a path */
+function notes(note, detail, path) {
+    return { note: note || '', noNote: !note, detail: detail || '', noDetail: !detail, path: path || '', noPath: !path };
+}
+/** A list of links under a title, and what pressing one does */
+function linked(title, items, run) {
+    const fields = { linksTitle: title, links: items.map((item, index) => ({ id: 'l' + index, label: item.label })), noLinks: items.length === 0 };
+    return { fields, act: (id) => { const item = items[Number(String(id).slice(1))]; if (item) return run(item); return undefined; } };
+}
+/** A screen shown in the Screens view */
+function showScreen(name) {
+    setView('screens');
+    if (window.magneticScreens) window.magneticScreens.choose(name);
+}
+/** The code of the panel as JSON, or undefined after saying it is not */
+function codeValue(text) {
+    try { return JSON.parse(typeof text === 'string' ? text : sideCode); } catch { says(T['views.notJson'], true); return undefined; }
 }
 
 /** The last segment of a node's path: the part's or record's own name */
@@ -610,129 +630,117 @@ async function post(path, body) {
         return answer;
     } catch { says(T['views.refused'], true); return undefined; }
 }
-/** A labelled field of a + form */
-function field(label, control) { return element('label', { className: 'view-field' }, [element('span', { text: label }), control]); }
-function nameInput(label) { return element('input', { 'aria-label': label, placeholder: 'lower-case-name', autocomplete: 'off', spellcheck: 'false' }); }
-function choice(label, values, texts) { return element('select', { 'aria-label': label }, values.map((value, index) => element('option', { value, text: texts ? texts[index] : value }))); }
 function namesOf(kind) { return graph.nodes.filter((node) => node.kind === kind && node.parent && node.parent.split('.').length === 2).map(nameOf); }
-/** A + form at the side: its fields, and a button that runs it (Enter in a field too) */
-function addForm(card, node, title, fields, run) {
-    const go = button(T['views.create'], async () => { go.disabled = true; try { await run(); } finally { go.disabled = false; } }, 'on');
-    for (const each of fields) for (const control of each.querySelectorAll('input')) control.addEventListener('keydown', (event) => { if (event.key === 'Enter') go.click(); });
-    sideOpen(card, title, [element('p', { className: 'view-note', text: fill(T['views.addTo'], { path: node.id }) }), ...fields, element('div', { className: 'view-row' }, [go])], node.id);
-    const first = side.querySelector('input, select');
-    if (first) first.focus();
+
+/**
+ * A form's fields: a name, a choice among values (with their texts), a second line and the fields of a record, each
+ * shown when the form has it, sent with the form's button
+ */
+function formOf(spec) {
+    const choice = spec.choice;
+    return {
+        noForm: false,
+        formNote: spec.note || '',
+        submitText: spec.submit || T['views.create'],
+        form: { name: '', choice: choice ? (choice.value !== undefined ? choice.value : choice.values[0]) : '', second: '', record: spec.record || [] },
+        nameLabel: spec.name || '',
+        noName: !spec.name,
+        choiceLabel: choice ? choice.label : '',
+        noChoice: !choice,
+        choices: choice ? Object.fromEntries(choice.values.map((value, index) => [value, { _label: choice.texts ? choice.texts[index] : value }])) : {},
+        secondLabel: spec.second || '',
+        noSecond: !spec.second,
+        noRecord: !spec.record
+    };
+}
+/** A + form at the side: what it adds to, its fields, and what its button does with the form sent */
+function addForm(node, title, spec, run, more) {
+    return sideShow(node.id, { title, ...notes('', spec.detail, fill(T['views.addTo'], { path: node.id })), ...formOf(spec), ...(more && more.fields) }, { submit: (form) => run(form || {}), ...(more && more.acts) });
+}
+/** The fields of a model as a record's fields to fill in */
+function recordOf(model) {
+    return graph.nodes.filter((each) => each.kind === 'field' && each.parent === '$.models.' + model).map((each) => ({ id: 'f-' + each.label, label: each.label, value: '', type: each.note }));
+}
+/** A record's values as typed: a string field keeps its text, any other reads as JSON when it can */
+function recordValue(rows) {
+    const value = {};
+    for (const row of rows || []) if (row && typeof row.value === 'string' && row.value.trim() !== '') value[row.label] = row.type === 'string' ? row.value : typed(row.value);
+    return value;
 }
 
-/** What the + of a node does: a form for a new part, or the editor of the part with its add row */
-async function addUnder(node, card) {
+/** What the + of a node does: a form for a new part, or the editor of the part with its add form */
+async function addUnder(node) {
     try {
         switch (node.add) {
-            case 'app': {
-                const name = nameInput(T['views.name']);
-                return addForm(card, node, T['views.new.app'], [field(T['views.name'], name)], async () => {
-                    const response = await fetch('/new', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ name: name.value }) });
+            case 'app':
+                return addForm(node, T['views.new.app'], { name: T['views.name'] }, async (form) => {
+                    const response = await fetch('/new', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ name: form.name || '' }) });
                     const answer = await response.json().catch(() => ({}));
                     if (!response.ok || !answer.id) { says(answer.message || T['views.refused'], true); return; }
                     location.href = '/edit/' + encodeURIComponent(answer.id);
                 });
-            }
-            case 'screen': {
-                const name = nameInput(T['views.name']);
-                return addForm(card, node, T['views.new.screen'], [field(T['views.name'], name)], async () => {
-                    if (await post('/edit/' + encodeURIComponent(appId) + '/screens', { action: 'add', name: name.value.trim() })) await added();
+            case 'screen':
+                return addForm(node, T['views.new.screen'], { name: T['views.name'] }, async (form) => {
+                    if (await post('/edit/' + encodeURIComponent(appId) + '/screens', { action: 'add', name: (form.name || '').trim() })) await added();
                 });
-            }
             case 'binding': {
                 const bound = new Set(graph.nodes.filter((each) => each.kind === 'binding').map((each) => each.note));
                 const free = namesOf('dataset').filter((name) => !bound.has(name));
-                if (free.length === 0) return sideOpen(card, T['views.new.binding'], [element('p', { className: 'view-note', text: T['views.noFreeDataset'] })], node.id);
-                const dataset = choice(T['views.dataset'], free);
-                const binding = element('input', { 'aria-label': T['views.bindingName'], placeholder: T['views.bindingAuto'], autocomplete: 'off' });
-                return addForm(card, node, T['views.new.binding'], [field(T['views.dataset'], dataset), field(T['views.bindingName'], binding)], async () => {
-                    if (await change('add', { what: 'binding', dataset: dataset.value, binding: binding.value.trim() })) await added();
+                if (free.length === 0) return sideShow(node.id, { title: T['views.new.binding'], ...notes(T['views.noFreeDataset']) });
+                return addForm(node, T['views.new.binding'], { choice: { label: T['views.dataset'], values: free }, second: T['views.bindingName'], detail: T['views.bindingAuto'] }, async (form) => {
+                    if (await change('add', { what: 'binding', dataset: form.choice, binding: (form.second || '').trim() })) await added();
                 });
             }
             case 'theme': {
-                const name = nameInput(T['views.themeName']);
                 const presets = ['clean', 'moody', 'playful', 'professional'];
-                const preset = choice(T['views.preset'], presets, presets.map((each) => T['views.preset.' + each]));
-                return addForm(card, node, T['views.newTheme'], [field(T['views.name'], name), field(T['views.preset'], preset)], async () => {
-                    if (await change('theme', { action: 'create', theme: name.value.trim(), preset: preset.value })) await added();
+                return addForm(node, T['views.newTheme'], { name: T['views.themeName'], choice: { label: T['views.preset'], values: presets, texts: presets.map((each) => T['views.preset.' + each]) } }, async (form) => {
+                    if (await change('theme', { action: 'create', theme: (form.name || '').trim(), preset: form.choice })) await added();
                 });
             }
             case 'dataset': {
                 const models = namesOf('model');
-                if (models.length === 0) return sideOpen(card, T['views.new.dataset'], [element('p', { className: 'view-note', text: T['views.needModel'] })], node.id);
-                const name = nameInput(T['views.name']);
-                const model = choice(T['views.model'], models);
-                const record = element('div', { className: 'view-record' });
-                const showFields = () => {
-                    const fields = graph.nodes.filter((each) => each.kind === 'field' && each.parent === '$.models.' + model.value);
-                    record.replaceChildren(element('p', { className: 'view-note', text: T['views.firstRecord'] }), ...fields.map((each) => field(each.label, element('input', { 'aria-label': each.label, 'data-field': each.label, 'data-type': each.note }))));
-                };
-                model.addEventListener('change', showFields);
-                showFields();
-                return addForm(card, node, T['views.new.dataset'], [field(T['views.name'], name), field(T['views.model'], model), record], async () => {
-                    const value = {};
-                    for (const input of record.querySelectorAll('input')) if (input.value !== '') value[input.dataset.field] = input.dataset.type === 'string' ? input.value : typed(input.value);
-                    if (await change('add', { what: 'dataset', name: name.value.trim(), model: model.value, record: value })) await added();
+                if (models.length === 0) return sideShow(node.id, { title: T['views.new.dataset'], ...notes(T['views.needModel']) });
+                // The first record's fields follow the model chosen
+                return addForm(node, T['views.new.dataset'], { name: T['views.name'], choice: { label: T['views.model'], values: models }, record: recordOf(models[0]), note: T['views.firstRecord'] }, async (form) => {
+                    if (await change('add', { what: 'dataset', name: (form.name || '').trim(), model: form.choice, record: recordValue(form.record) })) await added();
+                }, { acts: { choose: (model) => { if (typeof model === 'string') sideWrite({ 'form.record': recordOf(model) }); } } });
+            }
+            case 'record': return datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(nameOf(node))), node.id);
+            case 'model':
+                return addForm(node, T['views.new.model'], { name: T['views.name'], second: T['views.fieldName'], choice: { label: T['views.fieldType'], values: FIELD_TYPES } }, async (form) => {
+                    if (!(form.second || '').trim()) { says(T['views.fieldNameNeeded'], true); return; }
+                    if (await change('add', { what: 'model', name: (form.name || '').trim(), field: form.second.trim(), type: form.choice })) await added();
                 });
-            }
-            case 'record': {
-                await datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(nameOf(node))), card, node.id);
-                const first = side.querySelector('tr.adding input');
-                if (first) first.focus();
-                return;
-            }
-            case 'model': {
-                const name = nameInput(T['views.name']);
-                const first = element('input', { 'aria-label': T['views.fieldName'], autocomplete: 'off' });
-                const type = choice(T['views.fieldType'], FIELD_TYPES);
-                return addForm(card, node, T['views.new.model'], [field(T['views.name'], name), field(T['views.fieldName'], first), field(T['views.fieldType'], type)], async () => {
-                    if (!first.value.trim()) { says(T['views.fieldNameNeeded'], true); first.focus(); return; }
-                    if (await change('add', { what: 'model', name: name.value.trim(), field: first.value.trim(), type: type.value })) await added();
-                });
-            }
-            case 'field': {
-                modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(nameOf(node))), card, node.id);
-                const first = side.querySelector('input');
-                if (first) first.focus();
-                return;
-            }
+            case 'field': return modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(nameOf(node))), node.id);
             case 'module': {
                 // A module works on data it needs: one of the app's dataset bindings
                 const bindings = graph.nodes.filter((each) => each.kind === 'binding').map((each) => each.label);
-                if (bindings.length === 0) return sideOpen(card, T['views.new.module'], [element('p', { className: 'view-note', text: T['views.needBinding'] })], node.id);
-                const name = nameInput(T['views.name']);
-                const need = choice(T['views.worksOn'], bindings);
-                return addForm(card, node, T['views.new.module'], [field(T['views.name'], name), field(T['views.worksOn'], need)], async () => {
-                    if (await change('add', { what: 'module', name: name.value.trim(), need: need.value })) await added();
+                if (bindings.length === 0) return sideShow(node.id, { title: T['views.new.module'], ...notes(T['views.needBinding']) });
+                return addForm(node, T['views.new.module'], { name: T['views.name'], choice: { label: T['views.worksOn'], values: bindings } }, async (form) => {
+                    if (await change('add', { what: 'module', name: (form.name || '').trim(), need: form.choice })) await added();
                 });
             }
             case 'unit': {
                 // A module's unit works on what the module needs: the form starts from one on its first need's fields
                 const module = await getJson('/part?kind=logic&name=' + encodeURIComponent(nameOf(node)));
                 const groups = ['rules', 'machines', 'tables'];
-                const group = choice(T['views.unitKind'], groups, groups.map((each) => T['views.unit.' + UNIT_KINDS[each]]));
-                const name = element('input', { 'aria-label': T['views.unitName'], autocomplete: 'off' });
-                const text = element('textarea', { 'aria-label': T['views.unitBody'], spellcheck: 'false' });
-                const template = () => { text.value = JSON.stringify(moduleTemplate(module.body, group.value), null, 2); };
-                group.addEventListener('change', template);
-                template();
-                return addForm(card, node, T['views.new.unit'], [field(T['views.unitKind'], group), field(T['views.unitName'], name), field(T['views.unitBody'], text)], async () => {
-                    let value;
-                    try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
-                    const unit = group.value + '.' + name.value.trim();
+                const template = (group) => JSON.stringify(moduleTemplate(module.body, group), null, 2);
+                return addForm(node, T['views.new.unit'], { choice: { label: T['views.unitKind'], values: groups, texts: groups.map((each) => T['views.unit.' + UNIT_KINDS[each]]) }, second: T['views.unitName'] }, async (form) => {
+                    const value = codeValue();
+                    if (value === undefined) return;
+                    const unit = form.choice + '.' + (form.second || '').trim();
                     if (await change('logic', { module: nameOf(node), unit, revision: module.revision, value })) {
                         await loadGraph();
                         const made = graph.nodes.find((each) => each.id === node.id + '.' + unit);
-                        if (made) await moduleUnitEditor(made, null);
+                        if (made) await moduleUnitEditor(made);
                     }
+                }, {
+                    fields: { code: template(groups[0]), codeLabel: T['views.unitBody'], noCode: false },
+                    acts: { choose: (group) => { if (typeof group === 'string') { sideCode = template(group); sideWrite({ code: sideCode }); } } }
                 });
             }
             case 'connection':
-                return sideOpen(card, T['views.kind.connection'], [element('p', { className: 'view-note', text: T['views.connectionsPage'] }), element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/settings/connections', text: T['views.openConnections'] })])], node.id);
+                return sideShow(node.id, { title: T['views.kind.connection'], ...notes(T['views.connectionsPage']), noOpenConnections: false }, { openConnections: () => { location.href = '/settings/connections'; } });
             default:
                 return undefined;
         }
@@ -753,270 +761,242 @@ function moduleTemplate(body, group) {
     return { when: { path: at(first), is: 'example' }, do: [{ command: 'set', target: at(first), value: '' }] };
 }
 
-/** A part the app does not use: a button that puts it to use */
-function useButton(run) { return element('div', { className: 'view-row' }, [button(T['views.useInApp'], async () => { if (await run()) await added(); }, 'on')]); }
+/** A part the app does not use: Use in this app puts it to use */
+function useAct(run) { return { fields: { noUse: false }, acts: { use: async () => { if (await run()) await added(); } } }; }
 
-function appEditor(node, card) {
-    if (!node.current) {
-        return sideOpen(card, node.label, [
-            element('p', { className: 'view-note', text: T['views.note.anotherApp'] }),
-            element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/edit/' + encodeURIComponent(node.appId), text: T['views.openApp'] })])
-        ], node.id);
-    }
+function appEditor(node) {
+    if (!node.current) return sideShow(node.id, { title: node.label, ...notes(T['views.note.anotherApp']), noOpenApp: false }, { openApp: () => { location.href = '/edit/' + encodeURIComponent(node.appId); } });
     const screens = node.screens || [];
     const counts = new Map();
     for (const each of graph.nodes) if (each.used && ['theme', 'dataset', 'model', 'module', 'component', 'connection'].includes(each.kind)) counts.set(each.kind, (counts.get(each.kind) || 0) + 1);
-    sideOpen(card, node.label, [
-        element('p', { className: 'view-note', text: noteText(node) }),
-        element('h3', { text: T['views.screens'] }),
-        screens.length > 0 ? screenButtons(screens) : element('p', { className: 'view-note', text: T['views.noScreens'] }),
-        counts.size > 0 ? element('h3', { text: T['views.uses'] }) : null,
-        counts.size > 0 ? element('ul', { className: 'view-note' }, [...counts].map(([kind, count]) => element('li', { text: (T['views.kind.' + kind] || kind) + ': ' + count }))) : null
-    ], node.id);
+    const uses = [...counts].map(([kind, count]) => (T['views.kind.' + kind] || kind) + ': ' + count).join(' · ');
+    const links = linked(T['views.screens'], screens.map((name) => ({ label: name })), (item) => showScreen(item.label));
+    return sideShow(node.id, { title: node.label, ...notes(noteText(node), uses ? T['views.uses'] + ': ' + uses : '', screens.length === 0 ? T['views.noScreens'] : ''), ...links.fields }, { link: links.act });
 }
 
-function themeEditor(node, card) {
+function themeEditor(node) {
     const name = nameOf(node);
-    const act = (action) => async () => {
-        const answer = await change('theme', { action, theme: name });
-        if (answer) await added();
-    };
-    if (!node.used) return sideOpen(card, name, [element('p', { className: 'view-note', text: T['views.note.unused'] }), useButton(() => change('theme', { action: 'add', theme: name }))], node.id);
-    sideOpen(card, name, [
-        element('p', { className: 'view-note', text: node.isDefault ? T['views.note.defaultTheme'] : T['views.kind.theme'] }),
-        element('div', { className: 'view-row' }, [
-            button(T['views.editTheme'], () => { chosenTheme = name; setView('theme', true); }, 'on'),
-            node.isDefault ? null : button(T['views.makeDefault'], act('default'))
-        ]),
-        element('div', { className: 'view-row' }, [button(T['views.removeTheme'], () => { if (confirm(fill(T['views.removeThemeConfirm'], { name }))) void act('remove')(); }, 'danger')])
-    ], node.id);
+    const act = async (action) => { if (await change('theme', { action, theme: name })) await added(); };
+    if (!node.used) {
+        const use = useAct(() => change('theme', { action: 'add', theme: name }));
+        return sideShow(node.id, { title: name, ...notes(T['views.note.unused']), ...use.fields }, use.acts);
+    }
+    return sideShow(node.id, { title: name, ...notes(node.isDefault ? T['views.note.defaultTheme'] : T['views.kind.theme']), noEditTheme: false, noMakeDefault: Boolean(node.isDefault), noRemoveTheme: false }, {
+        editTheme: () => { chosenTheme = name; setView('theme', true); },
+        makeDefault: () => act('default'),
+        removeTheme: () => { if (confirm(fill(T['views.removeThemeConfirm'], { name }))) return act('remove'); return undefined; }
+    });
 }
 
-function componentEditor(node, card) {
+function componentEditor(node) {
     const screens = node.screens || [];
-    sideOpen(card, node.label, [
-        element('p', { className: 'view-note', text: T['views.componentNote'] }),
-        element('h3', { text: T['views.placedOn'] }),
-        screens.length > 0 ? screenButtons(screens) : element('p', { className: 'view-note', text: T['views.notPlaced'] })
-    ], node.id);
+    const links = linked(T['views.placedOn'], screens.map((name) => ({ label: name })), (item) => showScreen(item.label));
+    return sideShow(node.id, { title: node.label, ...notes(T['views.componentNote'], '', screens.length === 0 ? T['views.notPlaced'] : ''), ...links.fields }, { link: links.act });
 }
 
-function moduleEditor(node, card) {
-    if (!node.used) return sideOpen(card, node.label, [element('p', { className: 'view-note', text: T['views.moduleNote'] }), useButton(() => change('add', { what: 'useModule', name: node.label }))], node.id);
-    sideOpen(card, node.label, [
-        element('p', { className: 'view-note', text: T['views.moduleNote'] }),
-        element('div', { className: 'view-row' }, [button(T['views.openLogic'], () => setView('logic', true), 'on')])
-    ], node.id);
+function moduleEditor(node) {
+    if (!node.used) {
+        const use = useAct(() => change('add', { what: 'useModule', name: node.label }));
+        return sideShow(node.id, { title: node.label, ...notes(T['views.moduleNote']), ...use.fields }, use.acts);
+    }
+    return sideShow(node.id, { title: node.label, ...notes(T['views.moduleNote']), noOpenLogic: false }, { openLogic: () => setView('logic', true) });
 }
 
-/** A unit of a logic module as JSON, saved or removed through the module's own writes */
-async function moduleUnitEditor(node, card) {
+/** A unit of a logic module as JSON, saved or deleted through the module's own writes */
+async function moduleUnitEditor(node) {
     const moduleName = nameOf(above(node, 1));
     const module = await getJson('/part?kind=logic&name=' + encodeURIComponent(moduleName));
     const unit = node.note + '.' + node.label;
     const records = module.body[node.note] || {};
-    const text = element('textarea', { 'aria-label': unit, spellcheck: 'false' });
-    text.value = JSON.stringify(records[node.label] || {}, null, 2);
-    const save = button(T['views.save'], async () => {
-        let value;
-        try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
-        if (await change('logic', { module: moduleName, unit, revision: module.revision, value })) await loadGraph();
-    }, 'on');
-    const remove = removeButton(T['views.removeUnit'], fill(T['views.removeUnitAsk'], { unit }), async () => {
-        if (await change('logic', { module: moduleName, unit, revision: module.revision, remove: true })) { closeSide(); await loadGraph(); }
+    return sideShow(node.id, { title: unit, ...notes(fill(T['views.fromModule'], { module: moduleName })), code: JSON.stringify(records[node.label] || {}, null, 2), codeLabel: unit, noCode: false, noSave: false, noDelete: false }, {
+        save: async (text) => {
+            const value = codeValue(text);
+            if (value !== undefined && await change('logic', { module: moduleName, unit, revision: module.revision, value })) await loadGraph();
+        },
+        delete: async () => {
+            if (!confirm(fill(T['views.removeUnitAsk'], { unit }))) return;
+            if (await change('logic', { module: moduleName, unit, revision: module.revision, remove: true })) { closeSide(); await loadGraph(); }
+        }
     });
-    sideOpen(card, unit, [element('p', { className: 'view-note', text: fill(T['views.fromModule'], { module: moduleName }) }), text, element('div', { className: 'view-row' }, [save, remove])], node.id);
 }
 
-async function openNode(node, card) {
+async function openNode(node) {
     const part = (kind, name) => getJson('/part?kind=' + kind + '&name=' + encodeURIComponent(name));
     try {
         switch (node.kind) {
-            case 'app': return appEditor(node, card);
-            case 'screen': setView('screens'); if (window.magneticScreens) window.magneticScreens.choose(node.label); return undefined;
-            case 'binding': return datasetEditor(await part('data', node.note), card, node.id);
-            case 'personal': return stateEditor('$.data.' + node.label, card, node.id);
-            case 'state': return stateEditor(node.note, card, node.id);
+            case 'app': return appEditor(node);
+            case 'screen': showScreen(node.label); return undefined;
+            case 'binding': return datasetEditor(await part('data', node.note), node.id);
+            case 'personal': return stateEditor('$.data.' + node.label, node.id);
+            case 'state': return stateEditor(node.note, node.id);
             case 'dataset': {
-                await datasetEditor(await part('data', nameOf(node)), card, node.id);
-                if (!node.used) side.append(useButton(() => change('add', { what: 'binding', dataset: nameOf(node) })));
-                return undefined;
+                if (node.used) return datasetEditor(await part('data', nameOf(node)), node.id);
+                return datasetEditor(await part('data', nameOf(node)), node.id, useAct(() => change('add', { what: 'binding', dataset: nameOf(node) })));
             }
-            case 'record': return datasetEditor(await part('data', nameOf(above(node, 1))), card, node.id);
-            case 'model': return modelEditor(await part('models', nameOf(node)), card, node.id);
-            case 'field': return modelEditor(await part('models', nameOf(above(node, 1))), card, node.id);
-            case 'theme': return themeEditor(node, card);
-            case 'module': return moduleEditor(node, card);
-            case 'unit': return moduleUnitEditor(node, card);
-            case 'component': return componentEditor(node, card);
-            case 'connection': return connectionEditor(await part('connections', nameOf(node)), card, undefined, node.id);
-            case 'persona': return sideOpen(card, node.label, [element('p', { className: 'view-note', text: T['views.personaNote'] })], node.id);
-            case 'instance': return sideOpen(card, node.label, [
-                element('p', { className: 'view-note', text: T['views.instanceNote'] }),
-                element('p', { className: 'view-note', text: noteText(node) }),
-                node.current ? null : element('div', { className: 'view-row' }, [element('a', { className: 'view-link', href: '/edit/' + encodeURIComponent(node.appId), text: T['views.openApp'] })])
-            ], node.id);
-            case 'function': return functionPanel(node, card);
+            case 'record': return datasetEditor(await part('data', nameOf(above(node, 1))), node.id);
+            case 'model': return modelEditor(await part('models', nameOf(node)), node.id);
+            case 'field': return modelEditor(await part('models', nameOf(above(node, 1))), node.id);
+            case 'theme': return themeEditor(node);
+            case 'module': return moduleEditor(node);
+            case 'unit': return moduleUnitEditor(node);
+            case 'component': return componentEditor(node);
+            case 'connection': return connectionEditor(await part('connections', nameOf(node)), undefined, node.id);
+            case 'persona': return sideShow(node.id, { title: node.label, ...notes(T['views.personaNote']) });
+            case 'instance': {
+                const open = node.current ? {} : { noOpenApp: false };
+                return sideShow(node.id, { title: node.label, ...notes(T['views.instanceNote'], noteText(node)), ...open }, { openApp: () => { location.href = '/edit/' + encodeURIComponent(node.appId); } });
+            }
+            case 'function': return functionPanel(node);
             case 'library': {
                 // What it holds, which the board leaves out when the app does not place it
                 const functions = graph.nodes.filter((each) => each.parent === node.id && each.kind === 'function');
-                return sideOpen(card, node.label, [
-                    element('p', { className: 'view-note', text: T['views.libraryNote'] }),
-                    node.screens && node.screens.length > 0 ? element('p', { className: 'view-note', text: node.screens.join(', ') }) : null,
-                    element('div', { className: 'view-row' }, functions.map((each) => button(each.label, () => functionPanel(each, card))))
-                ], node.id);
+                const links = linked(T['views.kind.function'], functions.map((each) => ({ label: each.label, node: each })), (item) => functionPanel(item.node));
+                return sideShow(node.id, { title: node.label, ...notes(T['views.libraryNote'], (node.screens || []).join(', ')), ...links.fields }, { link: links.act });
             }
             case 'endpoint': {
                 const connection = node.missing ? node.note : nameOf(above(node, 1));
-                return connectionEditor(await part('connections', connection), card, node.label, node.id);
+                return connectionEditor(await part('connections', connection), node.label, node.id);
             }
-            default: return sideOpen(card, node.label, [element('p', { className: 'view-note', text: kindText(node) + (noteText(node) ? ' · ' + noteText(node) : '') })], node.id);
+            default: return sideShow(node.id, { title: node.label, ...notes(kindText(node) + (noteText(node) ? ' · ' + noteText(node) : '')) });
         }
     } catch (error) { says(error.message, true); }
 }
 
 /** A function's panel: what it is and does, where it runs, and its schemas; nothing to edit */
-function functionPanel(node, card) {
-    const schema = (title, value) => value === undefined ? null : element('div', {}, [element('h4', { text: title }), element('pre', { className: 'view-schema', text: JSON.stringify(value, null, 2) })]);
+function functionPanel(node) {
     const owner = node.fn.fixed ? node.parent.split('.')[2] : '';
-    return sideOpen(card, node.label, [
-        element('p', { className: 'view-note', text: kindText(node) + ' · ' + noteText(node) }),
-        element('p', { text: node.fn.summary }),
-        element('p', { className: 'view-note', text: node.fn.fixed ? fill(T['views.fn.fixed'], { component: owner }) : T['views.functionNote'] }),
-        element('p', { className: 'view-note', text: node.id }),
-        schema(T['views.fn.inputs'], node.fn.inputs),
-        schema(T['views.fn.outputs'], node.fn.outputs)
-    ], node.id);
+    const schema = (value) => value === undefined ? '' : JSON.stringify(value, null, 2);
+    return sideShow(node.id, {
+        title: node.label,
+        ...notes(kindText(node) + ' · ' + noteText(node), node.fn.summary, node.id),
+        inputs: schema(node.fn.inputs),
+        noInputs: node.fn.inputs === undefined,
+        outputs: schema(node.fn.outputs),
+        noOutputs: node.fn.outputs === undefined,
+        more: node.fn.fixed ? fill(T['views.fn.fixed'], { component: owner }) : T['views.functionNote'],
+        noMore: false
+    });
 }
 
-/** A × that asks first: the question names what goes */
-function removeButton(label, question, run) {
-    return glyphButton('cross', label, () => { if (confirm(question)) void run(); }, 'danger remove');
-}
-
-function datasetEditor(part, card, id) {
+/**
+ * A dataset's records at the side, a row per field of each record: a value changed is set, Remove takes the record
+ * away (asked first), and a new record is filled in below. A dataset the app does not use has Use in this app
+ */
+function datasetEditor(part, id, use) {
     const fields = Object.keys(part.fields || {});
     const keys = Object.keys(part.records || {});
     const columns = fields.length > 0 ? fields : [...new Set(keys.flatMap((key) => Object.keys(part.records[key] || {})))];
-    const table = element('table', { className: 'records' }, [element('tr', {}, [element('th', { text: '' }), ...columns.map((field) => element('th', { text: field })), element('th')])]);
     let revision = part.revision;
-    const reopen = async () => datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(part.name)), card, id);
-    for (const key of keys) {
-        const record = part.records[key] || {};
-        const cells = columns.map((field) => {
-            const input = element('input', { value: shown(record[field]), 'aria-label': key + ' ' + field });
-            input.addEventListener('change', async () => {
-                const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'set', path: key + '.' + field, value: typed(input.value) }] });
-                if (answer) revision = answer.revision;
-            });
-            return element('td', {}, [input]);
-        });
-        const remove = removeButton(T['views.removeRecord'] + ' ' + key, fill(T['views.removeRecordAsk'], { key }), async () => {
-            const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'remove', path: key }] });
-            if (answer) await reopen();
-        });
-        table.append(element('tr', {}, [element('td', { text: key }), ...cells, element('td', {}, [remove])]));
-    }
-    // A new record is typed in the last row, not asked for field by field
-    const fresh = columns.map((field) => element('input', { placeholder: field, 'aria-label': T['views.newRecord'] + ' ' + field }));
-    const add = button(T['views.add'], async () => {
-        if (fresh.every((input) => input.value.trim() === '')) { says(T['views.recordEmpty'], true); fresh[0].focus(); return; }
-        const value = Object.fromEntries(columns.map((field, index) => [field, fresh[index].value.trim() === '' ? undefined : typed(fresh[index].value)]).filter((entry) => entry[1] !== undefined));
-        const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'add', value }] });
-        if (answer) await reopen();
-    }, 'on');
-    for (const input of fresh) input.addEventListener('keydown', (event) => { if (event.key === 'Enter') add.click(); });
-    if (columns.length > 0) table.append(element('tr', { className: 'adding' }, [element('td', { text: '+' }), ...fresh.map((input) => element('td', {}, [input])), element('td', {}, [add])]));
-    const more = part.count > keys.length ? element('p', { className: 'view-note', text: fill(T['views.moreRecords'], { shown: keys.length, count: part.count }) }) : null;
-    sideOpen(card, part.name, [
-        part.model ? element('p', { className: 'view-note', text: fill(T['views.ofModel'], { model: part.model }) }) : null,
-        element('div', { className: 'records-wrap' }, [table]),
-        more,
-        columns.length === 0 ? element('p', { className: 'view-note', text: T['views.noFields'] }) : null
-    ], id);
-}
-
-const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'array', 'object', 'any', 'url'];
-function modelEditor(part, card, id) {
-    let revision = part.revision;
-    const reopen = async () => modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(part.name)), card, id);
-    const rows = Object.entries(part.fields || {}).map(([field, declaration]) => {
-        const type = element('select', { 'aria-label': field }, FIELD_TYPES.map((name) => element('option', { value: name, text: name })));
-        type.value = declaration && declaration.type;
-        type.addEventListener('change', async () => {
-            const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field, type: type.value }] });
+    const reopen = async () => datasetEditor(await getJson('/part?kind=data&name=' + encodeURIComponent(part.name)), id, use);
+    const records = keys.flatMap((key) => columns.map((field, index) => ({
+        id: key + '/' + field,
+        key,
+        keyShown: index === 0 ? key : '',
+        field,
+        value: shown((part.records[key] || {})[field]),
+        label: key + ' ' + field,
+        noRemove: index !== 0,
+        removeText: T['views.removeRecord'] + ' ' + key
+    })));
+    const types = part.fields || {};
+    const record = columns.map((field) => ({ id: 'f-' + field, label: field, value: '', type: types[field] && types[field].type }));
+    return sideShow(id, {
+        title: part.name,
+        ...notes(part.model ? fill(T['views.ofModel'], { model: part.model }) : '', columns.length === 0 ? T['views.noFields'] : ''),
+        records,
+        noRecords: records.length === 0,
+        more: part.count > keys.length ? fill(T['views.moreRecords'], { shown: keys.length, count: part.count }) : '',
+        noMore: !(part.count > keys.length),
+        ...(columns.length > 0 ? formOf({ record, note: T['views.newRecord'], submit: T['views.add'] }) : {}),
+        ...(use && use.fields)
+    }, {
+        cell: async (row) => {
+            if (!row || typeof row.key !== 'string' || typeof row.field !== 'string') return;
+            const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'set', path: row.key + '.' + row.field, value: typed(String(row.value)) }] });
             if (answer) revision = answer.revision;
-        });
-        const remove = removeButton(T['views.removeField'] + ' ' + field, fill(T['views.removeFieldAsk'], { field, model: part.name }), async () => {
-            const answer = await change('data', { model: part.name, revision, operations: [{ op: 'remove', field }] });
-            if (answer) await reopen();
-        });
-        return element('div', { className: 'view-row' }, [element('b', { text: field }), type, remove]);
+        },
+        removeRecord: async (key) => {
+            if (typeof key !== 'string' || !confirm(fill(T['views.removeRecordAsk'], { key }))) return;
+            if (await change('data', { dataset: part.name, revision, operations: [{ op: 'remove', path: key }] })) await reopen();
+        },
+        submit: async (form) => {
+            const value = recordValue(form && form.record);
+            if (Object.keys(value).length === 0) { says(T['views.recordEmpty'], true); return; }
+            if (await change('data', { dataset: part.name, revision, operations: [{ op: 'add', value }] })) await reopen();
+        },
+        ...(use && use.acts)
     });
-    const name = element('input', { placeholder: T['views.fieldName'], 'aria-label': T['views.fieldName'] });
-    const type = element('select', { 'aria-label': T['views.fieldType'] }, FIELD_TYPES.map((each) => element('option', { value: each, text: each })));
-    const add = button(T['views.addField'], async () => {
-        const field = name.value.trim();
-        if (!field) { says(T['views.fieldNameNeeded'], true); name.focus(); return; }
-        const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field, type: type.value }] });
-        if (answer) await reopen();
-    }, 'on');
-    name.addEventListener('keydown', (event) => { if (event.key === 'Enter') add.click(); });
-    sideOpen(card, part.name, [...rows, element('div', { className: 'view-row' }, [name, type, add])], id);
 }
 
-async function stateEditor(path, card, id) {
+/** A model's fields at the side: a type changed is set, Remove takes a field away (asked first), and a field is added below */
+function modelEditor(part, id) {
+    let revision = part.revision;
+    const reopen = async () => modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(part.name)), id);
+    const fields = Object.entries(part.fields || {}).map(([field, declaration]) => ({ id: 'f-' + field, name: field, type: (declaration && declaration.type) || 'any', removeText: T['views.removeField'] + ' ' + field }));
+    return sideShow(id, {
+        title: part.name,
+        fields,
+        noFields: fields.length === 0,
+        ...formOf({ second: T['views.fieldName'], choice: { label: T['views.fieldType'], values: FIELD_TYPES }, submit: T['views.addField'] })
+    }, {
+        fieldType: async (row) => {
+            if (!row || typeof row.name !== 'string' || typeof row.type !== 'string') return;
+            const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field: row.name, type: row.type }] });
+            if (answer) revision = answer.revision;
+        },
+        removeField: async (field) => {
+            if (typeof field !== 'string' || !confirm(fill(T['views.removeFieldAsk'], { field, model: part.name }))) return;
+            if (await change('data', { model: part.name, revision, operations: [{ op: 'remove', field }] })) await reopen();
+        },
+        submit: async (form) => {
+            const field = ((form && form.second) || '').trim();
+            if (!field) { says(T['views.fieldNameNeeded'], true); return; }
+            if (await change('data', { model: part.name, revision, operations: [{ op: 'set', field, type: form.choice }] })) await reopen();
+        }
+    });
+}
+
+/** A path of the state as JSON: saving sets it for everyone */
+async function stateEditor(path, id) {
     const read = await getJson('/state?path=' + encodeURIComponent(path));
-    const text = element('textarea', { 'aria-label': path });
-    text.value = JSON.stringify(read.value, null, 2);
-    const save = button(T['views.save'], async () => {
-        let value;
-        try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
-        await change('state', { path, value });
+    return sideShow(id, { title: path, ...notes(T['views.stateNote']), code: JSON.stringify(read.value, null, 2), codeLabel: path, noCode: false, noSave: false }, {
+        save: async (text) => { const value = codeValue(text); if (value !== undefined) await change('state', { path, value }); }
     });
-    sideOpen(card, path, [element('p', { className: 'view-note', text: T['views.stateNote'] }), text, element('div', { className: 'view-row' }, [save])], id);
 }
 
-function connectionEditor(info, card, endpointName, id) {
-    const parts = [element('p', { className: 'view-note', text: info.baseUrl + ' · ' + T['views.auth.' + info.auth.kind] + (info.auth.kind === 'none' ? '' : ' · ' + (info.keySet || info.clientSecretSet ? T['views.secretSet'] : T['views.secretNotSet'])) })];
+/** A connection and its endpoints: those who manage connections change its base URL, its secret and its endpoints, and try them */
+function connectionEditor(info, endpointName, id) {
+    const reopen = async () => connectionEditor(await getJson('/part?kind=connections&name=' + encodeURIComponent(info.name)), endpointName, id);
     const form = async (fields) => {
         const answer = await change('connections', { id: info.id, ...fields });
         if (answer && answer.continueTo) { window.open(answer.continueTo.url, '_blank', 'noopener'); return answer; }
-        if (answer && !answer.tried) connectionEditor(await getJson('/part?kind=connections&name=' + encodeURIComponent(info.name)), card, endpointName, id);
+        if (answer && !answer.tried) await reopen();
         return answer;
     };
-    if (info.manages) {
-        const baseUrl = element('input', { value: info.baseUrl, 'aria-label': T['views.baseUrl'] });
-        parts.push(element('div', { className: 'view-row' }, [baseUrl, button(T['views.save'], () => void form({ do: 'update', baseUrl: baseUrl.value, kind: info.auth.kind, ...authFields(info.auth) }))]));
-        if (info.auth.kind !== 'none') {
-            const secret = element('input', { type: 'password', autocomplete: 'off', placeholder: T['views.newSecret'], 'aria-label': T['views.newSecret'] });
-            parts.push(element('div', { className: 'view-row' }, [secret, button(T['views.keep'], () => { void form({ do: 'secret', field: info.auth.kind === 'key' ? 'key' : 'clientSecret', value: secret.value }); secret.value = ''; })]));
-        }
-        if (info.auth.kind === 'oauth-code') parts.push(button(T['views.connect'], () => void form({ do: 'connect' })));
-    } else {
-        parts.push(element('p', { className: 'view-note', text: T['views.noManage'] }));
-    }
-    parts.push(element('h3', { text: T['views.endpoints'] }));
-    for (const endpoint of info.endpoints) {
-        const output = element('pre', { className: 'view-note view-output' });
-        const row = element('div', { className: 'view-row', 'data-endpoint': endpoint.name }, [element('b', { text: endpoint.name }), element('span', { className: 'view-note', text: endpoint.method + ' ' + endpoint.path })]);
-        if (info.manages) {
-            row.append(button(T['views.try'], async () => {
-                const answer = await form({ do: 'try', endpoint: endpoint.name, params: '' });
-                if (answer && answer.tried) output.textContent = answer.tried.status + '\n' + answer.tried.body;
-            }));
-            row.append(removeButton(T['views.removeEndpoint'] + ' ' + endpoint.name, fill(T['views.removeEndpointAsk'], { name: endpoint.name }), () => form({ do: 'removeEndpoint', endpoint: endpoint.name })));
-        }
-        if (endpoint.name === endpointName) row.style.fontWeight = '600';
-        parts.push(row, output);
-    }
-    if (info.manages) {
-        const name = element('input', { placeholder: T['views.endpointName'], 'aria-label': T['views.endpointName'], size: 10 });
-        const method = element('select', { 'aria-label': T['views.method'] }, ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((each) => element('option', { value: each, text: each })));
-        const path = element('input', { placeholder: '/path', 'aria-label': T['views.endpointPath'], size: 12 });
-        parts.push(element('div', { className: 'view-row' }, [name, method, path, button(T['views.addEndpoint'], () => void form({ do: 'endpoint', name: name.value.trim(), method: method.value, path: path.value.trim() }))]));
-    }
-    sideOpen(card, info.name, parts, id);
+    const secretKept = info.keySet || info.clientSecretSet ? T['views.secretSet'] : T['views.secretNotSet'];
+    const endpoints = info.endpoints.map((endpoint) => ({ id: 'e-' + endpoint.name, name: endpoint.name === endpointName ? '▸ ' + endpoint.name : endpoint.name, endpoint: endpoint.name, does: endpoint.method + ' ' + endpoint.path, removeText: T['views.removeEndpoint'] + ' ' + endpoint.name }));
+    return sideShow(id, {
+        title: info.name,
+        ...notes(info.baseUrl + ' · ' + T['views.auth.' + info.auth.kind] + (info.auth.kind === 'none' ? '' : ' · ' + secretKept), info.manages ? '' : T['views.noManage']),
+        noManage: !info.manages,
+        baseUrl: info.baseUrl,
+        noSecret: !info.manages || info.auth.kind === 'none',
+        noConnect: !info.manages || info.auth.kind !== 'oauth-code',
+        endpoints,
+        noEndpoints: false,
+        ...(info.manages ? formOf({ note: T['views.addEndpoint'], name: T['views.endpointName'], choice: { label: T['views.method'], values: METHODS }, second: T['views.endpointPath'], submit: T['views.addEndpoint'] }) : {})
+    }, {
+        baseUrl: (value) => form({ do: 'update', baseUrl: String(value || ''), kind: info.auth.kind, ...authFields(info.auth) }),
+        secret: async (value) => { await form({ do: 'secret', field: info.auth.kind === 'key' ? 'key' : 'clientSecret', value: String(value || '') }); sideWrite({ secret: '' }); },
+        connect: () => form({ do: 'connect' }),
+        try: async (name) => {
+            if (typeof name !== 'string') return;
+            const answer = await form({ do: 'try', endpoint: name, params: '' });
+            if (answer && answer.tried) sideWrite({ tried: answer.tried.status + '\n' + answer.tried.body, noTried: false });
+        },
+        removeEndpoint: (name) => { if (confirm(fill(T['views.removeEndpointAsk'], { name }))) return form({ do: 'removeEndpoint', endpoint: name }); return undefined; },
+        submit: (sent) => form({ do: 'endpoint', name: ((sent && sent.name) || '').trim(), method: sent && sent.choice, path: ((sent && sent.second) || '').trim() })
+    });
 }
 function authFields(auth) {
     const fields = {};
@@ -1351,21 +1331,18 @@ async function writeUnit(id, value) {
 
 /** A unit as JSON at the side: saved when it is the app's own, shown when it comes from a logic module */
 function unitEditor(unit) {
-    const text = element('textarea', { 'aria-label': unit.group + '.' + unit.name });
-    text.value = JSON.stringify(unit.value, null, 2);
     const id = unitId(unit);
-    const parts = [element('p', { className: 'view-note', text: (T['views.unit.' + unit.kind] || unit.kind) + ' · ' + T['views.runs.' + (unit.runs || 'server')] })];
-    if (!unit.own) {
-        parts.push(element('p', { className: 'view-note', text: fill(T['views.fromModule'], { module: unit.module || '' }) }), text);
-        text.readOnly = true;
-    } else {
-        parts.push(text, element('div', { className: 'view-row' }, [button(T['views.save'], () => {
-            let value;
-            try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
-            void writeUnit(id, value);
-        })]));
-    }
-    sideOpen(null, unit.name, parts, id);
+    const kind = (T['views.unit.' + unit.kind] || unit.kind) + ' · ' + T['views.runs.' + (unit.runs || 'server')];
+    void sideShow(id, {
+        title: unit.name,
+        ...notes(kind, '', unit.own ? '' : fill(T['views.fromModule'], { module: unit.module || '' })),
+        code: JSON.stringify(unit.value, null, 2),
+        codeLabel: unit.group + '.' + unit.name,
+        noCode: false,
+        noSave: !unit.own
+    }, {
+        save: (text) => { const value = codeValue(text); if (value !== undefined) return writeUnit(id, value); return undefined; }
+    });
     chosenUnit = unit.isNew ? null : id;
     drawLogic();
 }
