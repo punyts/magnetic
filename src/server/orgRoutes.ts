@@ -11,6 +11,8 @@ import type { OrgDomains } from '../orgs/Domains.js';
 import { deleteOrg, exportOrg } from '../orgs/Lifecycle.js';
 import type { OrgPolicies, PolicyChange } from '../orgs/Policies.js';
 import type { OrgSso } from '../orgs/Sso.js';
+import type { OrgSaml } from '../orgs/Saml.js';
+import { MAX_METADATA_BYTES } from '../auth/samlMetadata.js';
 import type { StateChanges } from '../statenet/StateNamespaces.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
 
@@ -60,7 +62,8 @@ export interface OrgRouteContext {
     readonly toolsOf: (services: Services) => readonly UiToolDefinition[];
     /** The signed-in person of a request */
     readonly signedIn: (request: IncomingMessage) => Promise<{ readonly user: User } | undefined>;
-    readonly readJson: (request: IncomingMessage) => Promise<unknown>;
+    /** A JSON body of at most `limit` bytes, a few kilobytes by default */
+    readonly readJson: (request: IncomingMessage, limit?: number) => Promise<unknown>;
     readonly sendJson: (response: ServerResponse, status: number, body: unknown) => void;
     /** Where the invite links point: `<origin>/invites/<token>` */
     readonly origin: () => string;
@@ -71,6 +74,9 @@ export interface OrgRouteContext {
     readonly policies: OrgPolicies;
     readonly domains: OrgDomains;
     readonly sso: OrgSso;
+    readonly saml: OrgSaml;
+    /** Magnetic's entity id and assertion consumer URL for an org's SAML provider */
+    readonly samlEntityId: (orgId: string) => string;
     readonly budgets: Budgets;
     /** The redirect URI an org registers with its own provider */
     readonly ssoRedirectUri: () => string;
@@ -102,6 +108,7 @@ const ROUTES = {
     domain: new RegExp(`^/orgs/${UUID}/domains/([a-z0-9.-]{3,253})$`),
     domainVerify: new RegExp(`^/orgs/${UUID}/domains/([a-z0-9.-]{3,253})/verify$`),
     sso: new RegExp(`^/orgs/${UUID}/sso$`),
+    saml: new RegExp(`^/orgs/${UUID}/saml$`),
     spend: new RegExp(`^/orgs/${UUID}/spend$`),
     export: new RegExp(`^/orgs/${UUID}/export$`)
 };
@@ -342,6 +349,17 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
             } else if (method === 'POST') {
                 const body = await context.readJson(request);
                 await context.sso.set(user.id, orgId, { issuer: text(body, 'issuer'), clientId: text(body, 'clientId'), clientSecret: text(body, 'clientSecret'), enabled: field(body, 'enabled') === true });
+                sendJson(response, 200, { ok: true });
+            } else return false;
+            return true;
+        }
+        if ((match = ROUTES.saml.exec(path)) !== null) {
+            const orgId = match[1] as string;
+            if (method === 'GET') {
+                sendJson(response, 200, { entityId: context.samlEntityId(orgId), provider: (await context.saml.get(user.id, orgId)) ?? null });
+            } else if (method === 'POST') {
+                const body = await context.readJson(request, 2 * MAX_METADATA_BYTES);
+                await context.saml.set(user.id, orgId, { metadataUrl: text(body, 'metadataUrl'), metadataXml: text(body, 'metadataXml'), emailAttribute: text(body, 'emailAttribute'), enabled: field(body, 'enabled') === true });
                 sendJson(response, 200, { ok: true });
             } else return false;
             return true;

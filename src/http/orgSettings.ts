@@ -10,6 +10,7 @@ import type { OrgTexts } from './orgText.js';
 import type { OrgDomain } from '../orgs/Domains.js';
 import type { OrgPolicy } from '../orgs/Policies.js';
 import type { OrgSsoSettings } from '../orgs/Sso.js';
+import type { OrgSamlSettings } from '../orgs/Saml.js';
 import type { GrantRecord } from '../grants/StateGrants.js';
 import { htmlOpen } from './pages.js';
 import type { PageLook } from './pages.js';
@@ -57,6 +58,8 @@ export interface EnterpriseView {
     readonly models: readonly string[];
     readonly domains: readonly OrgDomain[];
     readonly sso: { readonly available: boolean; readonly redirectUri: string; readonly settings?: OrgSsoSettings };
+    /** The org's SAML provider: Magnetic's entity id for it, and its settings once set */
+    readonly saml: { readonly entityId: string; readonly settings?: OrgSamlSettings };
     readonly spend: { readonly month: number; readonly rows: ReadonlyArray<{ readonly person: string; readonly app: string; readonly dollars: number; readonly requests: number }> };
 }
 
@@ -281,7 +284,30 @@ ${check('enabled', settings?.enabled === true, t['orgs.ssoEnabled'])}
           ? ''
           : `<p class="muted">${e(t['orgs.issuer'])}: ${e(settings.issuer)}</p>`
 }`;
-    const sso = `<h2>${e(t['orgs.ssoTitle'])}</h2>${ssoForm}`;
+    const saml = enterprise.saml.settings;
+    const samlStatus = [
+        saml === undefined ? '' : `<p class="muted">${e(fill(t['orgs.samlProvider'], { entityId: saml.entityId }))}${saml.fetchedAt === undefined ? '' : `<br>${e(fill(t['orgs.samlFetched'], { at: saml.fetchedAt.slice(0, 16).replace('T', ' ') }))}`}</p>`,
+        saml?.fetchError === undefined ? '' : `<p class="error">${e(fill(t['orgs.samlFetchError'], { error: saml.fetchError }))}</p>`
+    ].join('');
+    const samlForm = `<p class="muted">${e(t['orgs.samlText'])}<br><code class="link">${e(enterprise.saml.entityId)}</code></p>
+<p>${e(saml?.enabled === true ? t['orgs.ssoOn'] : t['orgs.ssoOff'])}</p>${samlStatus}
+${
+    owner
+        ? form(
+              org.id,
+              'saml',
+              {},
+              `<label>${e(t['orgs.metadataUrl'])} <input type="url" name="metadataUrl" maxlength="2048" value="${e(saml?.metadataUrl ?? '')}" placeholder="https://"></label>
+<label>${e(t['orgs.metadataXml'])} <textarea name="metadataXml" rows="4"></textarea></label>
+${saml === undefined ? '' : `<p class="muted">${e(t['orgs.metadataKeep'])}</p>`}
+<label>${e(t['orgs.emailAttribute'])} <input name="emailAttribute" maxlength="500" value="${e(saml?.emailAttribute ?? '')}"></label>
+${check('enabled', saml?.enabled === true, t['orgs.ssoEnabled'])}
+<button class="primary">${e(t['orgs.save'])}</button>`,
+              'stack wide'
+          )
+        : ''
+}`;
+    const sso = `<h2>${e(t['orgs.ssoTitle'])}</h2><p class="muted">${e(t['orgs.samlOneKind'])}</p>${ssoForm}<h2>${e(t['orgs.samlTitle'])}</h2>${samlForm}`;
 
     const total = policy.monthlyBudget === undefined ? fill(t['orgs.spendNoBudget'], { spent: dollars(enterprise.spend.month) }) : fill(t['orgs.spendTotal'], { spent: dollars(enterprise.spend.month), budget: dollars(policy.monthlyBudget) });
     const spend = `<h2>${e(t['orgs.spendTitle'])}</h2><p>${e(total)}</p>${

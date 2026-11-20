@@ -416,6 +416,11 @@ The same is there as JSON routes:
   the redirect URI `<origin>/auth/sso/callback`. People type their work email on the sign-in page and go to their org's
   provider. Its client secret is sealed with `MAGNETIC_SECRET_KEY`; a server without one offers no org sign-in. An org's
   provider vouches only for emails at that org's verified domains.
+- **SAML instead.** An org may use a SAML 2.0 provider in place of OpenID Connect, one kind at a time: the owner gives
+  its metadata URL (read again daily) or its metadata XML, and the attribute that holds the email if it is not one of
+  the usual ones. At the provider, Magnetic is the entity, audience and assertion consumer URL
+  `<origin>/auth/saml/<orgId>`, shown on the org's settings page; the provider signs its assertions and sends a
+  persistent NameID or the email. Only sign-in that starts at Magnetic is taken.
 - **Policies.** `requireSso` (people at the org's domains sign in only through its provider), `autoJoin` (people at its
   domains with a verified email, or signed in through its provider, join as members), `externalLinks` (share links to
   its apps open for people outside it; off by default), `personalWorkspaces` (off: its members cannot make apps of

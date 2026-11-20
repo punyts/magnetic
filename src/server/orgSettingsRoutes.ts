@@ -3,6 +3,7 @@ import type { User } from '../accounts/Accounts.js';
 import { invitePage, orgListPage, orgPage, supportPage } from '../http/orgSettings.js';
 import type { EnterpriseView, OrgAppView } from '../http/orgSettings.js';
 import { deleteOrg } from '../orgs/Lifecycle.js';
+import { MAX_METADATA_BYTES } from '../auth/samlMetadata.js';
 import { orgTextsOf } from '../http/orgText.js';
 import type { PageLook } from '../http/pages.js';
 import { EDITOR_APP } from '../editor/EditorApp.js';
@@ -17,7 +18,8 @@ import type { OrgRouteContext } from './orgRoutes.js';
 export interface OrgSettingsContext extends OrgRouteContext {
     /** How Magnetic looks and speaks to the person */
     readonly lookOf: (request: IncomingMessage, userId: string) => Promise<PageLook>;
-    readonly readForm: (request: IncomingMessage) => Promise<URLSearchParams>;
+    /** A form of at most `limit` bytes, a few kilobytes by default */
+    readonly readForm: (request: IncomingMessage, limit?: number) => Promise<URLSearchParams>;
     /** Sends one of Magnetic's own script-free pages */
     readonly sendPage: (response: ServerResponse, html: string, status?: number) => void;
     readonly redirect: (response: ServerResponse, location: string) => void;
@@ -56,11 +58,13 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         const nameOf = (id: string): string => members.find((member) => member.userId === id)?.name ?? id.slice(0, 8);
         const appName = (id: string | null): string => (id === null ? '' : (apps.find((app) => app.id === id)?.name ?? id.slice(0, 8)));
         const settings = await context.sso.get(userId, org.id);
+        const saml = await context.saml.get(userId, org.id);
         return {
             policy: await context.policies.get(org.id),
             models: context.models(),
             domains: await context.domains.list(userId, org.id),
             sso: { available: context.sso.available, redirectUri: context.ssoRedirectUri(), ...(settings !== undefined && { settings }) },
+            saml: { entityId: context.samlEntityId(org.id), ...(saml !== undefined && { settings: saml }) },
             spend: {
                 month: await context.budgets.workspaceSpent(org.workspaceId),
                 rows: (await context.budgets.workspaceSpend(org.workspaceId)).map((row) => ({ person: nameOf(row.userId), app: appName(row.appId), dollars: row.dollars, requests: row.requests }))
@@ -174,6 +178,8 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
             await context.domains.remove(user.id, org.id, text(form, 'domain'));
         } else if (action === 'sso') {
             await context.sso.set(user.id, org.id, { issuer: text(form, 'issuer'), clientId: text(form, 'clientId'), clientSecret: text(form, 'clientSecret'), enabled: form.get('enabled') === 'on' });
+        } else if (action === 'saml') {
+            await context.saml.set(user.id, org.id, { metadataUrl: text(form, 'metadataUrl'), metadataXml: text(form, 'metadataXml'), emailAttribute: text(form, 'emailAttribute'), enabled: form.get('enabled') === 'on' });
         } else if (action === 'deleteOrg') {
             const deleted = await deleteOrg(context.db, context.state, orgs, user.id, org.id, text(form, 'confirm'));
             await context.orgDeleted(deleted.workspaceId, deleted.members);
@@ -214,7 +220,8 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
                 return true;
             }
             if (method !== 'POST') return false;
-            const form = await context.readForm(request);
+            // The SAML form may carry the provider's metadata, which form encoding can make up to three times as long
+            const form = await context.readForm(request, 3 * MAX_METADATA_BYTES);
             try {
                 const done = await change(form, user, org);
                 if (done.left === true) context.redirect(response, '/settings/orgs');

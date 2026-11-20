@@ -64,6 +64,8 @@ export class OrgSso {
                  ON CONFLICT (org_id) DO UPDATE SET issuer = EXCLUDED.issuer, client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret, enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()`,
                 [orgId, issuer, clientId, secret, input.enabled, actorId]
             );
+            // One kind of org sign-in at a time: switching this on switches the org's SAML provider off
+            if (input.enabled) await tx.query('UPDATE org_saml SET enabled = false WHERE org_id = $1', [orgId]);
             await audit(tx, { orgId, actorId, action: 'sso.changed', targetKind: 'org', targetId: orgId, detail: { issuer, clientId, enabled: input.enabled, secretChanged: input.clientSecret.trim() !== '' } });
         });
     }

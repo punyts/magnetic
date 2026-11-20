@@ -39,14 +39,17 @@
     "dependencies": {
         "@anthropic-ai/sdk": "^1.7.0",
         "@aws-sdk/client-sesv2": "^3.1169.0",
+        "@node-saml/node-saml": "^5.2.0",
         "@punyts/core": "^1.0.0",
         "@punyts/state-sync": "^0.8.0",
         "@punyts/statenet": "^0.1.0",
         "@punyts/stateui-app": "^0.1.0",
         "@punyts/stateui-mcp": "^0.1.0",
         "@punyts/stateui-pg": "^0.1.0",
+        "@xmldom/xmldom": "^0.8.15",
         "jose": "^6.2.17",
-        "openid-client": "^6.8.9"
+        "openid-client": "^6.8.9",
+        "xml-crypto": "^6.4.0"
     },
     "devDependencies": {
         "@playwright/test": "^1.61.1",

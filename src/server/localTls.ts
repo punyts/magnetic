@@ -150,6 +150,26 @@ export function issueServerCertificate(authority: KeyAndCertificate, names: read
     return { key: keys.privateKey, cert };
 }
 
+/**
+ * A certificate the authority signs for a key that signs documents rather than serving TLS, such as the RSA key of
+ * the test SAML provider (`src/testing/mockSamlProvider.ts`): `spki` is its public key, DER
+ */
+export function issueSigningCertificate(authority: KeyAndCertificate, name: string, spki: Buffer): string {
+    const issuer = new X509Certificate(authority.cert);
+    return certificate({
+        subject: name,
+        issuer: subjectName(issuer),
+        days: SERVER_DAYS,
+        spki,
+        signWith: authority.key,
+        extensions: [
+            extension('2.5.29.19', true, sequence()),
+            // digitalSignature
+            extension('2.5.29.15', true, bits(Buffer.from([0x80]), 7))
+        ]
+    });
+}
+
 function subjectName(cert: X509Certificate): string {
     return /CN=([^\n]+)/.exec(cert.subject)?.[1] ?? '';
 }

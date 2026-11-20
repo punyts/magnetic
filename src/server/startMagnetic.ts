@@ -65,7 +65,7 @@ import type { PageSpec } from '../pages/PageSpec.js';
 import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
 import { run } from '../stateui/run.js';
 import type { HomeCard } from '../home/HomeApp.js';
-import type { User } from '../accounts/Accounts.js';
+import type { Identity, Profile, User } from '../accounts/Accounts.js';
 import { DEVICE_LINK_MINUTES, DeviceLinks } from '../accounts/DeviceLinks.js';
 import { Sessions, SESSION_DAYS } from '../accounts/Sessions.js';
 import { OidcSignIn, safeNext, SignInError } from '../auth/OidcSignIn.js';
@@ -91,6 +91,8 @@ import { OrgPolicies } from '../orgs/Policies.js';
 import { OrgDomains } from '../orgs/Domains.js';
 import type { TxtResolver } from '../orgs/Domains.js';
 import { OrgSso, ssoIdentityProvider } from '../orgs/Sso.js';
+import { OrgSaml, samlIdentityProvider } from '../orgs/Saml.js';
+import { SamlSignIn } from '../auth/SamlSignIn.js';
 import { SignInRules } from '../orgs/SignInRules.js';
 import { SecretBox } from '../auth/secrets.js';
 import { startStatenetNode } from '../statenet/StatenetNode.js';
@@ -117,6 +119,12 @@ export const DEFAULT_SOCKET_MESSAGES_PER_SECOND = 50;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 const MAX_FORM_BYTES = 4096;
+/** An org's SAML assertion consumer URL, which is also Magnetic's entity id for it (docs/design/statenet-network.md, S12) */
+const SAML_ROUTE = /^\/auth\/saml\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+/** Where the browser finishes a SAML sign-in, with the cookie of the browser that started it */
+const SAML_FINISH = /^\/auth\/saml\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/finish$/;
+/** The most a provider's posted SAML answer may hold, form encoded */
+const MAX_SAML_FORM_BYTES = 2 * 1024 * 1024;
 /** The largest tool call an agent signed in as a person sends (`/agent/call`) */
 const MAX_AGENT_CALL_BYTES = 10 * 1024 * 1024;
 const MAX_TURN_BYTES = 16_384;
@@ -302,6 +310,8 @@ export interface RunningMagnetic {
     readonly policies: OrgPolicies;
     readonly domains: OrgDomains;
     readonly sso: OrgSso;
+    /** Each org's own SAML provider */
+    readonly saml: OrgSaml;
     /** Each owner's signing key */
     readonly keys: OwnerKeys;
     /** The grants of state, when the server can sign (`secretKey`) */
@@ -389,14 +399,14 @@ export function appNameOf(typed: string): string | undefined {
 }
 
 /** The fields of a small `application/x-www-form-urlencoded` body */
-async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
+async function readForm(request: IncomingMessage, limit = MAX_FORM_BYTES): Promise<URLSearchParams> {
     if (!/^application\/x-www-form-urlencoded/i.test(request.headers['content-type'] ?? '')) throw new HttpError(415, 'Send a form', 'unsupported_type');
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of request) {
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
         size += buffer.length;
-        if (size > MAX_FORM_BYTES) throw new HttpError(413, 'The form is too large', 'too_large');
+        if (size > limit) throw new HttpError(413, 'The form is too large', 'too_large');
         chunks.push(buffer);
     }
     return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
@@ -450,6 +460,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return org === undefined || (await policies.get(org.id)).connections;
     }
     const sso = new OrgSso(db, orgs, box);
+    const saml = new OrgSaml(db, orgs);
     /** Each owner's signing key and the grants of state (docs/design/statenet-relays.md, S4); grants need the server's key */
     /** The numbers owners go by in addresses, grants and keys (docs/design/statenet-network.md, "`$` is the owner") */
     const owners = new OwnerNumbers(db);
@@ -479,6 +490,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** In the beta (docs/design/magnetic-beta.md) nobody makes an org */
     const inBeta = options.agent?.budgets?.betaOrg !== undefined;
     const signIn = new OidcSignIn(options.providers ?? [], { publicOrigin: () => publicOrigin ?? origin, allowHttp: options.allowHttpProviders === true });
+    const samlSignIn = new SamlSignIn(db, () => publicOrigin ?? origin);
     const providerButtons = signIn.providers.map((provider) => ({ name: provider.name, label: provider.label }));
     /** The notice of the sign-in page while the beta is full: people may still sign in, and hear of the next one */
     const betaNotice = async (t: ReturnType<typeof textsOf>): Promise<{ notice: string; noNotice: boolean }> => {
@@ -496,7 +508,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
         const app = await pageOf(request, PAGE_APPS.signIn);
         const network = fromNetwork(request);
-        const work = sso.available && !network;
+        // An org's own sign-in: OpenID Connect needs the server's key for its secret, SAML nothing
+        const work = !network;
         const providers = network ? [] : providerButtons;
         const people = button !== undefined ? [{ id: button.id, label: button.label }] : network ? [] : devUsers.map((name) => ({ id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }));
         const notice = button?.notice !== undefined ? { notice: button.notice, noNotice: false } : network && button === undefined ? { notice: t['signin.networkText'], noNotice: false } : await betaNotice(t);
@@ -805,7 +818,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         workspaces,
         toolsOf,
         signedIn,
-        readJson: (request: IncomingMessage) => readJsonBody(request, MAX_FORM_BYTES),
+        readJson: (request: IncomingMessage, limit = MAX_FORM_BYTES) => readJsonBody(request, limit),
         sendJson,
         origin: () => publicOrigin ?? origin,
         closeOrgViews,
@@ -813,6 +826,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         policies,
         domains,
         sso,
+        saml,
+        samlEntityId: (orgId: string) => samlSignIn.entityIdOf(orgId),
         budgets,
         ssoRedirectUri: () => signIn.redirectUri(CUSTOM_PROVIDER),
         makeOrgs: !inBeta,
@@ -1254,6 +1269,18 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure: secureHere, path: '/auth' });
+        /**
+         * After a provider's sign-in was checked: the org's rules (a refusal is a `SignInError`), the account, the beta,
+         * the audit log, and the session
+         */
+        const completeSignIn = async (request: IncomingMessage, response: ServerResponse, identity: Identity, profile: Profile, next: string, orgId: string | undefined): Promise<void> => {
+            const refusal = await rules.refusal(profile.email, orgId);
+            if (refusal !== undefined) throw new SignInError(refusal);
+            const user = await accounts.signIn(identity, profile, orgId);
+            await joinBeta(user.id);
+            await rules.signedIn({ id: user.id, ...(profile.email !== undefined && { email: profile.email }), emailVerified: profile.emailVerified === true }, { provider: identity.provider, ...(orgId !== undefined && { orgId }), ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
+            redirect(response, next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
+        };
         if (method === 'GET' && path === '/settings/device') {
             // Sign in another device: a link that signs in as this person once, within ten minutes, at the address
             // other devices reach (the network listener's, when there is one)
@@ -1294,6 +1321,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const next = safeNext(url.searchParams.get('next'));
             const email = (url.searchParams.get('email') ?? '').trim().slice(0, 320);
             const orgId = await domains.orgOfEmail(email);
+            const samlProvider = orgId === undefined ? undefined : await saml.provider(orgId);
+            if (orgId !== undefined && samlProvider !== undefined) {
+                const started = await samlSignIn.start(orgId, samlProvider, next);
+                redirect(response, started.url, pendingCookie(started.key, 10 * 60));
+                return true;
+            }
             const provider = orgId === undefined ? undefined : await sso.provider(orgId);
             if (orgId === undefined || provider === undefined) {
                 sendAppPage(request, response, await signInPageOf(request, next, NO_ORG_SIGN_IN), 404);
@@ -1308,6 +1341,30 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 return true;
             }
             redirect(response, started.url, pendingCookie(started.key, 10 * 60));
+            return true;
+        }
+        const samlAnswer = method === 'POST' ? SAML_ROUTE.exec(path) : null;
+        const samlFinish = method === 'GET' ? SAML_FINISH.exec(path) : null;
+        if (samlAnswer !== null || samlFinish !== null) {
+            // An org's SAML provider posts its answer here from its own page; the browser then finishes the sign-in
+            // with the cookie of the browser that started it, which a post from another site does not carry
+            const orgId = (samlAnswer ?? samlFinish)?.[1] as string;
+            try {
+                if (samlAnswer !== null) {
+                    const provider = await saml.provider(orgId);
+                    if (provider === undefined) throw new SignInError(NO_ORG_SIGN_IN);
+                    const requestId = await samlSignIn.answer(orgId, provider, (await readForm(request, MAX_SAML_FORM_BYTES)).get('SAMLResponse') ?? undefined);
+                    redirect(response, `/auth/saml/${orgId}/finish?request=${encodeURIComponent(requestId)}`);
+                    return true;
+                }
+                const done = await samlSignIn.finish(orgId, url.searchParams.get('request'), readCookie(request, SIGN_IN_COOKIE));
+                await completeSignIn(request, response, { provider: samlIdentityProvider(orgId), subject: done.subject }, { ...done.profile, emailVerified: await rules.vouches(orgId, done.profile.email) }, done.next, orgId);
+            } catch (error) {
+                if (!(error instanceof SignInError)) throw error;
+                options.report.info('Sign-in did not finish', { provider: 'saml', orgId, error: error.message, ...(error.detail !== undefined && { providerSaid: error.detail }) });
+                // A refused answer is a post another site can make: it leaves the browser's sign-in as it was
+                sendAppPage(request, response, await signInPageOf(request, '/', error.message), 400, ...(samlFinish !== null ? [pendingCookie('', 0)] : []));
+            }
             return true;
         }
         const auth = /^\/auth\/([a-z][a-z0-9-]{0,31})(\/callback)?$/.exec(path);
@@ -1332,12 +1389,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 const orgId = name === CUSTOM_PROVIDER ? done.tag : undefined;
                 const identity = orgId === undefined ? done.identity : { provider: ssoIdentityProvider(orgId), subject: done.identity.subject };
                 const profile = orgId === undefined ? done.profile : { ...done.profile, emailVerified: await rules.vouches(orgId, done.profile.email) };
-                const refusal = await rules.refusal(profile.email, orgId);
-                if (refusal !== undefined) throw new SignInError(refusal);
-                const user = await accounts.signIn(identity, profile, orgId);
-                await joinBeta(user.id);
-                await rules.signedIn({ id: user.id, ...(profile.email !== undefined && { email: profile.email }), emailVerified: profile.emailVerified === true }, { provider: identity.provider, ...(orgId !== undefined && { orgId }), ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
-                redirect(response, done.next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
+                await completeSignIn(request, response, identity, profile, done.next, orgId);
             } catch (error) {
                 if (!(error instanceof SignInError)) throw error;
                 options.report.info('Sign-in did not finish', { provider: name, error: error.message, ...(error.detail !== undefined && { providerSaid: error.detail }) });
@@ -1888,6 +1940,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         ...(options.network !== undefined && { network: options.network }),
         ...(runtimeOrigin !== undefined && publicOrigin !== undefined && { publicOrigins: { main: publicOrigin, runtime: runtimeOrigin } }),
         tenant,
+        // An org's SAML provider posts its answer from its own page
+        crossOriginPost: (path) => SAML_ROUTE.test(path),
         routes: async (request, response) => {
             try {
                 return await routes(request, response);
@@ -1915,6 +1969,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     // Each org's retentionDays: its old chats, and the state of people no longer in it, go once an hour
     const retention = setInterval(() => void policies.applyRetention().catch((error: unknown) => options.report.info('Retention sweep failed', { error: error instanceof Error ? error.message : String(error) })), 3_600_000);
     retention.unref();
+    // Each org's SAML metadata URL is read again once a day; a failed read keeps the last good copy
+    const refreshSaml = (): void =>
+        void saml
+            .refreshDue()
+            .then((done) => {
+                if (done.read > 0) options.report.info('Read SAML metadata again', done);
+            })
+            .catch((error: unknown) => options.report.info('Reading SAML metadata again failed', { error: error instanceof Error ? error.message : String(error) }));
+    const samlMetadata = setInterval(refreshSaml, 3_600_000);
+    samlMetadata.unref();
+    refreshSaml();
     options.report.info('Magnetic started', { origin, ...(networkOrigin !== undefined && { networkOrigin }), devUsers: devUsers.length, providers: signIn.providers.map((provider) => provider.name) });
 
     let stopped = false;
@@ -1931,6 +1996,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         policies,
         domains,
         sso,
+        saml,
         ...(index !== undefined && { index }),
         keys,
         ...(stateGrants !== undefined && { stateGrants }),
@@ -1949,6 +2015,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             stopped = true;
             clearInterval(sweep);
             clearInterval(retention);
+            clearInterval(samlMetadata);
             await turns.stopAll();
             await index?.stop();
             await http.close();

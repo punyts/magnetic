@@ -42,7 +42,7 @@ test.describe('Orgs', () => {
         const slug = slugOf('invite');
         await makeOrg(page, `Invite ${slug}`, slug);
         const email = `ada-${slug}@example.com`;
-        await page.getByLabel('Email').fill(email);
+        await page.getByLabel('Email', { exact: true }).fill(email);
         await page.getByLabel('Role').selectOption({ label: 'Builder' });
         await page.getByRole('button', { name: 'Make the invite link' }).click();
         const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]{43}/.exec((await page.getByRole('status').locator('code.link').textContent()) ?? '')?.[0];
@@ -70,7 +70,7 @@ test.describe('Orgs', () => {
     test('an invite does not work for someone with another email', async ({ browser, page }) => {
         const slug = slugOf('wrong');
         await makeOrg(page, `Wrong ${slug}`, slug);
-        await page.getByLabel('Email').fill(`invited-${slug}@example.com`);
+        await page.getByLabel('Email', { exact: true }).fill(`invited-${slug}@example.com`);
         await page.getByRole('button', { name: 'Make the invite link' }).click();
         const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]{43}/.exec((await page.getByRole('status').locator('code.link').textContent()) ?? '')?.[0] as string;
         const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
@@ -106,7 +106,7 @@ test.describe('Invites on Your apps', () => {
     /** alice makes an org and invites the email as a builder; the page says so */
     async function invited(page: Page, slug: string, email: string): Promise<void> {
         await makeOrg(page, `Waiting ${slug}`, slug);
-        await page.getByLabel('Email').fill(email);
+        await page.getByLabel('Email', { exact: true }).fill(email);
         await page.getByLabel('Role').selectOption({ label: 'Builder' });
         await page.getByRole('button', { name: 'Make the invite link' }).click();
         await expect(page.getByText(`The invite was emailed to ${email}.`, { exact: false })).toBeVisible();

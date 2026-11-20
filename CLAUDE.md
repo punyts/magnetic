@@ -53,7 +53,7 @@ $0.15, so allowances move.
   their definition and texts changes, under an advisory lock (`src/storage/exclusive.ts`) because two servers race.
 - Text: `src/http/text.ts` has `EN` and `DE`/`FR`/`ES` typed against it (a missing key fails the typecheck), and pages
   have their own `*Text.ts` files (billing, connections, data, orgs). Admin pages are English only.
-- Database: Magnetic's tables are in `migrations/NNNN_name.sql` (next is 0021); StateUI's workspace tables come from
+- Database: Magnetic's tables are in `migrations/NNNN_name.sql` (next is 0022); StateUI's workspace tables come from
   `@punyts/stateui-pg`. Only stateui-pg's workspace tables have row-level security; a new workspace-scoped table must
   copy that policy and be queried through `db.transaction(…, { workspaceIds })`. The server connects as
   `magnetic_app`, granted every table by `migrate --app-role`; hosted, `--aggregate-role magnetic_aggregate` leaves it
