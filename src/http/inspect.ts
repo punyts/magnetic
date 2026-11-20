@@ -5,9 +5,11 @@ import { SCRIPT_TEXTS } from './text.js';
  *
  * The inspector's tabs are part of the editor app (`magneticShell.editor`): this script writes what they show into the
  * editor's data (`$.data.editor` and the lists `components`, `paths`, `feed`), fills its `propertyFields` panel with
- * a field per property, and acts on its emits. It asks the app frame about its nodes with `stateuiHost.inspect` and
- * draws the hover, the selection and where a node lands on an overlay above the frame, in the frame's own pixels (the
- * overlay is inside the artboard, so it pans and zooms with it). Every change goes to the server as one checked
+ * a field per property, and acts on its emits. It asks the live app about its nodes with `stateuiHost.inspect` and
+ * draws the hover, the selection and where a node lands on an overlay above it, in the app's own pixels: a layer that
+ * follows the live app's element on its card (`magneticScreens.liveApp`) and scales with the canvas. With the Move
+ * tool a drag on the layer pans the board (`magneticScreens.panBy`), which leaves the live app's own presses to it.
+ * Every change goes to the server as one checked
  * `ui_nodes_write` (`POST /edit/<id>/nodes`), and the app follows through its sync, as it does for the agent.
  *
  * - Select (S): hover outlines a node, a click selects it; the breadcrumb selects a parent; Escape lets go.
@@ -29,10 +31,50 @@ export const INSPECT_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.
 const base = '/edit/' + encodeURIComponent(appId);
 const shell = window.magneticShell;
 const host = window.stateuiHost;
-// The live app's element and the overlay on it: detached until the inspector reaches the app through its embeddedApp (B3c)
-const artboard = document.createElement('div');
+// The inspector's layer over the live app: the shield takes the tools' presses and the overlay draws, both in the app's
+// own pixels. The layer follows the element the live app runs on, on its card (magneticScreens.liveApp), and scales
+// with the canvas around it
+const layer = document.createElement('div');
+layer.className = 'inspect-layer';
+layer.hidden = true;
 const shield = document.createElement('div');
+shield.className = 'shield';
+shield.hidden = true;
 const overlay = document.createElement('div');
+overlay.className = 'overlay';
+overlay.setAttribute('aria-hidden', 'true');
+layer.append(shield, overlay);
+// On the board, which fills the window: the layer is part of the canvas, under the editor's panels
+(document.getElementById('board') || document.body).append(layer);
+/** How many frames the live app's element is kept before it is looked for again */
+const LOOK_AGAIN_FRAMES = 20;
+/** The live app: its element and screen, or null while none is on the board */
+let live = null;
+let looked = 0;
+let placed = '';
+function follow() {
+    if (!live || !live.element.isConnected || ++looked >= LOOK_AGAIN_FRAMES) {
+        looked = 0;
+        live = window.magneticScreens ? window.magneticScreens.liveApp() : null;
+    }
+    let next = 'none';
+    if (live) {
+        const box = live.element.getBoundingClientRect();
+        const scale = box.width / (live.element.offsetWidth || 1) || 1;
+        next = [box.left, box.top, live.element.offsetWidth, live.element.offsetHeight, scale].join(' ');
+        if (next !== placed) {
+            layer.style.width = live.element.offsetWidth + 'px';
+            layer.style.height = live.element.offsetHeight + 'px';
+            layer.style.transform = 'translate(' + box.left + 'px, ' + box.top + 'px) scale(' + scale + ')';
+            layer.style.setProperty('--zoom', String(scale));
+        }
+    }
+    if (next !== placed) { placed = next; layer.hidden = live === null; }
+    requestAnimationFrame(follow);
+}
+requestAnimationFrame(follow);
+/** The live app's element, or the layer while there is none (its box is then empty) */
+function appElement() { return live ? live.element : layer; }
 const editor = shell ? shell.editor : null;
 const TEXT_SAVE_MS = 600;
 const FLASH_MS = 1200;
@@ -110,10 +152,10 @@ async function writeNodes(operations) {
     return body;
 }
 
-// The frame's own pixels: the overlay and the frame both fill the artboard, which the canvas scales
-function zoom() { return artboard.getBoundingClientRect().width / artboard.offsetWidth || 1; }
+// The app's own pixels: the overlay fills the layer, which is the live app's element scaled as the canvas scales it
+function zoom() { const element = appElement(); return element.getBoundingClientRect().width / element.offsetWidth || 1; }
 function framePoint(event) {
-    const box = artboard.getBoundingClientRect();
+    const box = appElement().getBoundingClientRect();
     const scale = zoom();
     return { x: (event.clientX - box.left) / scale, y: (event.clientY - box.top) / scale };
 }
@@ -306,7 +348,7 @@ function sectionsOf(box, out = [], root = true) {
 async function showSections() {
     const run = ++sectionsRun;
     sections = [];
-    const screen = artboard.dataset.screen;
+    const screen = live ? live.screen : null;
     if (!screen) return;
     try {
         const response = await fetch(base + '/views/screen?screen=' + encodeURIComponent(screen));
@@ -364,7 +406,8 @@ async function commitDrop() {
 // it is over it
 function overFrame(payload) {
     if (!payload || typeof payload.x !== 'number' || typeof payload.y !== 'number') return null;
-    const box = artboard.getBoundingClientRect();
+    if (!live) return null;
+    const box = live.element.getBoundingClientRect();
     if (payload.x < box.left || payload.x > box.right || payload.y < box.top || payload.y > box.bottom) return null;
     return framePoint({ clientX: payload.x, clientY: payload.y });
 }
@@ -382,16 +425,35 @@ async function dragEnded(payload) {
     await commitDrop();
 }
 
-// The Select tool works on the shield over the frame
+// The Select tool works on the shield over the live app, and the Move tool pans the board from it
 function selecting() { const tool = shell.tool(); return tool === 'select' || tool === 'place'; }
 let press = null;
+let pan = null;
+function showShield() {
+    const tool = shell.tool();
+    shield.hidden = tool === 'use';
+    layer.classList.toggle('moving', tool === 'move');
+    layer.classList.toggle('selecting', tool === 'select' || tool === 'place');
+}
 shield.addEventListener('pointerdown', (event) => {
+    if (shell.tool() === 'move' && event.button === 0) {
+        event.preventDefault();
+        shield.setPointerCapture(event.pointerId);
+        pan = { x: event.clientX, y: event.clientY };
+        layer.classList.add('dragging');
+        return;
+    }
     if (!selecting() || event.button !== 0) return;
     event.preventDefault();
     shield.setPointerCapture(event.pointerId);
     press = { x: event.clientX, y: event.clientY, point: framePoint(event), dragging: false };
 });
 shield.addEventListener('pointermove', (event) => {
+    if (pan) {
+        window.magneticScreens.panBy(event.clientX - pan.x, event.clientY - pan.y);
+        pan = { x: event.clientX, y: event.clientY };
+        return;
+    }
     if (!selecting()) return;
     const point = framePoint(event);
     if (press && !press.dragging && !placing && selected && selected.rect && inside(selected.rect, press.point) && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 5) {
@@ -400,7 +462,10 @@ shield.addEventListener('pointermove', (event) => {
     }
     void inspectAt(point);
 });
+function endPan() { pan = null; layer.classList.remove('dragging'); }
+shield.addEventListener('pointercancel', endPan);
 shield.addEventListener('pointerup', async (event) => {
+    if (pan) { endPan(); return; }
     if (!press) return;
     const was = press;
     press = null;
@@ -423,7 +488,9 @@ function closeInspector() {
     if (selected) unselect();
 }
 
+showShield();
 shell.onTool((tool) => {
+    showShield();
     if (tool !== 'place' && placing) { placing = null; drop = null; }
     if (tool !== 'select' && tool !== 'place') hover = null;
     if (tool === 'select') shell.showInspector(true);

@@ -94,7 +94,9 @@ test.describe('Sharing an app', () => {
         await expect(offer.getByText(/shared a copy of this app with you/)).toBeVisible();
         await offer.getByRole('button', { name: 'Remix' }).click();
         await carol.waitForURL(/\/(edit|apps)\/[0-9a-f-]+$/);
-        await expect(new AppPage(carol).app.getByText('Shared words')).toBeVisible();
+        // The copy is carol's own: it runs in the page, on the editor's board or, without the editor, in #alone
+        const own = carol.url().includes('/edit/') ? new EditorPage(carol).app : carol.locator('#alone');
+        await expect(own.getByText('Shared words')).toBeVisible();
         await carol.context().close();
     });
 });

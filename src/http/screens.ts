@@ -701,8 +701,65 @@ async function onEmit(name, payload) {
     }
 }
 
-/** What /assets/views.js asks of the screens */
-window.magneticScreens = { choose: (name) => choose(name) };
+/** Every element matching a selector below a root, through the shadow roots */
+function deepAll(root, selector, out = []) {
+    for (const element of root.querySelectorAll(selector)) out.push(element);
+    for (const element of root.querySelectorAll('*')) if (element.shadowRoot) deepAll(element.shadowRoot, selector, out);
+    return out;
+}
+
+/**
+ * The live app on its card: the element the app host attached it to (the live embeddedApp's '.app') and its screen;
+ * null while the editor is away or no card is live
+ */
+function liveApp() {
+    if (!holder || !current || !shell.editing()) return null;
+    for (const embedded of deepAll(holder, 'ui-embedded-app')) {
+        const element = embedded.shadowRoot && embedded.shadowRoot.querySelector('.frame[data-own-gestures="all"] > .app');
+        if (element && element.offsetWidth > 0) return { element, screen: current };
+    }
+    return null;
+}
+
+/**
+ * The cards in the page, for the views' layers: each screen's name, the element its app shows in (the embeddedApp's
+ * '.app' while an app is mounted there, else its frame), and whether it is the live app. A card is known by its place
+ * on the board: the script reads no state of the page's components
+ */
+function cards() {
+    const canvas = holder && shell.editing() ? deepFind(holder, 'ui-viewport') : null;
+    const world = canvas && canvas.shadowRoot ? canvas.shadowRoot.querySelector('.world') : null;
+    if (!world) return [];
+    const origin = world.getBoundingClientRect();
+    const zoom = origin.width / (world.offsetWidth || 1) || view.zoom;
+    const found = [];
+    for (const embedded of deepAll(holder, 'ui-embedded-app')) {
+        const frame = embedded.shadowRoot && embedded.shadowRoot.querySelector('.frame');
+        if (!frame || frame.offsetWidth === 0) continue;
+        const box = frame.getBoundingClientRect();
+        const x = (box.left + box.width / 2 - origin.left) / zoom;
+        const y = (box.top + box.height / 2 - origin.top) / zoom;
+        let name = null;
+        for (const [candidate, place] of places) if (x >= place.x && x <= place.x + place.width && y >= place.y && y <= place.y + place.height) name = candidate;
+        if (name === null || found.some((card) => card.name === name)) continue;
+        const app = frame.querySelector('.app');
+        found.push({ name, element: app && app.offsetWidth > 0 ? app : frame, live: frame.dataset.ownGestures === 'all' });
+    }
+    return found;
+}
+
+/** Moves the board by a drag of the hand over the live app, which the canvas leaves to the app */
+function panBy(dx, dy) {
+    if (!page || !(Number.isFinite(dx) && Number.isFinite(dy))) return;
+    Object.assign(view, { x: view.x + dx, y: view.y + dy });
+    fitted = false;
+    pageWrite({ view: { ...view } });
+    keepView();
+    settle();
+}
+
+/** What /assets/views.js and /assets/inspect.js ask of the screens */
+window.magneticScreens = { choose: (name) => choose(name), liveApp, cards, panBy };
 
 if (shell && editor && host && holder) {
     editor.onEmit((name, payload) => void onEmit(name, payload));

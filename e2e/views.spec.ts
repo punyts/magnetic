@@ -50,7 +50,7 @@ test.describe("The editor's views", () => {
         // Statenet's page is on the board in place of the screens, and the editor's zoom drives its canvas: the app itself
         // is a card under $.apps
         await expect(appCard(page)).toBeVisible();
-        await expect(page.locator('#artboard')).toBeHidden();
+        await expect(page.locator('#screens')).toBeHidden();
         await expect(editor.button('Zoom in (+)')).toBeVisible();
         await page.reload();
         await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
@@ -335,9 +335,9 @@ test.describe("The editor's views", () => {
         await page.goto(page.url().replace('/edit/', '/apps/'));
 
         // Assert
-        await expect(page.locator('#board')).toBeVisible();
+        await expect(page.locator('#alone')).toBeVisible();
         await expect(sheet(page)).toBeHidden();
-        await expect(editor.app.getByText('Home words')).toBeVisible();
+        await expect(page.locator('#alone').getByText('Home words')).toBeVisible();
     });
 
     test("the Theme view makes a theme and edits a token's value in one mode", async ({ page }, info) => {

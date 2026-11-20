@@ -7,31 +7,19 @@ import { SCRIPT_TEXTS } from './text.js';
  * The view selector at the top right (the editor app's `view` emit) picks what the canvas shows, kept per app in this
  * browser:
  *
- * - **Screens**: the board of screens, with the rail's tools. The rail's layers draw on every screen tile: Layout
- *   outlines each node that lays out others with its key and layout (measured in a mounted frame, a schematic drawn
- *   from the document on a name tile); Data lists the state paths the screen reads and writes down its right edge,
- *   `$.external` ones as from outside; Logic marks the nodes with handlers, lists the app's units that touch the
- *   screen down its left edge, each marked Server or Browser, and draws an arrow to each screen it leads to.
+ * - **Screens**: the board of screens, with the rail's tools. The rail's layers draw on every screen card, each in a
+ *   layer that follows its card (`magneticScreens.cards`) and scales with the canvas: Layout outlines each node that
+ *   lays out others with its key and layout (measured in the live app, a schematic drawn from the document on a
+ *   preview); Data lists the state paths the screen reads and writes down its right edge, `$.external` ones as from
+ *   outside; Logic marks the nodes with handlers, lists the app's units that touch the screen down its left edge,
+ *   each marked Server or Browser, and draws an arrow to each screen it leads to.
  * - **Statenet**: the owner's tree by state path from `GET /edit/<id>/views/graph`, shown by Magnetic's page
- *   `magnetic-statenet` (`src/statenet/StatenetPage.ts`) mounted on the board: a canvas that pans and zooms, `import { SCRIPT_TEXTS } from './text.js';
-
-/**
- * `/assets/views.js`: the editor's views (docs/design/magnetic-show-views.md), after `/assets/shell.js`,
- * `/assets/inspect.js` and `/assets/screens.js`.
- *
- * The view selector at the top right (the editor app's `view` emit) picks what the canvas shows, kept per app in this
- * browser:
- *
- * - **Screens**: the board of screens, with the rail's tools. The rail's layers draw on every screen tile: Layout
- *   outlines each node that lays out others with its key and layout (measured in a mounted frame, a schematic drawn
- *   from the document on a name tile); Data lists the state paths the screen reads and writes down its right edge,
- *   `$.external` ones as from outside; Logic marks the nodes with handlers, lists the app's units that touch the
- *   screen down its left edge, each marked Server or Browser, and draws an arrow to each screen it leads to.
- with its
+ *   `magnetic-statenet` (`src/statenet/StatenetPage.ts`) mounted on the board: a canvas that pans and zooms, with its
  *   branches on its right and left sides, every part with what the app does not use lying flat, and one level below a
- *   part. The editor's zoom runs the canvas's commands while it shows. Pressing a node opens its editor at the side: a dataset's records, a model's fields, a path of the state, a module's unit, a connection and
- *   its endpoints (for those who manage connections). A + on a branch or a part opens a form that makes what it holds
- *   and puts it to use in the app.
+ *   part. The editor's zoom runs the canvas's commands while it shows. Pressing a node opens its editor at the side:
+ *   a dataset's records, a model's fields, a path of the state, a module's unit, a connection and its endpoints (for
+ *   those who manage connections). A + on a branch or a part opens a form that makes what it holds and puts it to use
+ *   in the app.
  * - **Theme**: the app's themes, and the chosen one as a specimen per mode above its tokens, each token's value for
  *   all modes and in each mode, edited in place. A theme other apps use asks first: edit it for all of them, or clone
  *   it for this app.
@@ -124,8 +112,10 @@ export const VIEWS_CSS = [
     '.unit-paths { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted, #666); overflow-wrap: anywhere; }',
     '.states { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; } .state { border: 1px solid var(--line, #ccc); border-radius: 999px; padding: 1px 10px; font-size: 12px; } .state.initial { border-color: var(--accent, #3d5afe); }',
     '.flow { font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; } .flow i { color: var(--muted, #666); font-style: normal; }',
-    // The layers on the screen tiles, in the frame's pixels (they pan and zoom with the board)
-    '.tile-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; font: calc(12px / var(--zoom, 1)) system-ui, sans-serif; }',
+    // The layers on the screen cards: each in its app's own pixels, following the card and scaled as the canvas scales it
+    '.views-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }',
+    '.views-layer[hidden] { display: none; }',
+    '.tile-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; font: calc(12px / var(--zoom, 1)) system-ui, sans-serif; }',
     '.tile-layer .lbox { position: absolute; border: calc(1.5px / var(--zoom, 1)) dashed #7c4dff; border-radius: calc(4px / var(--zoom, 1)); }',
     '.tile-layer .lbox > span { position: absolute; left: 0; top: 0; transform: translateY(-100%); background: #7c4dff; color: #fff; padding: 0 calc(4px / var(--zoom, 1)); border-radius: calc(3px / var(--zoom, 1)); white-space: nowrap; }',
     '.tile-layer .schematic { position: absolute; inset: 8%; display: flex; }',
@@ -137,8 +127,8 @@ export const VIEWS_CSS = [
     '.tile-layer .chip.outside { border-style: dashed; } .tile-layer .chip.data { border-color: #00897b; } .tile-layer .chip.unit { border-color: #f57c00; }',
     '.tile-layer .chip em { font-style: normal; opacity: .7; margin-left: .4em; }',
     '.tile-layer .badge { position: absolute; transform: translate(-50%, -50%); background: #f57c00; color: #fff; border-radius: 999px; padding: 0 calc(5px / var(--zoom, 1)); font-size: .9em; }',
-    '.leads { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 3; }',
-    '.leads path { fill: none; stroke: #f57c00; stroke-width: calc(3px / var(--zoom, 1)); }'
+    '.leads { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }',
+    '.leads path { fill: none; stroke: #f57c00; stroke-width: 3px; }'
 ].join('\n');
 
 export const VIEWS_JS = String.raw`${SCRIPT_TEXTS}(function views() {
@@ -148,9 +138,6 @@ if (!shell) return;
 const editor = shell.editor;
 const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId) + '/views';
-// The board's content and the live app's element: detached until the layers reach the apps through their embeddedApp (B3c)
-const world = document.createElement('div');
-const artboard = document.createElement('div');
 const VIEWS = ['screens', 'statenet', 'theme', 'logic'];
 const LAYERS = ['layout', 'data', 'logic'];
 const VIEW_KEY = 'magnetic.editorView.' + appId;
@@ -1326,22 +1313,23 @@ function unitEditor(unit, card) {
 const infos = new Map();
 let infoRevision = null;
 let drawing = 0;
+// The layers sit in one fixed layer above the board; each follows its card (see follow below)
+const holder = document.createElement('div');
+holder.className = 'views-layer';
+holder.hidden = true;
 const leads = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 leads.setAttribute('class', 'leads');
-world.append(leads);
+holder.append(leads);
+(document.getElementById('board') || document.body).append(holder);
+/** The layers drawn, each on the element of its card */
+let drawn = [];
+/** The leads between screens, by the names of the screens they join */
+let leadPairs = [];
 
-/** The screens' tiles: the live frame and every preview, with where each is on the board */
+/** The screens' cards in the page (magneticScreens.cards): the live app is asked about its nodes, a preview is not */
 function tiles() {
-    const found = [];
-    const live = artboard.dataset.screen;
-    if (live && !artboard.hidden && getComputedStyle(artboard).display !== 'none') found.push({ name: live, element: artboard, inspect: (query) => host.inspect(query), x: Number(artboard.dataset.slotX || 0), y: Number(artboard.dataset.slotY || 0) });
-    for (const preview of world.querySelectorAll('.preview[data-screen]')) {
-        const name = preview.dataset.screen;
-        if (found.some((tile) => tile.name === name)) continue;
-        const panel = window.magneticScreens && window.magneticScreens.panelOf ? window.magneticScreens.panelOf(name) : null;
-        found.push({ name, element: preview, inspect: panel ? (query) => panel.inspect(query) : null, x: parseFloat(preview.style.left) || 0, y: parseFloat(preview.style.top) || 0 });
-    }
-    return found;
+    const cards = window.magneticScreens && window.magneticScreens.cards ? window.magneticScreens.cards() : [];
+    return cards.map((card) => ({ name: card.name, element: card.element, inspect: card.live && host ? (query) => host.inspect(query) : null }));
 }
 
 async function infoOf(name) {
@@ -1367,13 +1355,13 @@ function schematic(layout) {
 }
 
 async function drawTile(tile, run) {
-    for (const old of tile.element.querySelectorAll(':scope > .tile-layer')) old.remove();
     if (view !== 'screens' || !LAYERS.some((name) => layers[name])) return;
     const info = await infoOf(tile.name);
     if (!info || run !== drawing) return;
     const layer = element('div', { className: 'tile-layer', 'data-layer-screen': tile.name });
-    tile.element.append(layer);
-    const mounted = tile.inspect !== null && !document.body.classList.contains('screen-names');
+    holder.append(layer);
+    drawn.push({ tile, layer, at: '' });
+    const mounted = tile.inspect !== null;
     let rects = new Map();
     const wanted = [...(layers.layout ? boxesOf(info.layout).map((box) => box.path) : []), ...(layers.logic ? info.handlers.map((handler) => handler.node) : [])];
     if (mounted && wanted.length > 0) {
@@ -1420,30 +1408,41 @@ async function drawTile(tile, run) {
     }
 }
 
-function drawLeads(all) {
-    leads.replaceChildren();
-    if (view !== 'screens' || !layers.logic) return;
-    const [width, height] = shell.canvas.size();
-    const at = new Map(all.map((tile) => [tile.name, tile]));
+/** Which screens lead to which, for the logic layer: drawn between the cards by placeLeads */
+function drawLeads(all, run) {
+    leadPairs = [];
+    if (view !== 'screens' || !layers.logic) { placeLeads(); return; }
+    const names = new Set(all.map((tile) => tile.name));
     void Promise.all(all.map((tile) => infoOf(tile.name))).then((list) => {
+        if (run !== drawing) return;
         list.forEach((info) => {
             if (!info) return;
-            const from = at.get(info.screen);
             for (const lead of new Set(info.navigates.filter((each) => each.to !== info.screen).map((each) => each.to))) {
-                const to = at.get(lead);
-                if (!from || !to) continue;
-                const x1 = from.x + width / 2;
-                const y1 = from.y + height;
-                const x2 = to.x + width / 2;
-                const y2 = to.y;
-                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                const dip = Math.max(120, Math.abs(x2 - x1) / 3);
-                path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + x1 + ',' + (y1 + dip) + ' ' + x2 + ',' + (y2 - dip) + ' ' + x2 + ',' + y2);
-                path.setAttribute('data-lead', info.screen + '>' + lead);
-                leads.append(path);
+                if (names.has(info.screen) && names.has(lead)) leadPairs.push([info.screen, lead]);
             }
         });
+        placeLeads();
     });
+}
+
+/** The leads in the page's pixels, from the bottom of a card to the top of the one it leads to */
+function placeLeads() {
+    leads.replaceChildren();
+    const boxes = new Map(drawn.map((each) => [each.tile.name, each.tile.element.getBoundingClientRect()]));
+    for (const [fromName, toName] of leadPairs) {
+        const from = boxes.get(fromName);
+        const to = boxes.get(toName);
+        if (!from || !to) continue;
+        const x1 = from.left + from.width / 2;
+        const y1 = from.bottom;
+        const x2 = to.left + to.width / 2;
+        const y2 = to.top;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const dip = Math.max(40, Math.abs(x2 - x1) / 3);
+        path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + x1 + ',' + (y1 + dip) + ' ' + x2 + ',' + (y2 - dip) + ' ' + x2 + ',' + y2);
+        path.setAttribute('data-lead', fromName + '>' + toName);
+        leads.append(path);
+    }
 }
 
 let layerTimer = null;
@@ -1452,22 +1451,51 @@ function drawLayers() {
     return new Promise((resolve) => {
         layerTimer = setTimeout(() => {
             const run = ++drawing;
+            for (const each of drawn) each.layer.remove();
+            drawn = [];
             const all = tiles();
-            drawLeads(all);
-            void Promise.all(all.map((tile) => drawTile(tile, run))).then(resolve, resolve);
+            cardsSeen = signature(all);
+            holder.hidden = !layersShown();
+            void Promise.all(all.map((tile) => drawTile(tile, run))).then(() => { placed(); drawLeads(all, run); resolve(); }, resolve);
         }, 120);
     });
 }
 
-// Drawn again when the screens move, a frame mounts, the document changes or the app navigates
+// Drawn again when the cards change (one mounts, names start or end, the screens change), the document changes or
+// the app navigates; between, each layer follows its card as the canvas pans and zooms
 function layersShown() { return view === 'screens' && LAYERS.some((name) => layers[name]); }
-new MutationObserver(() => { if (layersShown()) void drawLayers(); }).observe(world, { childList: true });
-new MutationObserver(() => { if (layersShown()) void drawLayers(); }).observe(artboard, { attributes: true, attributeFilter: ['data-screen', 'data-slot-x', 'data-slot-y', 'style', 'hidden'] });
-let names = document.body.classList.contains('screen-names');
-new MutationObserver(() => {
-    const now = document.body.classList.contains('screen-names');
-    if (now !== names) { names = now; if (layersShown()) void drawLayers(); }
-}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+/** How many frames pass between two looks at which cards are in the page */
+const LOOK_AGAIN_FRAMES = 20;
+let cardsSeen = '';
+let looked = 0;
+function signature(all) { return all.map((tile) => tile.name + (tile.inspect ? '*' : '') + (tile.element.className || '')).join(' '); }
+/** Puts each layer on its card: its app's own size, moved and scaled as the card is; true when one moved */
+function placed() {
+    let moved = false;
+    for (const each of drawn) {
+        const element = each.tile.element;
+        const box = element.getBoundingClientRect();
+        const scale = box.width / (element.offsetWidth || 1) || 1;
+        const at = [box.left, box.top, element.offsetWidth, element.offsetHeight, scale].join(' ');
+        if (at === each.at) continue;
+        each.at = at;
+        moved = true;
+        Object.assign(each.layer.style, { width: element.offsetWidth + 'px', height: element.offsetHeight + 'px', transform: 'translate(' + box.left + 'px, ' + box.top + 'px) scale(' + scale + ')' });
+        each.layer.style.setProperty('--zoom', String(scale));
+    }
+    return moved;
+}
+function follow() {
+    if (layersShown()) {
+        if (++looked >= LOOK_AGAIN_FRAMES) {
+            looked = 0;
+            if (signature(tiles()) !== cardsSeen) void drawLayers();
+        }
+        if (placed()) placeLeads();
+    }
+    requestAnimationFrame(follow);
+}
+requestAnimationFrame(follow);
 // A change to the app redraws the view; while a field of the sheet is being edited, once it is left
 let reloadWaiting = false;
 const editing = () => sheet.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);

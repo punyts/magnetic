@@ -4,7 +4,8 @@ import type { BrowserContext, FrameLocator, Locator, Page, TestInfo } from '@pla
 /**
  * Page objects for the suite. Magnetic's pages are StateUI apps in frames from the runtime origin:
  * - the sign-in page: `#page-app iframe`; Your apps: the frame in `body.home`, with its notices in `#notice`;
- * - the editor: `#editor iframe` (Magnetic's editor, an app of its own) over `#artboard iframe` (the person's app).
+ * - the editor: `#editor iframe` (Magnetic's editor, an app of its own) beside the screens board, `#screens`, where the
+ *   person's app runs in the page: the live screen is `ui-embedded-app[live]`, the others previews of it.
  * The org settings, shared links and privacy pages are plain HTML.
  */
 
@@ -133,11 +134,11 @@ export class HomePage {
 export class EditorPage {
     /** Magnetic's editor: the panels, the rail, the chat bar */
     readonly editor: FrameLocator;
-    /** The person's app on the canvas */
-    readonly app: FrameLocator;
+    /** The person's app on the board: the live screen's card, the app mounted in the page */
+    readonly app: Locator;
     constructor(readonly page: Page) {
         this.editor = page.frameLocator('#editor iframe');
-        this.app = page.frameLocator('#artboard iframe');
+        this.app = page.locator('ui-embedded-app[live]');
     }
     get appId(): string {
         return new URL(this.page.url()).pathname.split('/').pop() as string;
@@ -170,8 +171,9 @@ export class EditorPage {
     get sizeSelect(): Locator {
         return this.editor.getByRole('combobox').filter({ hasText: 'Desktop' });
     }
+    /** The live screen's size, "W × H", in its card's head */
     get artboardSize(): Locator {
-        return this.page.locator('#artboard-size');
+        return this.page.locator('#screens').getByText(/^\s*\d+\s*×\s*\d+\s*$/);
     }
     get zoomButton(): Locator {
         return this.button(/^\d+%$/);
@@ -197,7 +199,7 @@ export class EditorPage {
 
 /**
  * An app open on its own at /apps/<id>, as a person given it sees it: with no editor, its frame is the page's only
- * runtime frame, outside `#artboard`
+ * runtime frame
  */
 export class AppPage {
     readonly app: FrameLocator;

@@ -93,7 +93,7 @@ test.describe('The editor', () => {
         const box = await text.boundingBox();
         expect(box).not.toBeNull();
         if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await expect(page.locator('#overlay .box.selected')).toBeVisible();
+        await expect(page.locator('.inspect-layer .overlay .box.selected')).toBeVisible();
         const panel = editor.editor.getByRole('tabpanel');
         for (const name of ['Add to chat', 'Delete']) await expect(panel.getByRole('button', { name })).toBeVisible();
         // The Text property, changed by hand, changes the app
@@ -182,13 +182,13 @@ test.describe('The component library', () => {
         await editor.card('button').click();
         await expect.poll(() => editor.tool()).toBe('place');
         // While it is placed, the screen's layout sections are outlined with their names, the screen's root first
-        await expect(page.locator('#overlay .box.section').first()).toBeVisible();
-        await expect(page.locator('#overlay .box.section .tag').first()).toContainText('home');
+        await expect(page.locator('.inspect-layer .overlay .box.section').first()).toBeVisible();
+        await expect(page.locator('.inspect-layer .overlay .box.section .tag').first()).toContainText('home');
         const box = await editor.app.getByText('Place below').boundingBox();
         expect(box).not.toBeNull();
         if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height + 4);
         await expect(editor.app.getByRole('button')).toHaveCount(1);
-        await expect(page.locator('#overlay .box.section')).toHaveCount(0);
+        await expect(page.locator('.inspect-layer .overlay .box.section')).toHaveCount(0);
     });
 
     test('a component dragged from the library onto the app lands where it is dropped', async ({ page }) => {
@@ -250,7 +250,7 @@ test.describe('Layout and placement', () => {
         const box = await editor.app.getByText(text, { exact: true }).boundingBox();
         expect(box).not.toBeNull();
         if (box !== null) await page.mouse.click(box.x + 4, box.y + box.height / 2);
-        await expect(page.locator('#overlay .box.selected')).toBeVisible();
+        await expect(page.locator('.inspect-layer .overlay .box.selected')).toBeVisible();
         if (up) await editor.editor.getByRole('tabpanel').getByText('home screen').click();
     }
     const field = (name: string) => editor.editor.getByRole('tabpanel').getByRole('combobox', { name, exact: true });

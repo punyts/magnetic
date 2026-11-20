@@ -146,6 +146,12 @@ body.shell.editing .alone { display: none; }
 .screen-menu-row button.danger { border-color: #c62828; }
 .screen-menu-status { margin: 0; padding: 0 8px; color: #c62828; font-size: 12px; }
 .screen-menu-status:empty { display: none; }
+.inspect-layer { position: absolute; left: 0; top: 0; z-index: 2; transform-origin: 0 0; pointer-events: none; }
+.inspect-layer[hidden], .inspect-layer .shield[hidden] { display: none; }
+.inspect-layer .shield { position: absolute; inset: 0; z-index: 1; pointer-events: auto; }
+.inspect-layer.selecting .shield { cursor: crosshair; }
+.inspect-layer.moving .shield { cursor: grab; }
+.inspect-layer.dragging .shield { cursor: grabbing; }
 .overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .overlay .box { position: absolute; box-sizing: border-box; border: calc(1.5px / var(--zoom, 1)) solid var(--accent); border-radius: calc(3px / var(--zoom, 1)); }
 .overlay .box.hover { border-style: dashed; opacity: 0.8; }

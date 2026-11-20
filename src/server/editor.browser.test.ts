@@ -59,9 +59,10 @@ async function pointOf(page: Page, path: string, across = 0.5, down = 0.5): Prom
         const answer = await window.stateuiHost.inspect({ paths: [${JSON.stringify(path)}] });
         const node = answer && answer.nodes.find((candidate) => candidate.path === ${JSON.stringify(path)});
         if (!node) return undefined;
-        const artboard = document.getElementById('artboard');
-        const box = artboard.getBoundingClientRect();
-        const zoom = box.width / artboard.offsetWidth;
+        const live = window.magneticScreens.liveApp();
+        if (!live) return undefined;
+        const box = live.element.getBoundingClientRect();
+        const zoom = box.width / live.element.offsetWidth;
         return { x: box.left + (node.rect.x + node.rect.width * ${across}) * zoom, y: box.top + (node.rect.y + node.rect.height * ${down}) * zoom };
     })()`;
     const point = (await page.evaluate(script)) as { x: number; y: number } | undefined;
@@ -71,7 +72,7 @@ async function pointOf(page: Page, path: string, across = 0.5, down = 0.5): Prom
 
 /** The label of the selection outline on the overlay */
 async function selectedLabel(page: Page): Promise<string> {
-    return (await page.locator('#overlay .box.selected .tag').textContent({ timeout: 5000 })) ?? '';
+    return (await page.locator('.inspect-layer .overlay .box.selected .tag').textContent({ timeout: 5000 })) ?? '';
 }
 
 describe.skipIf(!installed)("The editor's inspector in a browser (Chromium through Playwright)", () => {
@@ -211,19 +212,19 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
 
         // Act
         await page.mouse.move(gap.x, gap.y);
-        const tag = await page.locator('#overlay .box.layout .tag').textContent({ timeout: 5000 });
-        const cells = await page.locator('#overlay .cell').count();
-        const gutters = await page.locator('#overlay .gutter').count();
-        const items = await page.locator('#overlay .item').count();
+        const tag = await page.locator('.inspect-layer .overlay .box.layout .tag').textContent({ timeout: 5000 });
+        const cells = await page.locator('.inspect-layer .overlay .cell').count();
+        const gutters = await page.locator('.inspect-layer .overlay .gutter').count();
+        const items = await page.locator('.inspect-layer .overlay .item').count();
         await page.mouse.move(gamma.x, gamma.y);
-        await expect.poll(() => page.locator('#overlay .box.hover .tag').textContent()).toBe('text · c');
+        await expect.poll(() => page.locator('.inspect-layer .overlay .box.hover .tag').textContent()).toBe('text · c');
 
         // Assert
         expect(tag).toBe('panel · grid · grid cols 2');
         expect(cells).toBe(2);
         expect(gutters).toBe(1);
         expect(items).toBe(2);
-        expect(await page.locator('#overlay .box.layout').count()).toBe(0);
+        expect(await page.locator('.inspect-layer .overlay .box.layout').count()).toBe(0);
     }, 60_000);
 
     it('should place a component between the children of a column, as one write', async () => {
@@ -290,7 +291,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
 
         // Assert
         expect(childrenOf((await app()).root, 'list')).toEqual(['b', 'a']);
-        await page.locator('#overlay .box.selected').waitFor({ state: 'detached', timeout: 5000 });
+        await page.locator('.inspect-layer .overlay .box.selected').waitFor({ state: 'detached', timeout: 5000 });
     }, 60_000);
 
     it('should open the editor with the inspector closed and the use tool on, and open the inspector with the select tool', async () => {
@@ -300,7 +301,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     });
 
     it('should let the selection go and close the inspector when the inspector closes or the select tool is left', async () => {
-        const outline = page.locator('#overlay .box.selected');
+        const outline = page.locator('.inspect-layer .overlay .box.selected');
         const selectTool = toolButton('Select a part of the app (S)');
         /** Turns the select tool on, picks the list's first text and waits for its outline and the inspector */
         const pick = async (): Promise<void> => {

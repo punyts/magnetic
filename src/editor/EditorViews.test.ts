@@ -50,4 +50,17 @@ describe('EditorViews', () => {
         expect(await views.of(U2, 'app-1', 'statenet')).toEqual({ x: 5, y: 5, zoom: 2 });
         expect(await views.of(U1, 'app-2', 'statenet')).toBeUndefined();
     });
+
+    it("should keep the screens board's view apart from Statenet's", async () => {
+        // Arrange
+        const views = new EditorViews(test.db);
+
+        // Act
+        await views.keep(U1, 'app-1', 'statenet', { x: 1, y: 2, zoom: 1 });
+        await views.keep(U1, 'app-1', 'screens', { x: -300, y: 40, zoom: 0.25 });
+
+        // Assert
+        expect(await views.of(U1, 'app-1', 'screens')).toEqual({ x: -300, y: 40, zoom: 0.25 });
+        expect(await views.of(U1, 'app-1', 'statenet')).toEqual({ x: 1, y: 2, zoom: 1 });
+    });
 });
