@@ -17,8 +17,14 @@ const graph = (page: Page) => page.frameLocator('#statenet iframe');
 const node = (page: Page, path: string) => graph(page).locator(`[role="treeitem"][data-id="${path}"]`);
 /** The card chosen in the tree */
 const chosen = (page: Page) => graph(page).locator('[role="treeitem"][aria-selected="true"]');
-/** Presses a card on its label, away from its + */
-const press = async (card: Locator): Promise<void> => card.locator('ui-text').nth(1).click();
+/**
+ * Chooses a card as the keyboard does (Space on the focused card). A pointer can reach only the cards the canvas shows,
+ * and on a phone the side panel covers half of it; the diagram's own tests cover the press
+ */
+const press = async (card: Locator): Promise<void> => {
+    await card.evaluate((element) => (element as HTMLElement).focus({ preventScroll: true }));
+    await card.page().keyboard.press('Space');
+};
 
 test.describe("The editor's views", () => {
     let editor: EditorPage;
@@ -215,7 +221,7 @@ test.describe("The editor's views", () => {
         const side = sheet(page).locator('.view-side');
         const card = appCard(page);
         await expect(card).toBeVisible();
-        /** A point of the page over the canvas with no card in the frame and no head or panel of the editor over it */
+        /** A point of the page over the canvas, or the diagram between its cards, with no head or panel of the editor over it */
         const empty = async (): Promise<{ x: number; y: number }> => {
             const frame = page.locator('#statenet iframe');
             const at = (await frame.boundingBox()) as { x: number; y: number };
@@ -233,7 +239,7 @@ test.describe("The editor's views", () => {
                 for (let y = 20; y < innerHeight - 20; y += 16) {
                     for (let x = 20; x < innerWidth - 20; x += 16) {
                         const hit = deepest(x, y);
-                        if (hit !== null && (hit.classList.contains('viewport') || hit.classList.contains('world'))) out.push({ x, y });
+                        if (hit !== null && (['viewport', 'world', 'diagram', 'edges'].some((name) => hit.classList.contains(name)) || hit.closest('svg') !== null)) out.push({ x, y });
                     }
                 }
                 return out;
