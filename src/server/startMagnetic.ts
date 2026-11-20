@@ -67,6 +67,7 @@ import { MAGNETIC_CSS, MAGNETIC_PAGE_CSP } from '../http/pages.js';
 import type { PageLook, SharedApp } from '../http/pages.js';
 import { GRANT_RIGHTS, Grants } from '../sharing/Grants.js';
 import { ShareAnswers } from '../sharing/ShareAnswers.js';
+import { EditorViews } from '../editor/EditorViews.js';
 import { usd } from '../http/billingPage.js';
 import type { Grant, GrantRight } from '../sharing/Grants.js';
 import { Workspaces } from '../workspaces/Workspaces.js';
@@ -774,6 +775,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return rows.map((row) => ({ id: row.address.split('/')[1] as string, updatedAt: row.updated_at.toISOString() }));
         },
         sharedCount: async (workspaceId, appId) => (await grants.forApp(workspaceId, appId)).filter((grant) => grant.revokedAt === undefined).length,
+        kept: new EditorViews(db),
         report: (message, fields) => options.report.info(message, fields)
     });
     // The beta (docs/design/magnetic-beta.md): one org, joined through a link signed with the server's key

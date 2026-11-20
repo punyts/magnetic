@@ -4,6 +4,8 @@ import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { User } from '../accounts/Accounts.js';
 import type { Connections } from '../connections/Connections.js';
 import { CallRefused } from '../connections/guard.js';
+import { isKeptView, keptPlaceOf } from '../editor/EditorViews.js';
+import type { EditorViews } from '../editor/EditorViews.js';
 import { ownerTreeOf, screenInfoOf, themeTokensOf, unitsOf } from '../inspector/viewInfo.js';
 import type { GraphConnection, ThemeBody } from '../inspector/viewInfo.js';
 
@@ -28,6 +30,8 @@ export interface ViewRouteContext {
     readonly personaApps: (workspaceId: string, ownerId: string) => Promise<readonly { readonly id: string; readonly updatedAt: string }[]>;
     /** How many links the app is shared through */
     readonly sharedCount: (workspaceId: string, appId: string) => Promise<number>;
+    /** Where each person left a view of the editor */
+    readonly kept: Pick<EditorViews, 'of' | 'keep'>;
     readonly report: (message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -68,6 +72,7 @@ class Refused extends Error {
  *   `POST connections`: a change to a connection, for those who manage them.
  * - `GET theme?theme=` and `POST theme`: the app's themes and one theme's tokens in each mode; its changes.
  * - `GET logic` and `POST logic`: the app's units with where each runs; one unit set or removed.
+ * - `GET kept?view=statenet` and `POST kept`: where the person left the view of this app (`EditorViews`).
  */
 export function viewRoutes(context: ViewRouteContext) {
     async function call(services: Services, name: string, args: JsonRecord): Promise<JsonRecord> {
@@ -517,6 +522,20 @@ export function viewRoutes(context: ViewRouteContext) {
                 case 'POST logic':
                     answer = await changeLogic(place, await body());
                     break;
+                case 'GET kept': {
+                    const view = url.searchParams.get('view');
+                    if (!isKeptView(view)) throw new Refused(400, 'No such view.');
+                    answer = { place: (await context.kept.of(place.user.id, place.app.id, view)) ?? null };
+                    break;
+                }
+                case 'POST kept': {
+                    const read = await body();
+                    const kept = keptPlaceOf(read['place']);
+                    if (!isKeptView(read['view']) || kept === undefined) throw new Refused(400, 'A view and a place { x, y, zoom } are needed.');
+                    await context.kept.keep(place.user.id, place.app.id, read['view'], kept);
+                    context.sendJson(response, 200, { kept: true });
+                    return true;
+                }
                 default:
                     return false;
             }

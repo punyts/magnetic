@@ -64,6 +64,29 @@ test.describe("The editor's views", () => {
         await expect(editor.app.getByText('Home words')).toBeVisible();
     });
 
+    test("Statenet's view is the person's: it opens where it was left, in a new browser", async ({ page, browser }) => {
+        const percent = async (from: EditorPage): Promise<number> => Number(((await from.zoomButton.textContent()) ?? '').replace('%', ''));
+        await pickView(editor, page, 'Statenet');
+        await expect(appCard(page)).toBeVisible();
+        await editor.button('Zoom in (+)').click();
+        await editor.button('Zoom in (+)').click();
+        const left = await percent(editor);
+        // Kept on the server once the run of zooms ends
+        await expect.poll(async () => (await (await page.request.get(`/edit/${editor.appId}/views/kept?view=statenet`)).json()).place?.zoom).toBeCloseTo(left / 100, 1);
+
+        const other = await browser.newContext({ baseURL: new URL(page.url()).origin, viewport: page.viewportSize() });
+        try {
+            await signIn(other, 'alice');
+            const elsewhere = new EditorPage(await other.newPage());
+            await elsewhere.goto(editor.appId);
+            await pickView(elsewhere, elsewhere.page, 'Statenet');
+            await expect(node(elsewhere.page, `$.apps.${appName}`)).toBeAttached();
+            await expect.poll(() => percent(elsewhere)).toBe(left);
+        } finally {
+            await other.close();
+        }
+    });
+
     test("the Statenet graph is the owner's tree by state path: its branches on both sides of $, each part under its branch, nothing covering anything", async ({ page }, info) => {
         // Arrange: a theme of the app's own
         const name = uniqueName(info, 'tree');

@@ -286,6 +286,22 @@ describe("The editor's view routes", () => {
         expect(nodes).toContainEqual(expect.objectContaining({ id: '$.models.task', used: true }));
     });
 
+    it("should keep where the person left Statenet's view of the app, and refuse a place out of range", async () => {
+        // Act
+        const before = await get('kept?view=statenet');
+        const kept = await post('kept', { view: 'statenet', place: { x: 120, y: -40, zoom: 0.8 } });
+        const after = await get('kept?view=statenet');
+        const tooFar = await post('kept', { view: 'statenet', place: { x: 0, y: 0, zoom: 9 } });
+        const noView = await get('kept?view=screens');
+
+        // Assert
+        expect(before).toEqual({ status: 200, body: { place: null } });
+        expect(kept.status).toBe(200);
+        expect(after).toEqual({ status: 200, body: { place: { x: 120, y: -40, zoom: 0.8 } } });
+        expect(tooFar.status).toBe(400);
+        expect(noView.status).toBe(400);
+    });
+
     it('should keep the view routes to signed-in people who may edit the app', async () => {
         // Act
         const anonymous = await fetch(`${magnetic.origin}/edit/${appId}/views/graph`);

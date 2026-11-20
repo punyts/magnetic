@@ -335,7 +335,9 @@ shell.onEscape(() => { if (view !== 'screens' && !side.hidden) { closeSide(); re
  * (the node keyed canvas) for the editor's zoom
  */
 const NET = '$.data.statenet';
-const NET_VIEW_KEY = 'magnetic.statenet.' + appId;
+/** Keeping where the person left the view waits this long after a pan or a zoom ends, so a run of them keeps one */
+const NET_KEEP_MS = 500;
+let netKeeping = 0;
 const netHolder = element('div', { className: 'statenet', id: 'statenet', hidden: true });
 document.getElementById('board').append(netHolder);
 let graph = null;
@@ -343,7 +345,7 @@ let graph = null;
 let net = null;
 /** The mount under way, so a second load waits for it */
 let netMounting = null;
-/** The view is fitted to the tree once its cards are placed, when this browser kept no view of the app's Statenet */
+/** The view is fitted to the tree once its cards are placed, when the person kept no view of the app's Statenet */
 let netFitted = false;
 /** The nodes and links last written, so a reload that left the tree as it was writes nothing */
 let netDrawn = '';
@@ -395,14 +397,17 @@ function enterGraph() {
     if (netMounting) return netMounting;
     netMounting = (async () => {
         try {
-            const response = await fetch('/assets/statenet.json', { headers: { Accept: 'application/json' } });
+            // Where the person left the view is theirs on the server (GET kept), so it follows them to any browser
+            const [response, kept] = await Promise.all([
+                fetch('/assets/statenet.json', { headers: { Accept: 'application/json' } }),
+                getJson('/kept?view=statenet').then((answer) => answer.place, () => null)
+            ]);
             if (!response.ok) throw new Error(T['views.refused']);
             const page = await response.json();
             if (view !== 'statenet') return false;
             netHolder.replaceChildren();
             net = { panel: host.mount(netHolder, { document: page.document, icons: page.icons, keys: ['escape'] }, T['shell.view.statenet']), canvas: keyPath(page.document, 'canvas') };
             netDrawn = '';
-            const kept = stored(NET_VIEW_KEY, null);
             const look = kept && typeof kept.x === 'number' && typeof kept.y === 'number' && typeof kept.zoom === 'number' ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
             netFitted = look !== null;
             netWrite({ view: look || { x: 0, y: 0, zoom: 1 }, inset: insetOf(), selected: '' });
@@ -441,12 +446,20 @@ netHolder.addEventListener('stateui:emit', (event) => {
             return;
         }
         case 'view':
-            if (payload && typeof payload.zoom === 'number') { store(NET_VIEW_KEY, { x: payload.x, y: payload.y, zoom: payload.zoom }); shell.canvas.showZoom(payload.zoom); }
+            if (payload && typeof payload.zoom === 'number') { keepNetView({ x: payload.x, y: payload.y, zoom: payload.zoom }); shell.canvas.showZoom(payload.zoom); }
             return;
         case 'layout': if (!netFitted) { netFitted = true; netCommand('fit'); } return;
         default:
     }
 });
+
+/** Keeps where the person left the view, once a run of pans and zooms ends; a refusal only loses the place */
+function keepNetView(place) {
+    clearTimeout(netKeeping);
+    netKeeping = setTimeout(() => {
+        void fetch(base + '/kept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view: 'statenet', place }) }).catch(() => undefined);
+    }, NET_KEEP_MS);
+}
 
 /** A card was pressed: a part's editor opens beside it; the pill at the end of a branch shows all of its parts, or fewer */
 function choose(id, box) {
