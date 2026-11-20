@@ -1,4 +1,4 @@
-import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
+import { txInstances } from '@punyts/stateui-pg';
 import { randomUUID } from 'node:crypto';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -169,7 +169,7 @@ describe('Orgs over HTTP', () => {
         const workspaceId = (await magnetic.orgs.get(orgId))?.workspaceId as string;
         await magnetic.database.transaction(
             async (tx) => {
-                const bobState = new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), bobId);
+                const bobState = txInstances(tx, workspaceId, bobId);
                 await bobState.write(appId, {}, { route: { screen: 'list' } } as never);
                 await bobState.writeData(appId, 'drafts', { model: 'draft', records: { d1: { title: 'Printer jam' } } } as never);
             },

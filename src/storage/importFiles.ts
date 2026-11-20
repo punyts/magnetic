@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PART_KINDS } from '@punyts/stateui-mcp';
-import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
+import { txInstances } from '@punyts/stateui-pg';
 import type { Database, Queryable } from '@punyts/stateui-pg';
 
 /** What an import wrote, for the command's report */
@@ -133,7 +133,7 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
                 const diff = await readJson<object>(join(dir, 'personas', persona, 'apps', owner, name)).catch(() => undefined);
                 if (!UUID.test(appId) || diff === undefined) continue;
                 // Stored as it was: the diff over an empty definition is the diff itself
-                await new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), persona).write(appId.toLowerCase(), {}, diff as never);
+                await txInstances(tx, workspaceId, persona).write(appId.toLowerCase(), {}, diff as never);
                 report.instances++;
             }
         }
@@ -144,7 +144,7 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
                 const binding = name.slice(0, -'.json'.length).replace(/\^([a-z])/g, (_match, letter: string) => letter.toUpperCase());
                 const dataset = await readJson<{ model: string; records: object }>(join(dir, 'personas', persona, 'data', appId, name)).catch(() => undefined);
                 if (dataset === undefined || typeof dataset.model !== 'string') continue;
-                await new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), persona).writeData(appId.toLowerCase(), binding, { model: dataset.model, records: (dataset.records ?? {}) as never });
+                await txInstances(tx, workspaceId, persona).writeData(appId.toLowerCase(), binding, { model: dataset.model, records: (dataset.records ?? {}) as never });
             }
         }
     }

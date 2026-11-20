@@ -1,4 +1,4 @@
-import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
+import { txInstances } from '@punyts/stateui-pg';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentModel, ModelMessage } from '../agent/AgentModel.js';
@@ -301,7 +301,7 @@ describe('Enterprise controls', () => {
         await magnetic.database.transaction(
             async (tx) => {
                 await tx.query("INSERT INTO chat_entry (workspace_id, app_id, user_id, role, text, at) VALUES ($1, $2, $3, 'person', 'old', $4), ($1, $2, $3, 'person', 'new', $5)", [workspaceId, appId, aliceId, new Date('2026-09-01T00:00:00Z'), new Date('2026-11-14T00:00:00Z')]);
-                for (const persona of ['left-person', aliceId]) await new PgUiInstanceRepository(txWorkspaceDb(tx, workspaceId), persona).write(appId, {}, { route: { screen: 'x' } } as never);
+                for (const persona of ['left-person', aliceId]) await txInstances(tx, workspaceId, persona).write(appId, {}, { route: { screen: 'x' } } as never);
                 await tx.query('UPDATE namespace_head SET updated_at = $2 WHERE workspace_id = $1', [workspaceId, new Date('2026-09-01T00:00:00Z')]);
             },
             { workspaceIds: [workspaceId] }

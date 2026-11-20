@@ -1,6 +1,6 @@
 import { readGrant } from '@punyts/state-sync/authority';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
-import { PgUiInstanceRepository, txWorkspaceDb } from '@punyts/stateui-pg';
+import { txInstances } from '@punyts/stateui-pg';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { orgSubject } from '../grants/StateGrants.js';
@@ -120,7 +120,7 @@ describe('Grants of state', () => {
         await magnetic.database.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'member')", [org.id, bobId]);
         const made = await json(`/orgs/${org.id}/apps`, alice, 'POST', { name: 'Tickets' });
         const appId = ((await made.json()) as { id: string }).id;
-        await magnetic.database.transaction((tx) => new PgUiInstanceRepository(txWorkspaceDb(tx, org.workspaceId), bobId).write(appId, {}, { route: { screen: 'list' } } as never), { workspaceIds: [org.workspaceId] });
+        await magnetic.database.transaction((tx) => txInstances(tx, org.workspaceId, bobId).write(appId, {}, { route: { screen: 'list' } } as never), { workspaceIds: [org.workspaceId] });
 
         // Act
         const viewed = await json(`/orgs/${org.id}/apps/${appId}/instances/${bobId}`, alice, 'GET');

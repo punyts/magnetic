@@ -84,7 +84,8 @@ export class AppInstances {
                 const head = (await tx.query<{ updated_at: Date }>('SELECT updated_at FROM namespace_head WHERE address = $1 AND workspace_id = $2', [address, workspaceId])).rows[0];
                 const state = await STATE.read(tx, address);
                 if (head === undefined || state.value === undefined) throw new OrgError(404, 'That person has no instance of this app.');
-                const { data: records, localData, ...diff } = state.value;
+                const { data: records, localData, models, ...diff } = state.value;
+                const modelOf = typeof models === 'object' && models !== null && !Array.isArray(models) ? models : {};
                 const bindings = typeof records === 'object' && records !== null && !Array.isArray(records) ? records : {};
                 await audit(tx, { orgId, workspaceId, actorId, action: 'instance.support_view', targetKind: 'app', targetId: appId, detail: { userId, ...(grantId !== undefined && { grantId }) } });
                 return {
@@ -92,7 +93,7 @@ export class AppInstances {
                     name: member.name,
                     updatedAt: head.updated_at.toISOString(),
                     instance: localData === undefined ? diff : { ...diff, data: localData },
-                    data: Object.fromEntries(Object.entries(bindings).map(([binding, value]) => [binding, { model: (state.meta.get(`data.${binding}`) as { model?: string } | undefined)?.model ?? '', records: value }]))
+                    data: Object.fromEntries(Object.entries(bindings).map(([binding, value]) => [binding, { model: typeof modelOf[binding] === 'string' ? modelOf[binding] : '', records: value }]))
                 };
             },
             { workspaceIds: [workspaceId] }

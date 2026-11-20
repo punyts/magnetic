@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
-import type { AppLogicLimits, HttpTenant, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
+import { createAggregate, createAggregateStorage } from '@punyts/statenet';
 import type { Report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
 import { Stamps } from '../storage/Stamps.js';
@@ -92,7 +93,7 @@ import type { StatenetNode, StatenetOptions } from '../statenet/StatenetNode.js'
 import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
 import { orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
-import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgWorkspaceStorage, RecordSimilarity } from '@punyts/stateui-pg';
+import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgInstanceNamespaces, pgWorkspaceStorage, RecordSimilarity } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
 import { EMBEDDING_SOURCES, Search } from '../search/Search.js';
@@ -517,10 +518,43 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                   options.statenet,
                   (message, fields) => options.report.info(message, fields)
               );
+    /**
+     * The aggregate, in this process (docs/design/statenet-network.md, S11a): every instance is saved through it as one
+     * stored namespace, and it is the one thing here that writes a person's state. It learns the workspace of an
+     * address (for row-level security) from the workspace that reads or saves it
+     */
+    const placedIn = new Map<string, string>();
+    const stateRows = pgInstanceNamespaces(
+        db,
+        (address) => {
+            const workspaceId = placedIn.get(address);
+            if (workspaceId === undefined) throw new Error(`No workspace is known for ${address}`);
+            return workspaceId;
+        },
+        { embedRecords: index !== undefined }
+    );
+    const aggregate = createAggregate(stateRows, { report: (message) => options.report.info(message, {}) });
+    const throughAggregate = createAggregateStorage(aggregate);
+    const namespacesOf = (workspaceId: string): InstanceNamespaceStore => {
+        const here = (address: string): string => {
+            placedIn.set(address, workspaceId);
+            return address;
+        };
+        return {
+            load: (address) => throughAggregate.load(here(address)),
+            save: (address, stored, epoch) => throughAggregate.save(here(address), stored, epoch),
+            remove: (address) => stateRows.remove(here(address))
+        };
+    };
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
-                const storage = pgWorkspaceStorage(db, workspaceId, { embedParts: index !== undefined, embedRecords: index !== undefined, ...(statenet !== undefined && { announceAs: statenet.announceAs }) });
+                const storage = pgWorkspaceStorage(db, workspaceId, {
+                    embedParts: index !== undefined,
+                    embedRecords: index !== undefined,
+                    namespaces: namespacesOf(workspaceId),
+                    ...(statenet !== undefined && { announceAs: statenet.announceAs, epochOf: (address: string) => statenet.placement.epochOf(address) })
+                });
                 // A person's own workspace starts with the showcase; an org's starts empty
                 if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && workspaceId !== PAGES_WORKSPACE_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
