@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import type { Report } from '@punyts/core';
