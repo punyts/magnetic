@@ -543,7 +543,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return {
             load: (address) => throughAggregate.load(here(address)),
             save: (address, stored, epoch) => throughAggregate.save(here(address), stored, epoch),
-            remove: (address) => stateRows.remove(here(address))
+            remove: (address, epoch) => throughAggregate.remove(here(address), epoch)
         };
     };
     const workspaces = new Workspaces(
