@@ -92,6 +92,8 @@ import { OrgDomains } from '../orgs/Domains.js';
 import type { TxtResolver } from '../orgs/Domains.js';
 import { OrgSso, ssoIdentityProvider } from '../orgs/Sso.js';
 import { OrgSaml, samlIdentityProvider } from '../orgs/Saml.js';
+import { OrgScim, ScimDirectory } from '../orgs/Scim.js';
+import { scimRoutes } from './scimRoutes.js';
 import { SamlSignIn } from '../auth/SamlSignIn.js';
 import { SignInRules } from '../orgs/SignInRules.js';
 import { SecretBox } from '../auth/secrets.js';
@@ -461,6 +463,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
     const sso = new OrgSso(db, orgs, box);
     const saml = new OrgSaml(db, orgs);
+    const scim = new OrgScim(db, orgs);
+    const scimDirectory = new ScimDirectory(db, domains);
     /** Each owner's signing key and the grants of state (docs/design/statenet-relays.md, S4); grants need the server's key */
     /** The numbers owners go by in addresses, grants and keys (docs/design/statenet-network.md, "`$` is the owner") */
     const owners = new OwnerNumbers(db);
@@ -468,7 +472,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const keys = new OwnerKeys(db, box);
     const stateGrants = keys.available ? new StateGrants(db, keys, policies, owners) : undefined;
     const instances = new AppInstances(db, access, stateGrants, owners);
-    const rules = new SignInRules(db, domains, policies);
+    const rules = new SignInRules(db, domains, policies, scimDirectory);
     const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, EMBEDDING_SOURCES, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
     /** The library by meaning, for the catalog searches the keywords answer weakly; shared by every workspace */
@@ -827,6 +831,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         domains,
         sso,
         saml,
+        scim,
         samlEntityId: (orgId: string) => samlSignIn.entityIdOf(orgId),
         budgets,
         ssoRedirectUri: () => signIn.redirectUri(CUSTOM_PROVIDER),
@@ -837,6 +842,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     };
     const handleOrgRoute = orgRoutes(orgContext);
+    const handleScim = scimRoutes({ access, workspaces, closeOrgViews, orgs, scim, directory: scimDirectory, origin: () => publicOrigin ?? origin });
     const handleGrants = grantRoutes({ db, grants: stateGrants, keys, owners, revoked: (revoked) => sharedData?.revoked(revoked), orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
     const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location), models: () => turns.models });
     const handleConnections = connectionRoutes({
@@ -1562,6 +1568,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
         }
+        if (await handleScim(request, response, method, path, url.searchParams)) return true;
         if (await handleOrgRoute(request, response, method, path)) return true;
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleConnections(request, response, method, path)) return true;

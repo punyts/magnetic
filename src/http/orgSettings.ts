@@ -11,6 +11,7 @@ import type { OrgDomain } from '../orgs/Domains.js';
 import type { OrgPolicy } from '../orgs/Policies.js';
 import type { OrgSsoSettings } from '../orgs/Sso.js';
 import type { OrgSamlSettings } from '../orgs/Saml.js';
+import type { OrgScimStatus } from '../orgs/Scim.js';
 import type { GrantRecord } from '../grants/StateGrants.js';
 import { htmlOpen } from './pages.js';
 import type { PageLook } from './pages.js';
@@ -47,6 +48,8 @@ export interface OrgPageView {
     readonly error?: string;
     /** An invite just made: its link is shown once */
     readonly invited?: { readonly email: string; readonly link: string; readonly mailed?: boolean };
+    /** A SCIM token just made: shown once */
+    readonly scimToken?: string;
     /** The org's enterprise controls, for admins and owners */
     readonly enterprise?: EnterpriseView;
 }
@@ -60,6 +63,8 @@ export interface EnterpriseView {
     readonly sso: { readonly available: boolean; readonly redirectUri: string; readonly settings?: OrgSsoSettings };
     /** The org's SAML provider: Magnetic's entity id for it, and its settings once set */
     readonly saml: { readonly entityId: string; readonly settings?: OrgSamlSettings };
+    /** Whether the org takes its people by SCIM, its base URL, and for owners how it stands */
+    readonly scim: { readonly on: boolean; readonly baseUrl: string; readonly status?: OrgScimStatus };
     readonly spend: { readonly month: number; readonly rows: ReadonlyArray<{ readonly person: string; readonly app: string; readonly dollars: number; readonly requests: number }> };
 }
 
@@ -138,13 +143,13 @@ export function orgPage(view: OrgPageView): string {
         .map((member) => {
             const roles = member.userId === view.userId ? [] : rolesFor(role, member.role);
             const roleCell = roles.length === 0 ? e(t[`orgs.roleName.${member.role}`]) : form(org.id, 'role', { userId: member.userId }, `${select('role', roleNames(roles), member.role, t['orgs.role'])} <button>${e(t['orgs.save'])}</button>`);
-            const remove = roles.length === 0 ? '' : form(org.id, 'remove', { userId: member.userId }, `<button class="danger">${e(t['orgs.remove'])}</button>`);
+            const remove = member.scim === true ? `<span class="muted">${e(t['orgs.scimMember'])}</span>` : roles.length === 0 ? '' : form(org.id, 'remove', { userId: member.userId }, `<button class="danger">${e(t['orgs.remove'])}</button>`);
             return `<tr><td>${e(member.name)}${member.email === undefined ? '' : `<br><span class="muted">${e(member.email)}</span>`}</td><td>${roleCell}</td><td>${e(member.groups.join(', '))}</td><td>${remove}</td></tr>`;
         })
         .join('');
     const membersSection = `<h2>${e(t['orgs.membersTitle'])}</h2><p class="muted">${e(t['orgs.membersText'])}</p>
 <div class="table"><table><thead><tr><th>${e(t['orgs.person'])}</th><th>${e(t['orgs.role'])}</th><th>${e(t['orgs.groupsTitle'])}</th><th></th></tr></thead><tbody>${members}</tbody></table></div>
-${form(org.id, 'leave', {}, `<button class="danger">${e(t['orgs.leave'])}</button>`, 'inline spaced')}`;
+${view.members.some((member) => member.userId === view.userId && member.scim === true) ? '' : form(org.id, 'leave', {}, `<button class="danger">${e(t['orgs.leave'])}</button>`, 'inline spaced')}`;
 
     const memberOptions = view.members.map((member) => [member.userId, member.name] as const);
     const groups = view.groups
@@ -152,8 +157,8 @@ ${form(org.id, 'leave', {}, `<button class="danger">${e(t['orgs.leave'])}</butto
             const people =
                 group.members.length === 0
                     ? `<span class="muted">${e(t['orgs.noMembersInGroup'])}</span>`
-                    : group.members.map((userId) => `<span class="chip">${e(nameOf(userId))}${admin ? ` ${form(org.id, 'ungroup', { groupId: group.id, userId }, `<button class="link" aria-label="${e(`${t['orgs.remove']} ${nameOf(userId)}`)}">×</button>`)}` : ''}</span>`).join(' ');
-            const add = admin ? form(org.id, 'group', { groupId: group.id }, `${select('userId', memberOptions, undefined, t['orgs.person'])} <button>${e(t['orgs.addToGroup'])}</button>`) : '';
+                    : group.members.map((userId) => `<span class="chip">${e(nameOf(userId))}${admin && group.scim !== true ? ` ${form(org.id, 'ungroup', { groupId: group.id, userId }, `<button class="link" aria-label="${e(`${t['orgs.remove']} ${nameOf(userId)}`)}">×</button>`)}` : ''}</span>`).join(' ');
+            const add = group.scim === true ? `<span class="muted">${e(t['orgs.scimGroup'])}</span>` : admin ? form(org.id, 'group', { groupId: group.id }, `${select('userId', memberOptions, undefined, t['orgs.person'])} <button>${e(t['orgs.addToGroup'])}</button>`) : '';
             return `<li><div><strong>${e(group.name)}</strong><div>${people}</div></div><div>${add}</div></li>`;
         })
         .join('');
@@ -171,7 +176,7 @@ ${form(
     {},
     `<label>${e(t['orgs.email'])} <input type="email" name="email" required maxlength="320"></label>
 <label>${e(t['orgs.role'])} ${select('role', roleNames(role === 'owner' ? ORG_ROLES : ['admin', 'builder', 'member']), 'member')}</label>
-${view.groups.length === 0 ? '' : `<fieldset><legend>${e(t['orgs.inviteGroups'])}</legend>${view.groups.map((group) => `<label class="check"><input type="checkbox" name="groups" value="${e(group.id)}"> ${e(group.name)}</label>`).join('')}</fieldset>`}
+${view.groups.every((group) => group.scim === true) ? '' : `<fieldset><legend>${e(t['orgs.inviteGroups'])}</legend>${view.groups.filter((group) => group.scim !== true).map((group) => `<label class="check"><input type="checkbox" name="groups" value="${e(group.id)}"> ${e(group.name)}</label>`).join('')}</fieldset>`}
 <button class="primary">${e(t['orgs.invite'])}</button>`,
     'stack'
 )}`;
@@ -240,7 +245,7 @@ ${form(
 ${check('externalLinks', policy.externalLinks, t['orgs.policy.externalLinks'])}
 ${check('grantsInOrg', policy.grantsInOrg, t['orgs.policy.grantsInOrg'])}
 ${check('connections', policy.connections, t['orgs.policy.connections'])}
-${check('autoJoin', policy.autoJoin, t['orgs.policy.autoJoin'])}
+${check('autoJoin', policy.autoJoin, t['orgs.policy.autoJoin'])}${enterprise.scim.on ? `<p class="muted">${e(t['orgs.scimAutoJoin'])}</p>` : ''}
 ${check('requireSso', policy.requireSso, t['orgs.policy.requireSso'], !owner)}
 <fieldset><legend>${e(t['orgs.policy.models'])}</legend>${models}</fieldset>
 <label>${e(t['orgs.policy.retention'])} <input type="number" name="retentionDays" min="1" max="3650" value="${e(policy.retentionDays ?? '')}"></label>
@@ -307,7 +312,7 @@ ${check('enabled', saml?.enabled === true, t['orgs.ssoEnabled'])}
           )
         : ''
 }`;
-    const sso = `<h2>${e(t['orgs.ssoTitle'])}</h2><p class="muted">${e(t['orgs.samlOneKind'])}</p>${ssoForm}<h2>${e(t['orgs.samlTitle'])}</h2>${samlForm}`;
+    const sso = `<h2>${e(t['orgs.ssoTitle'])}</h2><p class="muted">${e(t['orgs.samlOneKind'])}</p>${ssoForm}<h2>${e(t['orgs.samlTitle'])}</h2>${samlForm}${owner ? scimSection(t, view, enterprise.scim) : ''}`;
 
     const total = policy.monthlyBudget === undefined ? fill(t['orgs.spendNoBudget'], { spent: dollars(enterprise.spend.month) }) : fill(t['orgs.spendTotal'], { spent: dollars(enterprise.spend.month), budget: dollars(policy.monthlyBudget) });
     const spend = `<h2>${e(t['orgs.spendTitle'])}</h2><p>${e(total)}</p>${
@@ -324,6 +329,20 @@ ${check('enabled', saml?.enabled === true, t['orgs.ssoEnabled'])}
 <p class="muted">${e(t['orgs.deleteText'])}</p>
 ${form(org.id, 'deleteOrg', {}, `<label>${e(t['orgs.confirm'])} <input name="confirm" required autocomplete="off" placeholder="${e(org.slug)}"></label> <button class="danger">${e(t['orgs.delete'])}</button>`, 'row')}`;
     return `${policies}${domains}${sso}${spend}${danger}`;
+}
+
+/** The owner's SCIM section: off, with the button that turns it on; or on, with the base URL, the token once, how it stands, and its buttons */
+function scimSection(t: OrgTexts, view: OrgPageView, scim: EnterpriseView['scim']): string {
+    const { org } = view;
+    const head = `<h2>${e(t['orgs.scimTitle'])}</h2><p class="muted">${e(t['orgs.scimText'])}</p>`;
+    const status = scim.status;
+    if (status === undefined) return `${head}<p>${e(t['orgs.scimOff'])}</p>${form(org.id, 'scimOn', {}, `<button class="primary">${e(t['orgs.scimEnable'])}</button>`)}`;
+    const at = (value: string): string => dateOf(view.look, value, true);
+    const token = view.scimToken === undefined ? '' : `<p class="notice" role="status">${e(t['orgs.scimTokenOnce'])}<br><code class="link">${e(view.scimToken)}</code></p>`;
+    return `${head}<p>${e(t['orgs.ssoOn'])}</p>${token}<p class="muted">${e(t['orgs.scimBaseUrl'])}<br><code class="link">${e(scim.baseUrl)}</code></p>
+<p class="muted">${e(fill(t['orgs.scimMade'], { at: at(status.createdAt) }))} ${e(status.lastUsedAt === undefined ? t['orgs.scimNeverUsed'] : fill(t['orgs.scimUsed'], { at: at(status.lastUsedAt) }))}<br>${e(fill(t['orgs.scimCounts'], { users: String(status.users), held: String(status.held), groups: String(status.groups) }))}</p>
+<div class="row">${form(org.id, 'scimToken', {}, `<button>${e(t['orgs.scimNewToken'])}</button>`)}</div>
+<p class="muted">${e(t['orgs.scimDisableText'])}</p>${form(org.id, 'scimOff', {}, `<button class="danger">${e(t['orgs.scimDisable'])}</button>`)}`;
 }
 
 /** `GET /invites/<token>`: what the invite is for, and a button that joins; or why it does not work */

@@ -1,5 +1,5 @@
 import type { Browser, Page } from '@playwright/test';
-import { expect, HomePage, mailSent, mockPerson, signIn, test } from './fixtures.js';
+import { expect, HomePage, mailSent, mockPerson, signIn, test, verifyDomain } from './fixtures.js';
 
 /** A short name for an org, unique to this run */
 function slugOf(stem: string): string {
@@ -82,6 +82,30 @@ test.describe('Orgs', () => {
         await bob.goto('/settings/orgs');
         await expect(bob.getByRole('link', { name: new RegExp(`Wrong ${slug}`) })).toBeHidden();
         await context.close();
+    });
+
+    test('an owner turns on SCIM, sees the token once, and makes a new one', async ({ page }) => {
+        const slug = slugOf('scim');
+        await makeOrg(page, `Scim ${slug}`, slug);
+        const orgId = new URL(page.url()).pathname.split('/').pop() as string;
+        await verifyDomain(orgId, `${slug}.test`);
+        await page.reload();
+        await expect(page.getByRole('heading', { name: 'Provisioning (SCIM)' })).toBeVisible();
+        await page.getByRole('button', { name: 'Turn on SCIM' }).click();
+        const shown = page.getByRole('status').filter({ hasText: 'The token, shown only now' }).locator('code');
+        await expect(shown).toHaveText(/^[A-Za-z0-9_-]{43}$/);
+        const token = (await shown.textContent()) as string;
+        await expect(page.getByText(`/scim/v2/${orgId}`)).toBeVisible();
+        const answer = await page.request.get(`/scim/v2/${orgId}/ServiceProviderConfig`, { headers: { Authorization: `Bearer ${token}` } });
+        expect(answer.status()).toBe(200);
+
+        await page.goto(`/settings/orgs/${orgId}`);
+        await expect(page.getByText(token)).toHaveCount(0);
+        await page.getByRole('button', { name: 'Make a new token' }).click();
+        await expect(shown).toHaveText(/^[A-Za-z0-9_-]{43}$/);
+        expect(await shown.textContent()).not.toBe(token);
+        const old = await page.request.get(`/scim/v2/${orgId}/ServiceProviderConfig`, { headers: { Authorization: `Bearer ${token}` } });
+        expect(old.status()).toBe(401);
     });
 
     test('an app made in the org is on its Apps list and opens', async ({ page }) => {

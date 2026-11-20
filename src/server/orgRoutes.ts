@@ -12,6 +12,7 @@ import { deleteOrg, exportOrg } from '../orgs/Lifecycle.js';
 import type { OrgPolicies, PolicyChange } from '../orgs/Policies.js';
 import type { OrgSso } from '../orgs/Sso.js';
 import type { OrgSaml } from '../orgs/Saml.js';
+import type { OrgScim } from '../orgs/Scim.js';
 import { MAX_METADATA_BYTES } from '../auth/samlMetadata.js';
 import type { StateChanges } from '../statenet/StateNamespaces.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
@@ -75,6 +76,8 @@ export interface OrgRouteContext {
     readonly domains: OrgDomains;
     readonly sso: OrgSso;
     readonly saml: OrgSaml;
+    /** The org's SCIM provisioning: its token, for the owner */
+    readonly scim: OrgScim;
     /** Magnetic's entity id and assertion consumer URL for an org's SAML provider */
     readonly samlEntityId: (orgId: string) => string;
     readonly budgets: Budgets;

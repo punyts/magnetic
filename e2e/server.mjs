@@ -149,6 +149,15 @@ const control = createServer((request, response) => {
                     () => response.writeHead(204).end(),
                     (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
                 );
+        } else if (request.method === 'POST' && request.url === '/domain') {
+            // POST /domain { orgId, domain }: the org's domain, verified as its DNS record would verify it
+            const { orgId, domain } = JSON.parse(body);
+            test.db
+                .query("INSERT INTO org_domain (org_id, domain, txt_token, verified_at) VALUES ($1, $2, 'e2e', now())", [orgId, domain])
+                .then(
+                    () => response.writeHead(204).end(),
+                    (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+                );
         } else if (request.method === 'POST' && request.url === '/spend') {
             // POST /spend { user, dollars }: a dev user who signed in spends agent use, as turns would
             const { user, dollars } = JSON.parse(body);

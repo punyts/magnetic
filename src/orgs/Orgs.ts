@@ -50,12 +50,16 @@ export interface OrgMember {
     readonly role: OrgRole;
     readonly joinedAt: string;
     readonly groups: readonly string[];
+    /** The org's identity provider holds them by SCIM: they are removed there, not in Magnetic */
+    readonly scim?: true;
 }
 
 export interface OrgGroup {
     readonly id: string;
     readonly name: string;
     readonly members: readonly string[];
+    /** Pushed by the org's identity provider: its name and members change there, not in Magnetic */
+    readonly scim?: true;
 }
 
 /** Why an org change was refused, said to the person */
@@ -66,6 +70,28 @@ export class OrgError extends Error {
     ) {
         super(message);
     }
+}
+
+/** Said when an admin tries to remove someone the org's identity provider holds */
+export const SCIM_MEMBER = "The org's identity provider manages this person: remove them there.";
+/** Said when an admin tries to change a group the org's identity provider pushed */
+export const SCIM_GROUP = "This group comes from the org's identity provider: change it there.";
+
+/** Whether the org's SCIM provisioning holds a member (SCIM is on, and their pushed user is active) */
+export async function scimHolds(tx: Queryable, orgId: string, userId: string): Promise<boolean> {
+    return (await tx.query('SELECT 1 FROM scim_user s JOIN org_scim o ON o.org_id = s.org_id WHERE s.org_id = $1 AND s.user_id = $2 AND s.active', [orgId, userId])).rows.length > 0;
+}
+
+/**
+ * Takes a member out of an org in an open transaction: their groups of the org, their own app access there, the
+ * membership, and the org's read grant on their state. The caller checks who may and keeps an owner
+ */
+export async function dropMember(tx: Queryable, orgId: string, userId: string): Promise<void> {
+    await tx.query('DELETE FROM org_group_member WHERE user_id = $2 AND group_id IN (SELECT id FROM org_group WHERE org_id = $1)', [orgId, userId]);
+    await tx.query("DELETE FROM app_access WHERE principal_kind = 'user' AND principal_id = $2 AND workspace_id = (SELECT id FROM workspace WHERE org_id = $1)", [orgId, userId]);
+    await tx.query('DELETE FROM org_member WHERE org_id = $1 AND user_id = $2', [orgId, userId]);
+    // The org reads a member's state only while they are one
+    await tx.query("UPDATE state_grant SET revoked_at = now() WHERE kind = 'org-read' AND org_id = $1 AND issuer = (SELECT owner_number::text FROM app_user WHERE id = $2) AND revoked_at IS NULL", [orgId, userId]);
 }
 
 /** How long an invite can be accepted */
@@ -178,9 +204,10 @@ export class Orgs {
     async members(actorId: string, orgId: string): Promise<OrgMember[]> {
         await this.require(orgId, actorId, 'member');
         const rows = (
-            await this.db.query<{ user_id: string; name: string; email: string | null; role: OrgRole; joined_at: Date; groups: string[] | null }>(
+            await this.db.query<{ user_id: string; name: string; email: string | null; role: OrgRole; joined_at: Date; groups: string[] | null; scim: boolean }>(
                 `SELECT m.user_id, u.name, u.email, m.role, m.joined_at,
-                        (SELECT array_agg(g.name ORDER BY g.name) FROM org_group g JOIN org_group_member gm ON gm.group_id = g.id WHERE g.org_id = m.org_id AND gm.user_id = m.user_id) AS groups
+                        (SELECT array_agg(g.name ORDER BY g.name) FROM org_group g JOIN org_group_member gm ON gm.group_id = g.id WHERE g.org_id = m.org_id AND gm.user_id = m.user_id) AS groups,
+                        EXISTS (SELECT 1 FROM scim_user s JOIN org_scim o ON o.org_id = s.org_id WHERE s.org_id = m.org_id AND s.user_id = m.user_id AND s.active) AS scim
                    FROM org_member m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 ORDER BY u.name, m.user_id`,
                 [orgId]
             )
@@ -191,7 +218,8 @@ export class Orgs {
             ...(row.email !== null && { email: row.email }),
             role: row.role,
             joinedAt: row.joined_at.toISOString(),
-            groups: row.groups ?? []
+            groups: row.groups ?? [],
+            ...(row.scim && { scim: true as const })
         }));
     }
 
@@ -208,19 +236,19 @@ export class Orgs {
         });
     }
 
-    /** Removes a member, and them from every group of the org. A member may leave; otherwise as for `setRole` */
+    /**
+     * Removes a member, and them from every group of the org. A member may leave; otherwise as for `setRole`. Someone the
+     * org's identity provider holds by SCIM is removed there
+     */
     async remove(actorId: string, orgId: string, userId: string): Promise<void> {
         await this.db.transaction(async (tx) => {
             const actor = await this.lockedRole(tx, orgId, actorId);
             const current = await this.lockedRole(tx, orgId, userId);
             if (current === undefined) throw new OrgError(404, 'That person is not in the org.');
             if (actorId !== userId) this.mayChange(actor, current, 'member');
+            if (await scimHolds(tx, orgId, userId)) throw new OrgError(409, SCIM_MEMBER);
             if (current === 'owner') await this.keepAnOwner(tx, orgId, userId);
-            await tx.query('DELETE FROM org_group_member WHERE user_id = $2 AND group_id IN (SELECT id FROM org_group WHERE org_id = $1)', [orgId, userId]);
-            await tx.query("DELETE FROM app_access WHERE principal_kind = 'user' AND principal_id = $2 AND workspace_id = (SELECT id FROM workspace WHERE org_id = $1)", [orgId, userId]);
-            await tx.query('DELETE FROM org_member WHERE org_id = $1 AND user_id = $2', [orgId, userId]);
-            // The org reads a member's state only while they are one
-            await tx.query("UPDATE state_grant SET revoked_at = now() WHERE kind = 'org-read' AND org_id = $1 AND issuer = (SELECT owner_number::text FROM app_user WHERE id = $2) AND revoked_at IS NULL", [orgId, userId]);
+            await dropMember(tx, orgId, userId);
             await audit(tx, { orgId, actorId, action: actorId === userId ? 'member.left' : 'member.removed', targetKind: 'user', targetId: userId, detail: { role: current } });
         });
     }
@@ -246,20 +274,21 @@ export class Orgs {
     async groups(actorId: string, orgId: string): Promise<OrgGroup[]> {
         await this.require(orgId, actorId, 'member');
         const rows = (
-            await this.db.query<{ id: string; name: string; members: string[] | null }>(
-                'SELECT g.id, g.name, (SELECT array_agg(gm.user_id ORDER BY gm.user_id) FROM org_group_member gm WHERE gm.group_id = g.id) AS members FROM org_group g WHERE g.org_id = $1 ORDER BY g.name',
+            await this.db.query<{ id: string; name: string; members: string[] | null; scim: boolean }>(
+                'SELECT g.id, g.name, g.scim, (SELECT array_agg(gm.user_id ORDER BY gm.user_id) FROM org_group_member gm WHERE gm.group_id = g.id) AS members FROM org_group g WHERE g.org_id = $1 ORDER BY g.name',
                 [orgId]
             )
         ).rows;
-        return rows.map((row) => ({ id: row.id, name: row.name, members: row.members ?? [] }));
+        return rows.map((row) => ({ id: row.id, name: row.name, members: row.members ?? [], ...(row.scim && { scim: true as const }) }));
     }
 
-    /** Puts a member in a group, or takes them out; admins and owners */
+    /** Puts a member in a group, or takes them out; admins and owners, and not in a group the org's identity provider pushed */
     async setGroupMember(actorId: string, orgId: string, groupId: string, userId: string, member: boolean): Promise<void> {
         await this.db.transaction(async (tx) => {
             await this.requireIn(tx, orgId, actorId, 'admin');
-            const group = (await tx.query('SELECT 1 FROM org_group WHERE id = $1 AND org_id = $2', [groupId, orgId])).rows.length > 0;
-            if (!group) throw new OrgError(404, 'The org has no such group.');
+            const group = (await tx.query<{ scim: boolean }>('SELECT scim FROM org_group WHERE id = $1 AND org_id = $2', [groupId, orgId])).rows[0];
+            if (group === undefined) throw new OrgError(404, 'The org has no such group.');
+            if (group.scim) throw new OrgError(409, SCIM_GROUP);
             if (member) {
                 if ((await this.lockedRole(tx, orgId, userId)) === undefined) throw new OrgError(404, 'That person is not in the org.');
                 await tx.query('INSERT INTO org_group_member (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [groupId, userId]);
@@ -296,8 +325,9 @@ export class Orgs {
             if (input.role === 'owner' && actor !== 'owner') throw new OrgError(403, 'Only an owner can invite an owner.');
             const groups = [...new Set(input.groups ?? [])];
             if (groups.length > 0) {
-                const found = (await tx.query<{ n: number }>('SELECT count(*)::int AS n FROM org_group WHERE org_id = $1 AND id = ANY($2::uuid[])', [orgId, groups])).rows[0]?.n ?? 0;
-                if (found !== groups.length) throw new OrgError(404, 'The org has no such group.');
+                const found = (await tx.query<{ n: number; pushed: number }>('SELECT count(*)::int AS n, count(*) FILTER (WHERE scim)::int AS pushed FROM org_group WHERE org_id = $1 AND id = ANY($2::uuid[])', [orgId, groups])).rows[0];
+                if ((found?.n ?? 0) !== groups.length) throw new OrgError(404, 'The org has no such group.');
+                if ((found?.pushed ?? 0) > 0) throw new OrgError(409, SCIM_GROUP);
             }
             await tx.query('INSERT INTO org_invite (id, org_id, email, role, groups, token_hash, created_by, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [
                 id,

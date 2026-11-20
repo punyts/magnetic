@@ -59,12 +59,15 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         const appName = (id: string | null): string => (id === null ? '' : (apps.find((app) => app.id === id)?.name ?? id.slice(0, 8)));
         const settings = await context.sso.get(userId, org.id);
         const saml = await context.saml.get(userId, org.id);
+        const owner = (await orgs.role(org.id, userId)) === 'owner';
+        const scim = owner ? await context.scim.status(userId, org.id) : undefined;
         return {
             policy: await context.policies.get(org.id),
             models: context.models(),
             domains: await context.domains.list(userId, org.id),
             sso: { available: context.sso.available, redirectUri: context.ssoRedirectUri(), ...(settings !== undefined && { settings }) },
             saml: { entityId: context.samlEntityId(org.id), ...(saml !== undefined && { settings: saml }) },
+            scim: { on: owner ? scim !== undefined : await context.scim.isOn(org.id), baseUrl: `${context.origin()}/scim/v2/${org.id}`, ...(scim !== undefined && { status: scim }) },
             spend: {
                 month: await context.budgets.workspaceSpent(org.workspaceId),
                 rows: (await context.budgets.workspaceSpend(org.workspaceId)).map((row) => ({ person: nameOf(row.userId), app: appName(row.appId), dollars: row.dollars, requests: row.requests }))
@@ -73,7 +76,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
     }
 
     /** An org's page as the person sees it now */
-    async function render(request: IncomingMessage, response: ServerResponse, user: User, org: Org, extra: { notice?: string; error?: string; invited?: { email: string; link: string } } = {}, status = 200): Promise<void> {
+    async function render(request: IncomingMessage, response: ServerResponse, user: User, org: Org, extra: { notice?: string; error?: string; invited?: { email: string; link: string }; scimToken?: string } = {}, status = 200): Promise<void> {
         const look = await context.lookOf(request, user.id);
         const role = await orgs.role(org.id, user.id);
         if (role === undefined) throw new OrgError(404, 'No such org.');
@@ -112,7 +115,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
     }
 
     /** Makes the change a form of an org's page asks for; the invite's link when it made one */
-    async function change(form: URLSearchParams, user: User, org: Org): Promise<{ readonly invited?: { email: string; link: string; mailed: boolean }; readonly left?: true; readonly go?: string }> {
+    async function change(form: URLSearchParams, user: User, org: Org): Promise<{ readonly invited?: { email: string; link: string; mailed: boolean }; readonly left?: true; readonly go?: string; readonly scimToken?: string }> {
         const action = text(form, 'do');
         const userId = text(form, 'userId');
         if (action === 'role') {
@@ -180,6 +183,12 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
             await context.sso.set(user.id, org.id, { issuer: text(form, 'issuer'), clientId: text(form, 'clientId'), clientSecret: text(form, 'clientSecret'), enabled: form.get('enabled') === 'on' });
         } else if (action === 'saml') {
             await context.saml.set(user.id, org.id, { metadataUrl: text(form, 'metadataUrl'), metadataXml: text(form, 'metadataXml'), emailAttribute: text(form, 'emailAttribute'), enabled: form.get('enabled') === 'on' });
+        } else if (action === 'scimOn') {
+            return { scimToken: await context.scim.enable(user.id, org.id) };
+        } else if (action === 'scimToken') {
+            return { scimToken: await context.scim.replaceToken(user.id, org.id) };
+        } else if (action === 'scimOff') {
+            await context.scim.disable(user.id, org.id);
         } else if (action === 'deleteOrg') {
             const deleted = await deleteOrg(context.db, context.state, orgs, user.id, org.id, text(form, 'confirm'));
             await context.orgDeleted(deleted.workspaceId, deleted.members);
@@ -227,6 +236,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
                 if (done.left === true) context.redirect(response, '/settings/orgs');
                 else if (done.go !== undefined) context.redirect(response, done.go);
                 else if (done.invited !== undefined) await render(request, response, user, org, { invited: done.invited });
+                else if (done.scimToken !== undefined) await render(request, response, user, org, { scimToken: done.scimToken });
                 else context.redirect(response, `/settings/orgs/${org.id}?done`);
             } catch (error) {
                 if (!(error instanceof OrgError)) throw error;

@@ -3,6 +3,7 @@ import { domainOf } from './Domains.js';
 import type { OrgDomains } from './Domains.js';
 import { audit } from './Orgs.js';
 import type { OrgPolicies } from './Policies.js';
+import type { ScimDirectory } from './Scim.js';
 
 /** Said to someone at an org's domain who tries to sign in another way while the org requires its own provider */
 export const SSO_REQUIRED = 'Your organisation signs you in through its own account. Use "Sign in with your work email".';
@@ -10,13 +11,16 @@ export const SSO_REQUIRED = 'Your organisation signs you in through its own acco
 /**
  * What an org's policies say about signing in: `requireSso` lets people at the org's verified domains in only through
  * its own provider, and `autoJoin` adds people at those domains (with a verified email) or signed in through the
- * provider to the org as members. Every sign-in of an org's member is written to that org's audit log
+ * provider to the org as members. While an org takes its people by SCIM, a sign-in links the person it pushed with
+ * that verified email instead, and `autoJoin` joins nobody else (docs/design/magnetic-scim.md). Every sign-in of an
+ * org's member is written to that org's audit log
  */
 export class SignInRules {
     constructor(
         private readonly db: Database,
         private readonly domains: OrgDomains,
-        private readonly policies: OrgPolicies
+        private readonly policies: OrgPolicies,
+        private readonly scim: ScimDirectory
     ) {}
 
     /** Why a sign-in may not go on, or `undefined`: refused when the email's org requires its own provider and this is not it */
@@ -42,8 +46,11 @@ export class SignInRules {
             const orgId = await this.domains.orgOfEmail(user.email);
             if (orgId !== undefined) candidates.add(orgId);
         }
+        if (user.emailVerified && user.email !== undefined) await this.scim.signedIn(user.id, user.email);
         for (const orgId of candidates) {
             if (!(await this.policies.get(orgId)).autoJoin) continue;
+            // An org that takes its people by SCIM joins only those it pushed
+            if ((await this.db.query('SELECT 1 FROM org_scim WHERE org_id = $1', [orgId])).rows.length > 0) continue;
             await this.db.transaction(async (tx) => {
                 const joined = (await tx.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING", [orgId, user.id])).rowCount ?? 0;
                 if (joined > 0) await audit(tx, { orgId, actorId: user.id, action: 'member.auto_joined', targetKind: 'user', targetId: user.id, detail: { domain: domainOf(user.email) ?? null, provider: via.provider } });

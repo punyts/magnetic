@@ -421,6 +421,10 @@ The same is there as JSON routes:
   the usual ones. At the provider, Magnetic is the entity, audience and assertion consumer URL
   `<origin>/auth/saml/<orgId>`, shown on the org's settings page; the provider signs its assertions and sends a
   persistent NameID or the email. Only sign-in that starts at Magnetic is taken.
+- **Provisioning by SCIM.** An owner turns SCIM 2.0 on for an org with a verified domain and gives its identity provider
+  the base URL `<origin>/scim/v2/<orgId>` and the bearer token shown once. Pushed people join when they first sign in
+  with their verified email and leave when the provider deactivates or deletes them; pushed groups are kept as the
+  provider says and admins cannot edit them. While SCIM is on, `autoJoin` joins no one else. Roles stay in Magnetic.
 - **Policies.** `requireSso` (people at the org's domains sign in only through its provider), `autoJoin` (people at its
   domains with a verified email, or signed in through its provider, join as members), `externalLinks` (share links to
   its apps open for people outside it; off by default), `personalWorkspaces` (off: its members cannot make apps of
