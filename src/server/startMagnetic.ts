@@ -1086,12 +1086,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return;
         }
         const mine = await workspaces.get(who.user.id);
-        const copied = await copyAppParts(owner.parts, mine.parts, grant.appId);
+        const copied = await copyAppParts(owner.parts, mine.parts, grant.appId, { functions: mine.functions });
         if (copied.kind !== 'copied') {
             sendAppPage(request, response, await linkPageOf(request, look, fill(t['link.remixTitle'], { name: app.name }), copied.kind === 'failed' ? fill(t['link.copyFailed'], { reason: copied.reason }) : t['link.deleted'], token), copied.kind === 'failed' ? 500 : 404);
             return;
         }
-        options.report.info('App remixed', { from: grant.appId, to: copied.app.id, parts: copied.parts.length });
+        // A function the app names that this server does not run shows in the editor as the validator's warning
+        options.report.info('App remixed', { from: grant.appId, to: copied.app.id, parts: copied.parts.length, ...(copied.missingFunctions?.length && { missingFunctions: copied.missingFunctions }) });
         redirect(response, `/edit/${encodeURIComponent(copied.app.id)}`);
     }
 

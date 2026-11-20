@@ -198,11 +198,11 @@ describe('moveAppToOrg', () => {
         const link = await new Grants(test.db).create(ana, { id: app, name: 'tracker' }, 'use', ana);
 
         // Act
-        const moved = await moveAppToOrg(test.db, { userId: ana, appId: app, orgId: org.id });
+        const moved = await moveAppToOrg(test.db, { userId: ana, appId: app, orgId: org.id, functions: [] });
 
         // Assert
         const theirs = pgWorkspaceStorage(test.db, org.workspaceId);
-        expect(moved).toMatchObject({ appId: app, name: 'tracker-2' });
+        expect(moved).toMatchObject({ appId: app, name: 'tracker-2', missingFunctions: [] });
         expect(await mine.parts.findById('apps', app)).toBeUndefined();
         expect(await mine.parts.findByName('themes', 'brand')).toBeDefined();
         expect((await theirs.parts.findById('apps', app))?.name).toBe('tracker-2');
@@ -215,6 +215,24 @@ describe('moveAppToOrg', () => {
         expect((await orgs.auditLog(ben, org.id)).map((event) => event['action'])).toContain('app.moved_in');
     });
 
+    it('should list the functions the moved app names that the server does not run, and record them', async () => {
+        // Arrange
+        const org = await orgs.create(ben, { name: 'Acme', slug: 'acme' });
+        await orgs.accept((await orgs.invite(ben, org.id, { email: 'ana@acme.test', role: 'builder' })).token, ana);
+        const logic = { computes: { tax: { inputs: {}, run: '$.functions.host.tax', outputs: {} } }, effects: { fetch: { request: '$.runtime.request', run: '$.functions.host.http', status: '$.runtime.status' } } };
+        const created = await pgWorkspaceStorage(test.db, ana).parts.create({ kind: 'apps', name: 'shop', body: { home: 'home', screens: { home: { root: { component: 'column' } } }, logic } as never });
+        if (created.kind !== 'created') throw new Error(created.kind);
+        const http = { id: '00000000-0000-4000-8000-000000000001', path: '$.functions.host.http', kind: 'effect', runs: ['server'], summary: 'HTTP', inputs: {}, outputs: {} } as const;
+
+        // Act
+        const moved = await moveAppToOrg(test.db, { userId: ana, appId: created.part.id, orgId: org.id, functions: [http] });
+
+        // Assert
+        expect(moved.missingFunctions).toEqual(['$.functions.host.tax']);
+        const event = (await orgs.auditLog(ben, org.id)).find((entry) => entry['action'] === 'app.moved_in');
+        expect(event?.['detail']).toMatchObject({ missingFunctions: ['$.functions.host.tax'] });
+    });
+
     it('should refuse a member who is not a builder, and leave the app where it was', async () => {
         // Arrange
         const org = await orgs.create(ben, { name: 'Acme', slug: 'acme' });
@@ -222,7 +240,7 @@ describe('moveAppToOrg', () => {
         const app = await appIn(ana, 'diary');
 
         // Act
-        const refused = await status(moveAppToOrg(test.db, { userId: ana, appId: app, orgId: org.id }));
+        const refused = await status(moveAppToOrg(test.db, { userId: ana, appId: app, orgId: org.id, functions: [] }));
 
         // Assert
         expect(refused).toBe(403);

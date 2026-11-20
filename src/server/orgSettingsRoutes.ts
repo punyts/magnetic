@@ -147,7 +147,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         } else if (action === 'makeApp') {
             return { go: `/edit/${(await createOrgApp(context, user.id, org.id, org.workspaceId, text(form, 'name'))).id}` };
         } else if (action === 'moveIn') {
-            const moved = await moveAppToOrg(context.db, { userId: user.id, appId: text(form, 'appId'), orgId: org.id });
+            const moved = await moveAppToOrg(context.db, { userId: user.id, appId: text(form, 'appId'), orgId: org.id, functions: (await context.workspaces.get(user.id)).functions });
             // The person's own workspace held the app live: closing it ends its views, which reload into the org
             await context.workspaces.reopen(user.id);
             return { go: `/edit/${moved.appId}` };

@@ -220,8 +220,11 @@ export class SitePages implements PageSource {
                 let revision = await this.retranslate(tools, spec, document.document, before, now, draft.revision);
                 if (revision !== draft.revision) document = await this.assembled(services, draft.id);
                 const bundle = memoryParts();
-                const copied = await copyAppParts(services.parts, bundle, draft.id, { name: spec.name, keepId: true });
+                const copied = await copyAppParts(services.parts, bundle, draft.id, { name: spec.name, keepId: true, functions: services.functions });
                 if (copied.kind !== 'copied') return { refused: [copied.kind === 'failed' ? copied.reason : 'The draft is gone'] };
+                if (copied.missingFunctions !== undefined && copied.missingFunctions.length > 0) {
+                    return { refused: copied.missingFunctions.map((path) => `It names ${path}, a function this server does not run`) };
+                }
                 const stamp = randomUUID();
                 await this.db.query(
                     `INSERT INTO magnetic_page (name, stamp, base, document, icons, parts, english, published_by, published_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())

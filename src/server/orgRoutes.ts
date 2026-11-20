@@ -359,7 +359,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
         }
         if ((match = ROUTES.move.exec(path)) !== null && method === 'POST') {
             const orgId = text(await context.readJson(request), 'orgId');
-            const moved = await moveAppToOrg(context.db, { userId: user.id, appId: match[1] as string, orgId });
+            const moved = await moveAppToOrg(context.db, { userId: user.id, appId: match[1] as string, orgId, functions: (await context.workspaces.get(user.id)).functions });
             // The person's own workspace held the app live: closing it ends its views, which reload into the org
             await context.workspaces.reopen(user.id);
             sendJson(response, 200, moved);

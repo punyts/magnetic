@@ -1,6 +1,7 @@
 import { copyAppParts } from '@punyts/stateui-mcp';
 import { PgPartRepository, txWorkspaceDb } from '@punyts/stateui-pg';
 import type { Database, Queryable } from '@punyts/stateui-pg';
+import type { FunctionEntry } from '@punyts/stateui-app/core';
 import { atLeast, audit, OrgError } from './Orgs.js';
 import type { OrgRole } from './Orgs.js';
 
@@ -199,6 +200,8 @@ export interface MovedApp {
     readonly name: string;
     /** The parts copied into the org besides the app, with the names they had before when they got new ones */
     readonly parts: ReadonlyArray<{ readonly kind: string; readonly name: string; readonly from?: string }>;
+    /** The function paths the app and its parts name that the server does not run, so the person sees them before using it */
+    readonly missingFunctions: readonly string[];
 }
 
 /**
@@ -209,7 +212,10 @@ export interface MovedApp {
  * moved it manages it in the org, and nobody else has it until they give access. The person must be a builder or
  * above in the org
  */
-export async function moveAppToOrg(db: Database, input: { readonly userId: string; readonly appId: string; readonly orgId: string }): Promise<MovedApp> {
+export async function moveAppToOrg(
+    db: Database,
+    input: { readonly userId: string; readonly appId: string; readonly orgId: string; readonly functions: readonly FunctionEntry[] }
+): Promise<MovedApp> {
     const personal = input.userId.toLowerCase();
     const appId = input.appId.toLowerCase();
     const org = (
@@ -227,7 +233,7 @@ export async function moveAppToOrg(db: Database, input: { readonly userId: strin
             const to = new PgPartRepository(txWorkspaceDb(tx, target));
             const app = await from.findById('apps', appId);
             if (app === undefined) throw new OrgError(404, 'You have no app with this id.');
-            const copied = await copyAppParts(from, to, appId, { keepId: true });
+            const copied = await copyAppParts(from, to, appId, { keepId: true, functions: input.functions });
             if (copied.kind !== 'copied') throw new OrgError(409, copied.kind === 'failed' ? copied.reason : 'The app could not be moved.');
             await tx.query("DELETE FROM part WHERE workspace_id = $1 AND kind = 'apps' AND id = $2", [personal, appId]);
             // People's state of the app keeps its addresses: the mover's own was already at their id (the personal
@@ -252,9 +258,9 @@ export async function moveAppToOrg(db: Database, input: { readonly userId: strin
                 action: 'app.moved_in',
                 targetKind: 'app',
                 targetId: appId,
-                detail: { name: copied.app.name, from: app.name, parts: copied.parts }
+                detail: { name: copied.app.name, from: app.name, parts: copied.parts, missingFunctions: copied.missingFunctions ?? [] }
             });
-            return { appId, name: copied.app.name, parts: copied.parts };
+            return { appId, name: copied.app.name, parts: copied.parts, missingFunctions: copied.missingFunctions ?? [] };
         },
         { workspaceIds: [personal, target] }
     );
