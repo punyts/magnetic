@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { PreviewBrowser, UiPart } from '@punyts/stateui-mcp';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import { magneticTestDatabase } from '../testing/testDb.js';
+import { generateKeyPair, startRelayNode } from '@punyts/statenet';
+import type { RelayNode } from '@punyts/statenet';
+import { SecretBox } from '../auth/secrets.js';
+import { startMagneticAggregate } from '../statenet/MagneticAggregate.js';
+import type { MagneticAggregate } from '../statenet/MagneticAggregate.js';
+import { StatenetAuthority } from '../statenet/StatenetNode.js';
+import { magneticTestDatabase, roleDatabases } from '../testing/testDb.js';
+import type { RoleDatabases } from '../testing/testDb.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { RunningMagnetic } from './startMagnetic.js';
 
@@ -71,18 +78,44 @@ async function signIn(origin: string, user: string): Promise<string> {
     return (response.headers.get('set-cookie') ?? '').split(';')[0] as string;
 }
 
+/**
+ * The hosted layout (docs/design/statenet-network.md, S11): two servers of one group, linked up to a relay, which links
+ * up to the aggregate. The servers connect as a role that may only read people's state; the aggregate as the one that
+ * writes it
+ */
 describe('several Magnetic servers on one database', () => {
     let test: TestDatabase;
+    let roles: RoleDatabases;
+    let aggregate: MagneticAggregate;
+    let relay: RelayNode;
     let one: RunningMagnetic;
     let two: RunningMagnetic;
     let cookie: string;
     let aliceId: string;
 
     const start = (): Promise<RunningMagnetic> =>
-        startMagnetic({ database: test.db, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser, secretKey: SECRET, statenet: { meshPort: 0, heartbeatMs: 150, leaseMs: 1_500 } });
+        startMagnetic({
+            database: roles.server,
+            host: '127.0.0.1',
+            port: 0,
+            report: silent,
+            devUsers: ['alice'],
+            starter: 'none',
+            browser: noBrowser,
+            secretKey: SECRET,
+            statenet: { meshPort: 0, heartbeatMs: 150, leaseMs: 1_500, group: 'magnetic', relays: [relay.meshUrl] }
+        });
 
     beforeAll(async () => {
         test = await magneticTestDatabase();
+        roles = await roleDatabases(test);
+        // The statenet's authority, which the first server would make: the aggregate's role may not
+        const authority = new StatenetAuthority(test.db, new SecretBox(SECRET));
+        await authority.keys();
+        aggregate = await startMagneticAggregate(roles.aggregate, new SecretBox(SECRET), { nodeId: 'aggregate-1', host: '127.0.0.1', port: 0, embedRecords: false, rereadMs: 150, report: silent.info });
+        const relayKeys = generateKeyPair();
+        const issued = await authority.issue('relay-1', 'relay', relayKeys.publicKey);
+        relay = await startRelayNode({ nodeId: 'relay-1', keys: relayKeys, certificate: issued.certificate, authorityPublicKey: issued.authorityPublicKey, parents: [aggregate.url], host: '127.0.0.1', meshPort: 0 });
         one = await start();
         two = await start();
         await one.statenet?.refresh();
@@ -94,6 +127,9 @@ describe('several Magnetic servers on one database', () => {
     afterAll(async () => {
         await one?.stop();
         await two?.stop();
+        await relay?.close();
+        await aggregate?.close();
+        await roles?.close();
         await test?.drop();
     });
 
@@ -215,6 +251,27 @@ describe('several Magnetic servers on one database', () => {
         expect(after.fallback).toBeUndefined();
         expect(after.id).not.toBe(before.id);
         view.ws.close();
+    });
+
+    it("should save people's state through the relay to the aggregate, and refuse a server that writes it itself", async () => {
+        // Arrange
+        const app = await newApp(two, 'journal');
+        await two.owners.ensure(aliceId);
+        const address = `${two.owners.of(aliceId)}/apps/${app.id}`;
+        const savesBefore = aggregate.node.aggregate.stats().saves;
+
+        // Act
+        (await (await two.workspaces.get(aliceId)).instanceViews.authority(app)).write({ op: 'set', path: '$.app.saved', value: 'through the aggregate' });
+        const direct = roles.server.query('DELETE FROM namespace_head WHERE address = $1', [address]).then(
+            () => 'deleted',
+            (error: unknown) => (error instanceof Error ? error.message : String(error))
+        );
+
+        // Assert
+        await vi.waitFor(async () => expect((await test.db.query('SELECT 1 FROM state_node WHERE address = $1 AND value::text LIKE $2', [address, '%through the aggregate%'])).rowCount).toBe(1), { timeout: 5_000 });
+        expect(aggregate.node.aggregate.stats().saves).toBeGreaterThan(savesBefore);
+        expect(await direct).toMatch(/permission denied/);
+        expect((await test.db.query('SELECT workspace_id::text AS w FROM statenet_namespace WHERE address = $1', [address])).rows).toEqual([{ w: aliceId }]);
     });
 
     it('should let another server take over the instances of a server that stops, at once', async () => {

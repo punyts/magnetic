@@ -4,6 +4,7 @@ import type { Database, Queryable } from '@punyts/stateui-pg';
 import type { FunctionEntry } from '@punyts/stateui-app/core';
 import { atLeast, audit, OrgError } from './Orgs.js';
 import type { OrgRole } from './Orgs.js';
+import type { StateChanges } from '../statenet/StateNamespaces.js';
 
 export const APP_PERMISSIONS = ['view', 'use', 'edit', 'manage'] as const;
 export type AppPermission = (typeof APP_PERMISSIONS)[number];
@@ -214,6 +215,7 @@ export interface MovedApp {
  */
 export async function moveAppToOrg(
     db: Database,
+    state: StateChanges,
     input: { readonly userId: string; readonly appId: string; readonly orgId: string; readonly functions: readonly FunctionEntry[] }
 ): Promise<MovedApp> {
     const personal = input.userId.toLowerCase();
@@ -227,7 +229,7 @@ export async function moveAppToOrg(
     if (org === undefined || org.role === null) throw new OrgError(404, 'No such org.');
     if (!atLeast(org.role, 'builder')) throw new OrgError(403, 'Only builders and above can bring apps into the org.');
     const target = org.id;
-    return db.transaction(
+    const { moved, addresses } = await db.transaction(
         async (tx) => {
             const from = new PgPartRepository(txWorkspaceDb(tx, personal));
             const to = new PgPartRepository(txWorkspaceDb(tx, target));
@@ -236,11 +238,11 @@ export async function moveAppToOrg(
             const copied = await copyAppParts(from, to, appId, { keepId: true, functions: input.functions });
             if (copied.kind !== 'copied') throw new OrgError(409, copied.kind === 'failed' ? copied.reason : 'The app could not be moved.');
             await tx.query("DELETE FROM part WHERE workspace_id = $1 AND kind = 'apps' AND id = $2", [personal, appId]);
-            // People's state of the app keeps its addresses: the mover's own was already at their id (the personal
-            // workspace's default persona), which is their persona in the org
-            for (const table of ['state_node', 'state_change', 'namespace_head']) {
-                await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND split_part(address, '/', 3) = $3 AND split_part(address, '/', 2) = 'apps'`, [personal, target, appId.toLowerCase()]);
-            }
+            // People's state of the app keeps its addresses: the mover's own was already at their number (the personal
+            // workspace's default persona), which is their persona in the org. The aggregate moves it after this commits
+            const stateAddresses = (
+                await tx.query<{ address: string }>("SELECT address FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 3) = $2 AND split_part(address, '/', 2) = 'apps'", [personal, appId.toLowerCase()])
+            ).rows.map((row) => row.address);
             for (const table of ['app_file', 'app_file_content', 'preview_error']) {
                 await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND app_id = $3`, [personal, target, appId]);
             }
@@ -260,8 +262,10 @@ export async function moveAppToOrg(
                 targetId: appId,
                 detail: { name: copied.app.name, from: app.name, parts: copied.parts, missingFunctions: copied.missingFunctions ?? [] }
             });
-            return { appId, name: copied.app.name, parts: copied.parts, missingFunctions: copied.missingFunctions ?? [] };
+            return { moved: { appId, name: copied.app.name, parts: copied.parts, missingFunctions: copied.missingFunctions ?? [] }, addresses: stateAddresses };
         },
         { workspaceIds: [personal, target] }
     );
+    for (const address of addresses) await state.move(address, personal, target);
+    return moved;
 }

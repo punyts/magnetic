@@ -1,6 +1,6 @@
 export interface CliOptions {
     /** The command: run the server (default), apply the migrations, or import a file data folder */
-    command: 'serve' | 'migrate' | 'import' | 'reindex' | 'relay-certificate' | 'feedback';
+    command: 'serve' | 'migrate' | 'import' | 'reindex' | 'relay-certificate' | 'feedback' | 'aggregate';
     /** What makes the vectors of semantic search: the local CPU model, word hashing (no model), or nothing */
     embedding: 'local' | 'hash' | 'off';
     /** Where the local model is kept; it is downloaded there on first use */
@@ -57,7 +57,9 @@ export interface CliOptions {
     /** Dollars for the whole server per UTC month */
     monthlyBudget: number;
     /** This server as one of several on the database, a node of the statenet: set by `--mesh-port` */
-    statenet: { meshPort: number; meshHost?: string; meshUrl?: string; nodeId?: string; region?: string } | undefined;
+    statenet: { meshPort: number; meshHost?: string; meshUrl?: string; nodeId?: string; region?: string; group?: string; relays?: string[] } | undefined;
+    /** For migrate: the role the aggregate connects as, which alone writes the state tables (docs/design/statenet-network.md, S11) */
+    aggregateRole: string | undefined;
     /** For relay-certificate: the relay's node id, and the folder its key and certificate are written to */
     nodeId: string | undefined;
     out: string;
@@ -78,6 +80,8 @@ Commands:
   reindex                Queue every part, chat and embedded record field to be embedded again with the current model, embed
                          them, then exit (after changing --embedding)
   feedback               Print the latest bugs, comments and feature requests sent from the editor, then exit
+  aggregate              Run the statenet's aggregate: the one writer of people's state, which relays link up
+                         to (--mesh-port, --node-id). Connects as the aggregate's role; needs MAGNETIC_SECRET_KEY
   relay-certificate      Make a key pair and a node certificate for a statenet-relay (--node-id), write them to
                          --out, and print the authority key the relay checks its parents with. Needs MAGNETIC_SECRET_KEY
 
@@ -166,10 +170,17 @@ Several servers on one database (each a node of the statenet; needs MAGNETIC_SEC
   --node-id <id>         This server's node id (env MAGNETIC_NODE_ID, default its host name and a random suffix);
                          for relay-certificate, the relay's
   --region <name>        Where it runs (env MAGNETIC_REGION)
+  --group <name>         The group of servers that run together and link to each other directly
+                         (env MAGNETIC_GROUP, default the host's name)
+  --relays <urls>        The relays this server links up to, comma-separated, in order, such as ws://relay-1:4310;
+                         it saves people's state through them to the aggregate (env MAGNETIC_RELAYS). Without
+                         them the server keeps the aggregate in its own process
   --out <dir>            For relay-certificate: the folder to write the relay's files to (default .)
   --app-role <role>      For migrate: then grant this role (made beforehand, with no superuser or
                          BYPASSRLS) the rows of every table, as the servers connect as it
                          (env MAGNETIC_APP_ROLE)
+  --aggregate-role <role> For migrate: grant this role (made beforehand, like the app role) the writing of
+                         people's state, and leave the app role only reading it (env MAGNETIC_AGGREGATE_ROLE)
 
   -h, --help             Show this help
 `;
@@ -273,11 +284,19 @@ const parseSeed = (text: string): 'beta' | 'beta-full' => {
 };
 
 /** Reads the command line and the environment. A flag wins over its environment variable */
+/** A comma-separated list of relay URLs, each ws:// or wss://; none for an empty one */
+function parseRelays(text: string | undefined): string[] | undefined {
+    const urls = (text ?? '').split(',').map((url) => url.trim()).filter((url) => url !== '');
+    for (const url of urls) if (!/^wss?:\/\/[^/]+/.test(url)) throw new UsageError(`Invalid relay URL: ${url} (ws:// or wss://, such as ws://relay-1:4310)`);
+    return urls.length === 0 ? undefined : urls;
+}
+
 export function parseOptions(argv: readonly string[], env: Readonly<Record<string, string | undefined>>): CliOptions {
     let command: CliOptions['command'] = 'serve';
     let databaseUrl = env['MAGNETIC_DATABASE_URL'];
     let migrate = env['MAGNETIC_MIGRATE'] === 'true';
     let appRole = env['MAGNETIC_APP_ROLE'] || undefined;
+    let aggregateRole = env['MAGNETIC_AGGREGATE_ROLE'] || undefined;
     let embedding = env['MAGNETIC_EMBEDDING'] !== undefined ? parseEmbedding(env['MAGNETIC_EMBEDDING']) : 'local';
     let modelCache = env['MAGNETIC_MODEL_CACHE'];
     let dataDir = env['MAGNETIC_DATA_DIR'] ?? './data';
@@ -329,10 +348,12 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let meshUrl = env['MAGNETIC_MESH_URL'] || undefined;
     let nodeId = env['MAGNETIC_NODE_ID'] || undefined;
     let region = env['MAGNETIC_REGION'] || undefined;
+    let group = env['MAGNETIC_GROUP'] || undefined;
+    let relays = parseRelays(env['MAGNETIC_RELAYS']);
     let out = '.';
 
     let first = 0;
-    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex' || argv[0] === 'relay-certificate' || argv[0] === 'feedback') {
+    if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex' || argv[0] === 'relay-certificate' || argv[0] === 'feedback' || argv[0] === 'aggregate') {
         command = argv[0];
         first = 1;
     }
@@ -438,6 +459,15 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--app-role':
                 appRole = value();
                 break;
+            case '--aggregate-role':
+                aggregateRole = value();
+                break;
+            case '--group':
+                group = value();
+                break;
+            case '--relays':
+                relays = parseRelays(value());
+                break;
             case '--region':
                 region = value();
                 break;
@@ -456,9 +486,13 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (meshUrl !== undefined && !/^wss?:\/\/[^/]+/.test(meshUrl)) throw new UsageError(`Invalid mesh URL: ${meshUrl} (ws:// or wss://, such as ws://magnetic-2:4310)`);
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
     if (meshPort !== undefined && secretKey === undefined) throw new UsageError('A server of several (--mesh-port) needs MAGNETIC_SECRET_KEY');
+    if (relays !== undefined && meshPort === undefined) throw new UsageError('Linking up to relays (--relays) needs --mesh-port');
+    if (group !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(group)) throw new UsageError(`Invalid group: ${group} (letters, digits, '.', '_' and '-')`);
+    if (command === 'aggregate' && (meshPort === undefined || secretKey === undefined)) throw new UsageError('The aggregate needs --mesh-port and MAGNETIC_SECRET_KEY');
+    if (aggregateRole !== undefined && appRole === undefined) throw new UsageError('--aggregate-role takes the writing of state from the app role: give --app-role too');
     if (betaOrg !== undefined && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(betaOrg)) throw new UsageError(`Invalid beta org: ${betaOrg} (an org slug: lower-case letters, digits and dashes)`);
     if (betaOrg !== undefined && secretKey === undefined) throw new UsageError('The beta org (--beta-org) needs MAGNETIC_SECRET_KEY, which signs the beta link');
     if (seed !== undefined && betaOrg === undefined) throw new UsageError('Seeding the beta (--seed) needs --beta-org');
-    const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }) };
-    return { command, databaseUrl, migrate, appRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(relays !== undefined && { relays }) };
+    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
 }

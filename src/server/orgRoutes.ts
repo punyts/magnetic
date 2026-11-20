@@ -11,6 +11,7 @@ import type { OrgDomains } from '../orgs/Domains.js';
 import { deleteOrg, exportOrg } from '../orgs/Lifecycle.js';
 import type { OrgPolicies, PolicyChange } from '../orgs/Policies.js';
 import type { OrgSso } from '../orgs/Sso.js';
+import type { StateChanges } from '../statenet/StateNamespaces.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
 
 /** What the org routes work with, from the server */
@@ -50,6 +51,8 @@ export interface OrgRouteContext {
     /** Where a failed email is reported */
     readonly report?: (message: string, fields?: Record<string, unknown>) => void;
     readonly db: Database;
+    /** Removes and moves people's state, through the aggregate */
+    readonly state: StateChanges;
     readonly orgs: Orgs;
     readonly access: AppAccess;
     readonly instances: AppInstances;
@@ -302,7 +305,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
             return true;
         }
         if ((match = ROUTES.org.exec(path)) !== null && method === 'DELETE') {
-            const deleted = await deleteOrg(context.db, orgs, user.id, match[1] as string, text(await context.readJson(request), 'confirm'));
+            const deleted = await deleteOrg(context.db, context.state, orgs, user.id, match[1] as string, text(await context.readJson(request), 'confirm'));
             await context.orgDeleted(deleted.workspaceId, deleted.members);
             sendJson(response, 200, { deleted: true });
             return true;
@@ -359,7 +362,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
         }
         if ((match = ROUTES.move.exec(path)) !== null && method === 'POST') {
             const orgId = text(await context.readJson(request), 'orgId');
-            const moved = await moveAppToOrg(context.db, { userId: user.id, appId: match[1] as string, orgId, functions: (await context.workspaces.get(user.id)).functions });
+            const moved = await moveAppToOrg(context.db, context.state, { userId: user.id, appId: match[1] as string, orgId, functions: (await context.workspaces.get(user.id)).functions });
             // The person's own workspace held the app live: closing it ends its views, which reload into the org
             await context.workspaces.reopen(user.id);
             sendJson(response, 200, moved);

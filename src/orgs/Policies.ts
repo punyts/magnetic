@@ -52,7 +52,9 @@ export class OrgPolicies {
     constructor(
         private readonly db: Database,
         /** The models the server offers, which an org may narrow */
-        private readonly models: () => readonly string[]
+        private readonly models: () => readonly string[],
+        /** Removes namespaces of a workspace whole, through the aggregate (docs/design/statenet-network.md, S11) */
+        private readonly removeState: (workspaceId: string, addresses: readonly string[]) => Promise<void>
     ) {}
 
     async get(orgId: string): Promise<OrgPolicy> {
@@ -111,7 +113,8 @@ export class OrgPolicies {
 
     /**
      * Applies each org's `retentionDays`: deletes the chats of its apps older than that, and the instances and persona
-     * records of people no longer in the org not changed for that long. Answers how many rows went
+     * records of people no longer in the org not changed for that long, through the aggregate. Answers how many chat
+     * entries and namespaces went
      */
     async applyRetention(now: Date = new Date()): Promise<number> {
         const orgs = (
@@ -122,26 +125,23 @@ export class OrgPolicies {
         let removed = 0;
         for (const org of orgs) {
             const cutoff = new Date(now.getTime() - org.days * 86_400_000);
-            removed += await this.db.transaction(
+            const { chats, gone } = await this.db.transaction(
                 async (tx) => {
-                    const chats = (await tx.query('DELETE FROM chat_entry WHERE workspace_id = $1 AND at < $2', [org.workspace_id, cutoff])).rowCount ?? 0;
+                    const deleted = (await tx.query('DELETE FROM chat_entry WHERE workspace_id = $1 AND at < $2', [org.workspace_id, cutoff])).rowCount ?? 0;
                     // The state of people no longer in the org (and the workspace's own preview state) not changed since the cutoff
-                    const gone = (
+                    const addresses = (
                         await tx.query<{ address: string }>(
                             `SELECT address FROM namespace_head WHERE workspace_id = $1 AND updated_at < $2 AND split_part(address, '/', 2) = 'apps'
                                 AND split_part(address, '/', 1) NOT IN (SELECT u.owner_number::text FROM org_member m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $3)`,
                             [org.workspace_id, cutoff, org.org_id]
                         )
                     ).rows.map((row) => row.address);
-                    let state = 0;
-                    for (const table of ['state_change', 'state_node', 'namespace_head']) {
-                        const deleted = (await tx.query(`DELETE FROM ${table} WHERE workspace_id = $1 AND address = ANY($2::text[])`, [org.workspace_id, gone])).rowCount ?? 0;
-                        if (table === 'state_node') state = deleted;
-                    }
-                    return chats + state;
+                    return { chats: deleted, gone: addresses };
                 },
                 { workspaceIds: [org.workspace_id] }
             );
+            await this.removeState(org.workspace_id, gone);
+            removed += chats + gone.length;
         }
         return removed;
     }

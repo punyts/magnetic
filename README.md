@@ -99,7 +99,9 @@ The commands are:
   then exit (after changing `--embedding`);
 - `feedback`: print the latest hundred bugs, comments and feature requests sent from the editor, then exit;
 - `relay-certificate`: write a key pair and a node certificate for a `statenet-relay` (`--node-id`) to `--out`, and
-  print the authority key the relay checks its parents with. Needs `MAGNETIC_SECRET_KEY`.
+  print the authority key the relay checks its parents with. Needs `MAGNETIC_SECRET_KEY`;
+- `aggregate`: run the statenet's aggregate, the one writer of people's state, which relays link up to (`--mesh-port`,
+  `--node-id`). It connects as the aggregate's role and needs `MAGNETIC_SECRET_KEY`.
 
 `magnetic --help` prints the same options as this table (`HELP_TEXT` in `src/server/options.ts`).
 
@@ -108,6 +110,7 @@ The commands are:
 | `--database-url <url>` | `MAGNETIC_DATABASE_URL` | none, required | Magnetic's Postgres database with pgvector |
 | `--migrate` | `MAGNETIC_MIGRATE=true` | off | Applies the migrations before serving |
 | `--app-role <role>` | `MAGNETIC_APP_ROLE` | none | For `migrate`: then grants this role the rows of every table. The servers connect as it; it must exist and have no superuser or `BYPASSRLS`, so row-level security holds it |
+| `--aggregate-role <role>` | `MAGNETIC_AGGREGATE_ROLE` | none | For `migrate`, with `--app-role`: grants this role the writing of people's state (`state_node`, `state_change`, `namespace_head`) and what it reads beside it, and leaves the app role only reading those three. The aggregate connects as it |
 | `--embedding <kind>` | `MAGNETIC_EMBEDDING` | `local` | What makes search vectors: `local`, `hash` or `off` |
 | `--model-cache <dir>` | `MAGNETIC_MODEL_CACHE` | the library's | Where the local model is kept |
 | `--data-dir <dir>` | `MAGNETIC_DATA_DIR` | `./data` | For `import`: the data folder of an earlier, file-based Magnetic |
@@ -134,7 +137,9 @@ The commands are:
 | `--mesh-port <n>` | `MAGNETIC_MESH_PORT` | none: the server runs alone | Runs as one of several servers on one database, linking to the others and to relays on this port (`0` for any free port). Needs `MAGNETIC_SECRET_KEY` |
 | `--mesh-host <address>` | `MAGNETIC_MESH_HOST` | `--host` | Address the mesh binds |
 | `--mesh-url <url>` | `MAGNETIC_MESH_URL` | the address it listens on | The URL the other servers and relays reach this one's mesh at, such as `ws://magnetic-2:4310` |
-| `--node-id <id>` | `MAGNETIC_NODE_ID` | its host name and a random suffix | This server's node id; for `relay-certificate`, the relay's |
+| `--group <name>` | `MAGNETIC_GROUP` | the host's name | The group of servers that run together and link to each other directly |
+| `--relays <urls>` | `MAGNETIC_RELAYS` | none: the aggregate runs in the server | The relays this server links up to, comma-separated, in order; it saves people's state through them to the aggregate. Needs `--mesh-port` |
+| `--node-id <id>` | `MAGNETIC_NODE_ID` | its host name and a random suffix | This server's node id; for `relay-certificate`, the relay's; for `aggregate`, its own (`aggregate-1`) |
 | `--region <name>` | `MAGNETIC_REGION` | none | Where it runs |
 | `--out <dir>` | | `.` | For `relay-certificate`: the folder to write the relay's files to |
 | | `ANTHROPIC_API_KEY` | none | The Claude API key of the agent |
@@ -442,11 +447,17 @@ magnetic --mesh-port 4310 --mesh-url ws://magnetic-2:4310 --node-id magnetic-2
   view connects again.
 - **Part changes reach every server** on Postgres's `stateui_part` channel, so views, the usage index, shared datasets
   and running instances catch up with a change another server made.
+- **One writer of people's state** (`docs/design/statenet-network.md`, S11). Every load, save and removal of an
+  instance goes to the aggregate: in the server's own process when it runs alone, or up through relays
+  (`--relays ws://relay-1:4310`, `--group magnetic`) to `magnetic aggregate`. The aggregate connects as its own role
+  (`migrate --app-role magnetic_app --aggregate-role magnetic_aggregate`), and the servers' role may then only read
+  the state tables. Retention, deleting an org and moving an app into an org go through it too. The aggregate finds
+  each address's workspace in `statenet_namespace`, which a server records before it sends anything for the address.
 - **Relays.** `magnetic relay-certificate --node-id relay-1 --out certs` writes a key and a node certificate for a
-  `statenet-relay`, which links to the servers' mesh and serves subscriptions without reaching the database.
+  `statenet-relay`, which links up to the aggregate and carries the servers' saves without reaching the database.
 
-`docker compose -f docker/statenet.compose.yml up --build` (from the workspace root) runs two servers, Postgres and a
-relay.
+`docker compose -f docker/statenet.compose.yml up --build` (from the workspace root) runs two servers, a relay, the
+aggregate and Postgres with the hosted roles.
 
 ## Semantic search
 

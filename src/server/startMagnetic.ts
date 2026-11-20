@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
-import { createAggregate, createAggregateStorage } from '@punyts/statenet';
+import { createAggregate } from '@punyts/statenet';
 import type { Report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
 import { Stamps } from '../storage/Stamps.js';
@@ -90,11 +90,12 @@ import { OrgSso, ssoIdentityProvider } from '../orgs/Sso.js';
 import { SignInRules } from '../orgs/SignInRules.js';
 import { SecretBox } from '../auth/secrets.js';
 import { startStatenetNode } from '../statenet/StatenetNode.js';
+import { aggregateStorage, NamespaceWorkspaces, StateWriter } from '../statenet/StateNamespaces.js';
 import type { StatenetNode, StatenetOptions } from '../statenet/StatenetNode.js';
 import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
 import { orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
-import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgInstanceNamespaces, pgWorkspaceStorage, RecordSimilarity } from '@punyts/stateui-pg';
+import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgWorkspaceStorage, RecordSimilarity } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
 import { EMBEDDING_SOURCES, Search } from '../search/Search.js';
@@ -414,7 +415,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const exclusive = databaseExclusive(db);
     const orgs = new Orgs(db);
     const access = new AppAccess(db);
-    const policies: OrgPolicies = new OrgPolicies(db, (): readonly string[] => turns.models);
+    const policies: OrgPolicies = new OrgPolicies(
+        db,
+        (): readonly string[] => turns.models,
+        (workspaceId, addresses) => stateWriter.remove(workspaceId, addresses)
+    );
     const domains = new OrgDomains(db, orgs, options.resolveTxt);
     const box = options.secretKey === undefined ? undefined : new SecretBox(options.secretKey);
     if (options.connectionGuard !== undefined && (options.connectionGuard.allowHttp === true || options.connectionGuard.allowPrivate === true) && !LOOPBACK.has(options.host.toLowerCase()))
@@ -509,6 +514,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         new URL(request.url ?? '/', 'http://magnetic').searchParams.get('page') === 'default' ? { ...(await sitePages.codeDocument(spec)), published: false } : sitePages.served(spec);
     if (options.statenet !== undefined && box === undefined) throw new Error('A server of several (statenet) needs the secret key, which keeps the statenet\'s certificate authority');
     let workspacesRef: Workspaces | undefined;
+    /** Which workspace each statenet address is in: recorded here, read by the aggregate */
+    const namespaceWorkspaces = new NamespaceWorkspaces(db);
     /** This server's node of the statenet, when it is one of several on the database */
     const statenet =
         options.statenet === undefined || box === undefined
@@ -521,38 +528,20 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                       peek: (workspaceId) => workspacesRef?.peek(workspaceId),
                       open: () => workspacesRef?.openAll() ?? []
                   },
+                  namespaceWorkspaces,
                   options.statenet,
                   (message, fields) => options.report.info(message, fields),
                   owners
               );
     /**
-     * The aggregate, in this process (docs/design/statenet-network.md, S11a): every instance is saved through it as one
-     * stored namespace, and it is the one thing here that writes a person's state. It learns the workspace of an
-     * address (for row-level security) from the workspace that reads or saves it
+     * The aggregate (docs/design/statenet-network.md, S11): the one thing that writes people's state. A server linked up
+     * to relays reaches the aggregate through them, and its database role may only read the state tables; a server
+     * without relays runs one in its process (S11a). Either way every load, save and removal goes through `stateWriter`
      */
-    const placedIn = new Map<string, string>();
-    const stateRows = pgInstanceNamespaces(
-        db,
-        (address) => {
-            const workspaceId = placedIn.get(address);
-            if (workspaceId === undefined) throw new Error(`No workspace is known for ${address}`);
-            return workspaceId;
-        },
-        { embedRecords: index !== undefined }
-    );
-    const aggregate = createAggregate(stateRows, { report: (message) => options.report.info(message, {}) });
-    const throughAggregate = createAggregateStorage(aggregate);
-    const namespacesOf = (workspaceId: string): InstanceNamespaceStore => {
-        const here = (address: string): string => {
-            placedIn.set(address, workspaceId);
-            return address;
-        };
-        return {
-            load: (address) => throughAggregate.load(here(address)),
-            save: (address, stored, epoch) => throughAggregate.save(here(address), stored, epoch),
-            remove: (address, epoch) => throughAggregate.remove(here(address), epoch)
-        };
-    };
+    const aggregateLink =
+        statenet?.mesh.uplink ??
+        createAggregate(aggregateStorage(db, { embedRecords: index !== undefined }), { report: (message) => options.report.info(message, {}) });
+    const stateWriter = new StateWriter(db, namespaceWorkspaces, aggregateLink, statenet?.nodeId);
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
@@ -561,7 +550,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     owners,
                     embedParts: index !== undefined,
                     embedRecords: index !== undefined,
-                    namespaces: namespacesOf(workspaceId),
+                    namespaces: stateWriter.forWorkspace(workspaceId),
                     ...(statenet !== undefined && { announceAs: statenet.announceAs, epochOf: (address: string) => statenet.placement.epochOf(address) })
                 });
                 // A person's own workspace starts with the showcase; an org's starts empty
@@ -779,6 +768,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
 
     const orgContext = {
         db,
+        state: stateWriter,
         ...(options.mailer !== undefined && { mailer: options.mailer }),
         report: (message: string, fields?: Record<string, unknown>) => options.report.info(message, fields),
         orgs,

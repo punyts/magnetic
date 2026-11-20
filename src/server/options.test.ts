@@ -116,6 +116,25 @@ describe('parseOptions', () => {
         expect(parseOptions(['relay-certificate', '--node-id', 'relay-1', '--out', 'certs'], secret)).toMatchObject({ command: 'relay-certificate', nodeId: 'relay-1', out: 'certs' });
     });
 
+    it('should link a server up to relays under a group, and run the aggregate and grant its role only with what they need', () => {
+        // Arrange
+        const secret = { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' };
+
+        // Act
+        const linked = parseOptions(['--mesh-port', '4310', '--relays', 'ws://relay-1:4310, ws://relay-2:4310'], { ...secret, MAGNETIC_GROUP: 'magnetic' });
+        const aggregate = parseOptions(['aggregate', '--mesh-port', '4310', '--node-id', 'aggregate-1'], secret);
+        const migrate = parseOptions(['migrate', '--app-role', 'magnetic_app'], { MAGNETIC_AGGREGATE_ROLE: 'magnetic_aggregate' });
+
+        // Assert
+        expect(linked.statenet).toEqual({ meshPort: 4310, group: 'magnetic', relays: ['ws://relay-1:4310', 'ws://relay-2:4310'] });
+        expect(aggregate).toMatchObject({ command: 'aggregate', statenet: { meshPort: 4310, nodeId: 'aggregate-1' } });
+        expect(migrate).toMatchObject({ command: 'migrate', appRole: 'magnetic_app', aggregateRole: 'magnetic_aggregate' });
+        expect(() => parseOptions(['--relays', 'ws://relay-1:4310'], secret)).toThrow('needs --mesh-port');
+        expect(() => parseOptions(['--mesh-port', '4310', '--group', 'two words'], secret)).toThrow('Invalid group');
+        expect(() => parseOptions(['aggregate'], secret)).toThrow('--mesh-port');
+        expect(() => parseOptions(['migrate', '--aggregate-role', 'magnetic_aggregate'], {})).toThrow('--app-role');
+    });
+
     it.each([['--effort', 'extreme'], ['--daily-budget', '-1'], ['--monthly-budget', 'lots'], ['--model', 'two words']])('should refuse %s %s', (flag, value) => {
         expect(() => parseOptions([flag, value], {})).toThrow(UsageError);
     });

@@ -147,7 +147,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         } else if (action === 'makeApp') {
             return { go: `/edit/${(await createOrgApp(context, user.id, org.id, org.workspaceId, text(form, 'name'))).id}` };
         } else if (action === 'moveIn') {
-            const moved = await moveAppToOrg(context.db, { userId: user.id, appId: text(form, 'appId'), orgId: org.id, functions: (await context.workspaces.get(user.id)).functions });
+            const moved = await moveAppToOrg(context.db, context.state, { userId: user.id, appId: text(form, 'appId'), orgId: org.id, functions: (await context.workspaces.get(user.id)).functions });
             // The person's own workspace held the app live: closing it ends its views, which reload into the org
             await context.workspaces.reopen(user.id);
             return { go: `/edit/${moved.appId}` };
@@ -175,7 +175,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
         } else if (action === 'sso') {
             await context.sso.set(user.id, org.id, { issuer: text(form, 'issuer'), clientId: text(form, 'clientId'), clientSecret: text(form, 'clientSecret'), enabled: form.get('enabled') === 'on' });
         } else if (action === 'deleteOrg') {
-            const deleted = await deleteOrg(context.db, orgs, user.id, org.id, text(form, 'confirm'));
+            const deleted = await deleteOrg(context.db, context.state, orgs, user.id, org.id, text(form, 'confirm'));
             await context.orgDeleted(deleted.workspaceId, deleted.members);
             return { left: true };
         } else if (action === 'open') {

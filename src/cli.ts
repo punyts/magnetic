@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import { generateKeyPair } from '@punyts/statenet';
 import { SecretBox } from './auth/secrets.js';
 import { StatenetAuthority } from './statenet/StatenetNode.js';
+import { startMagneticAggregate } from './statenet/MagneticAggregate.js';
 import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
 import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
-import { assertMigrated, createDatabase, EmbeddingIndex, grantAppRole, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
+import { assertMigrated, createDatabase, EmbeddingIndex, grantAggregateRole, grantAppRole, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from './agent/Chats.js';
 import { EMBEDDING_SOURCES } from './search/Search.js';
@@ -65,8 +66,13 @@ async function main(): Promise<void> {
             const applied = await migrate(database, ALL_MIGRATIONS);
             process.stdout.write(applied.length === 0 ? 'magnetic: the database is up to date\n' : applied.map((migration) => `magnetic: applied ${migration.owner} ${String(migration.version).padStart(4, '0')} ${migration.name}\n`).join(''));
             if (options.appRole !== undefined) {
-                await grantAppRole(database, options.appRole);
-                process.stdout.write(`magnetic: ${options.appRole} may read and write the tables\n`);
+                await grantAppRole(database, options.appRole, { readOnlyState: options.aggregateRole !== undefined });
+                process.stdout.write(`magnetic: ${options.appRole} may read and write the tables${options.aggregateRole === undefined ? '' : ", and only read people's state"}\n`);
+            }
+            if (options.aggregateRole !== undefined) {
+                // The aggregate reads which workspace an address is in, and the grant keys it gives the relays
+                await grantAggregateRole(database, options.aggregateRole, ['statenet_namespace', 'owner_key']);
+                process.stdout.write(`magnetic: ${options.aggregateRole} may write people's state\n`);
             }
             // The search index of the configured model is the owner's to make; the servers may not own the table
             const embedder = await embedderOf(options.embedding, options.modelCache);
@@ -121,6 +127,36 @@ async function main(): Promise<void> {
         } finally {
             await database.close();
         }
+        return;
+    }
+    if (options.command === 'aggregate') {
+        const statenet = options.statenet;
+        if (statenet === undefined || options.secretKey === undefined) throw new Error('The aggregate needs --mesh-port and MAGNETIC_SECRET_KEY');
+        await assertMigrated(database, ALL_MIGRATIONS);
+        const reporter = createReporter({ categories: ['info', 'warning', 'error'] });
+        reporter.addListener((_timestamp, category, message, details) => {
+            process.stderr.write(`[magnetic-aggregate] ${category} ${message}${details === undefined ? '' : ` ${JSON.stringify(details)}`}\n`);
+        });
+        const aggregate = await startMagneticAggregate(database, new SecretBox(options.secretKey), {
+            nodeId: statenet.nodeId ?? 'aggregate-1',
+            ...(statenet.meshHost === undefined ? {} : { host: statenet.meshHost }),
+            port: statenet.meshPort,
+            ...(statenet.region === undefined ? {} : { region: statenet.region }),
+            embedRecords: options.embedding !== 'off',
+            report: (message, fields) => reporter.report.info(message, fields)
+        });
+        process.stderr.write(`magnetic: the statenet's aggregate ${aggregate.nodeId} listens on ${aggregate.url}\n`);
+        let stopping = false;
+        const stop = (): void => {
+            if (stopping) return;
+            stopping = true;
+            void aggregate
+                .close()
+                .then(() => database.close())
+                .finally(() => process.exit(0));
+        };
+        process.on('SIGINT', stop);
+        process.on('SIGTERM', stop);
         return;
     }
     const embedder = await embedderOf(options.embedding, options.modelCache);

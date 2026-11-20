@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createAggregate } from '@punyts/statenet';
 import { pgWorkspaceStorage } from '@punyts/stateui-pg';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { Accounts } from '../accounts/Accounts.js';
 import { Chats } from '../agent/Chats.js';
 import { Grants } from '../sharing/Grants.js';
+import { aggregateStorage, NamespaceWorkspaces, StateWriter } from '../statenet/StateNamespaces.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
 import { AppAccess, moveAppToOrg } from './AppAccess.js';
 import { OrgError, Orgs } from './Orgs.js';
@@ -36,6 +38,9 @@ async function appIn(workspaceId: string, name: string): Promise<string> {
     if (created.kind !== 'created') throw new Error(created.kind);
     return created.part.id;
 }
+
+/** People's state changed as a server changes it: through an aggregate */
+const stateOf = (): StateWriter => new StateWriter(test.db, new NamespaceWorkspaces(test.db), createAggregate(aggregateStorage(test.db, { embedRecords: false })));
 
 const status = async (work: Promise<unknown>): Promise<number | undefined> => work.then(() => undefined).catch((error: unknown) => (error instanceof OrgError ? error.status : -1));
 
@@ -198,7 +203,7 @@ describe('moveAppToOrg', () => {
         const link = await new Grants(test.db).create(ana, { id: app, name: 'tracker' }, 'use', ana);
 
         // Act
-        const moved = await moveAppToOrg(test.db, { userId: ana, appId: app, orgId: org.id, functions: [] });
+        const moved = await moveAppToOrg(test.db, stateOf(), { userId: ana, appId: app, orgId: org.id, functions: [] });
 
         // Assert
         const theirs = pgWorkspaceStorage(test.db, org.workspaceId);
@@ -225,7 +230,7 @@ describe('moveAppToOrg', () => {
         const http = { id: '00000000-0000-4000-8000-000000000001', path: '$.functions.host.http', kind: 'effect', runs: ['server'], summary: 'HTTP', inputs: {}, outputs: {} } as const;
 
         // Act
-        const moved = await moveAppToOrg(test.db, { userId: ana, appId: created.part.id, orgId: org.id, functions: [http] });
+        const moved = await moveAppToOrg(test.db, stateOf(), { userId: ana, appId: created.part.id, orgId: org.id, functions: [http] });
 
         // Assert
         expect(moved.missingFunctions).toEqual(['$.functions.host.tax']);
@@ -240,7 +245,7 @@ describe('moveAppToOrg', () => {
         const app = await appIn(ana, 'diary');
 
         // Act
-        const refused = await status(moveAppToOrg(test.db, { userId: ana, appId: app, orgId: org.id, functions: [] }));
+        const refused = await status(moveAppToOrg(test.db, stateOf(), { userId: ana, appId: app, orgId: org.id, functions: [] }));
 
         // Assert
         expect(refused).toBe(403);

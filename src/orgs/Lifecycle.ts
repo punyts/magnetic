@@ -2,11 +2,12 @@ import { PgStateStore } from '@punyts/stateui-pg';
 import type { Database } from '@punyts/stateui-pg';
 import { audit, OrgError } from './Orgs.js';
 import type { Orgs } from './Orgs.js';
+import type { StateChanges } from '../statenet/StateNamespaces.js';
 
 const STATE = new PgStateStore();
 
-/** The tables that hold a workspace's rows, each by `workspace_id`, deleted with an org */
-const WORKSPACE_TABLES = ['embedding_job', 'embedding', 'preview_error', 'app_file_content', 'app_file', 'state_change', 'state_node', 'namespace_head', 'part', 'chat_entry', 'app_access', 'app_setting', 'workspace_stamp', 'link_grant'] as const;
+/** The tables that hold a workspace's rows, each by `workspace_id`, deleted with an org; people's state goes through the aggregate first */
+const WORKSPACE_TABLES = ['embedding_job', 'embedding', 'preview_error', 'app_file_content', 'app_file', 'part', 'chat_entry', 'app_access', 'app_setting', 'workspace_stamp', 'link_grant'] as const;
 
 /**
  * Everything an org holds, for its owners to keep or move elsewhere: the org, its members and groups, its policies and
@@ -60,12 +61,15 @@ export async function exportOrg(db: Database, orgs: Orgs, actorId: string, orgId
  * short name to confirm. The audit log keeps its events, and the deletion is its last one. Answers the org's workspace,
  * whose open views the caller closes
  */
-export async function deleteOrg(db: Database, orgs: Orgs, actorId: string, orgId: string, confirm: string): Promise<{ readonly workspaceId: string; readonly members: readonly string[] }> {
+export async function deleteOrg(db: Database, state: StateChanges, orgs: Orgs, actorId: string, orgId: string, confirm: string): Promise<{ readonly workspaceId: string; readonly members: readonly string[] }> {
     await orgs.require(orgId, actorId, 'owner');
     const org = await orgs.get(orgId);
     if (org === undefined) throw new OrgError(404, 'No such org.');
     if (confirm.trim().toLowerCase() !== org.slug) throw new OrgError(400, `Type the org's short name (${org.slug}) to delete it.`);
     const workspaceId = org.workspaceId;
+    // People's state of the org's apps, each namespace whole, through the aggregate (docs/design/statenet-network.md, S11)
+    const addresses = await db.transaction(async (tx) => (await tx.query<{ address: string }>('SELECT address FROM namespace_head WHERE workspace_id = $1', [workspaceId])).rows.map((row) => row.address), { workspaceIds: [workspaceId] });
+    await state.remove(workspaceId, addresses);
     return db.transaction(
         async (tx) => {
             const members = (await tx.query<{ user_id: string }>('SELECT user_id FROM org_member WHERE org_id = $1', [orgId])).rows.map((row) => row.user_id);

@@ -1,17 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { ClaimPolicy, generateGrantKey } from '@punyts/state-sync/authority';
-import type { Authority, GrantKey, NamespaceHost } from '@punyts/state-sync/authority';
+import type { Authority, NamespaceHost } from '@punyts/state-sync/authority';
 import { issueNodeCertificate, MESH_PROTOCOL, renewNodeCertificate, startOwnerMesh } from '@punyts/statenet';
 import type { DirectoryView, KeyPair, NodeRole, OwnerMesh } from '@punyts/statenet';
 import type { InstancePlacement, PartKind, Services } from '@punyts/stateui-mcp';
 import { listenToPartChanges, PgDirectory, PgOwnershipStore } from '@punyts/stateui-pg';
 import type { Database, PartChanges } from '@punyts/stateui-pg';
 import type { SecretBox } from '../auth/secrets.js';
+import { readDirectoryView, STATENET_AUTHORITY } from './directoryView.js';
+import type { NamespaceWorkspaces } from './StateNamespaces.js';
 
-/** The owner of the owner_key row that signs node certificates */
-export const STATENET_AUTHORITY = 'statenet';
-/** How long a node certificate lasts; a server issues its own at every start */
 /** How long a node certificate lasts: a node gets its next one while it runs, a server from itself, a relay over its link */
 const CERTIFICATE_MS = 7 * 24 * 3_600_000;
 
@@ -26,6 +25,10 @@ export interface StatenetOptions {
     /** The URL the other servers and relays link to, as they reach this one (`ws://magnetic-2:4310`); default the one it listens on */
     readonly meshUrl?: string;
     readonly region?: string;
+    /** The servers that run together and link to each other directly (docs/design/statenet-network.md, "Groups"); default the host's name */
+    readonly group?: string;
+    /** The relays this server links up to, in order; through them it reaches the aggregate and the other groups */
+    readonly relays?: readonly string[];
     /** How long a server's ownership of a namespace lasts without renewal; 10 seconds by default */
     readonly leaseMs?: number;
     /** How often the server heartbeats and reads the directory again; 2 seconds by default */
@@ -58,9 +61,9 @@ export class StatenetAuthority {
     }
 
     /** A node certificate signed by the authority, and the authority's public key that checks it */
-    async issue(nodeId: string, role: NodeRole, publicKey: string, region = ''): Promise<{ certificate: string; authorityPublicKey: string }> {
+    async issue(nodeId: string, role: NodeRole, publicKey: string, region = '', group?: string): Promise<{ certificate: string; authorityPublicKey: string }> {
         const authority = await this.keys();
-        return { certificate: issueNodeCertificate({ nodeId, role, region, publicKey, expires: Date.now() + CERTIFICATE_MS }, authority.privateKey), authorityPublicKey: authority.publicKey };
+        return { certificate: issueNodeCertificate({ nodeId, role, region, publicKey, expires: Date.now() + CERTIFICATE_MS, ...(group === undefined ? {} : { group }) }, authority.privateKey), authorityPublicKey: authority.publicKey };
     }
 
     /** The next certificate of one the authority signed and that has not ended: the same node, role and key, a later end */
@@ -96,37 +99,29 @@ export interface StatenetNode {
  * the mesh the other servers and relays link to, and hears the part changes the other servers make. The instance of a
  * namespace this server takes over is started in the workspace `statenet_namespace` names
  */
-export async function startStatenetNode(db: Database, box: SecretBox, workspaces: StatenetWorkspaces, options: StatenetOptions, report: (message: string, fields?: Record<string, unknown>) => void, owners?: { learn(name: string): Promise<void> }): Promise<StatenetNode> {
+export async function startStatenetNode(db: Database, box: SecretBox, workspaces: StatenetWorkspaces, namespaces: NamespaceWorkspaces, options: StatenetOptions, report: (message: string, fields?: Record<string, unknown>) => void, owners?: { learn(name: string): Promise<void> }): Promise<StatenetNode> {
     const nodeId = options.nodeId ?? `${hostname().toLowerCase().replace(/[^a-z0-9-]+/g, '-')}-${randomUUID().slice(0, 8)}`;
     const region = options.region ?? '';
+    const group = options.group ?? hostname().toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
     const heartbeatMs = options.heartbeatMs ?? 2_000;
     const keys: KeyPair = generateGrantKey();
     const authority = new StatenetAuthority(db, box);
-    const issued = await authority.issue(nodeId, 'owner', keys.publicKey, region);
+    const issued = await authority.issue(nodeId, 'owner', keys.publicKey, region, group);
     const authorityPublicKey = issued.authorityPublicKey;
     let certificate = issued.certificate;
     let certifiedAt = Date.now();
     const directory = new PgDirectory(db);
     let view: DirectoryView = { nodes: [], owners: {}, keys: {} };
-    /** The workspaces of namespaces this server placed, so it records each once */
+    const record = (address: string, workspaceId: string): Promise<void> => namespaces.record(address, workspaceId);
+    const workspaceOf = (address: string): Promise<string | undefined> => namespaces.of(address);
+    /** The workspaces of the namespaces this server took over, so it keeps them open */
     const recorded = new Map<string, string>();
-
-    const record = async (address: string, workspaceId: string): Promise<void> => {
-        if (recorded.get(address) === workspaceId) return;
-        await db.query('INSERT INTO statenet_namespace (address, workspace_id) VALUES ($1, $2) ON CONFLICT (address) DO UPDATE SET workspace_id = EXCLUDED.workspace_id, updated_at = now() WHERE statenet_namespace.workspace_id <> EXCLUDED.workspace_id', [address, workspaceId]);
-        recorded.set(address, workspaceId);
-    };
-    const workspaceOf = async (address: string): Promise<string | undefined> => {
-        const known = recorded.get(address);
-        if (known !== undefined) return known;
-        const row = (await db.query<{ workspace_id: string }>('SELECT workspace_id FROM statenet_namespace WHERE address = $1', [address])).rows[0];
-        return row?.workspace_id;
-    };
 
     const host: NamespaceHost = {
         authority: async (address): Promise<Authority> => {
             const workspaceId = await workspaceOf(address);
             if (workspaceId === undefined) throw new Error(`No workspace is known for ${address}`);
+            recorded.set(address, workspaceId);
             // the address names its owner by number, which this server may not have met yet
             await owners?.learn(address.split('/')[0] ?? '');
             const authority = await (await workspaces.get(workspaceId)).hostInstance(address);
@@ -141,12 +136,8 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
     };
 
     const readDirectory = async (): Promise<void> => {
-        const nodes = await directory.nodes();
-        const keyRows = (await db.query<{ kid: string; owner_id: string; public_key: string; retired_at: Date | null }>('SELECT kid, owner_id, public_key, retired_at FROM owner_key WHERE owner_id <> $1', [STATENET_AUTHORITY])).rows;
-        const grantKeys: Record<string, GrantKey> = {};
-        for (const row of keyRows) grantKeys[row.kid] = { ownerId: row.owner_id, publicKey: row.public_key, ...(row.retired_at !== null && { retiredAt: row.retired_at.getTime() }) };
         const before = JSON.stringify(view.nodes);
-        view = { nodes: nodes.map((node) => ({ id: node.id, role: node.role, region: node.region ?? '', endpoint: node.endpoint ?? '', ...(node.publicKey === undefined || node.publicKey === '' ? {} : { publicKey: node.publicKey }) })), owners: {}, keys: grantKeys };
+        view = await readDirectoryView(db);
         if (JSON.stringify(view.nodes) !== before) mesh?.directoryChanged();
     };
 
@@ -154,6 +145,8 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
     mesh = await startOwnerMesh({
         nodeId,
         region,
+        group,
+        ...(options.relays === undefined || options.relays.length === 0 ? {} : { relays: options.relays }),
         keys,
         certificate: () => certificate,
         authorityPublicKey,
@@ -175,17 +168,17 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         report: (message) => report(message, { node: nodeId })
     });
     const running = mesh;
-    await directory.register({ id: nodeId, role: 'owner', region, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
+    await directory.register({ id: nodeId, role: 'owner', region, group, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
     await readDirectory();
 
     const beat = setInterval(() => {
         void (async () => {
-            if (!(await directory.heartbeat(nodeId))) await directory.register({ id: nodeId, role: 'owner', region, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
+            if (!(await directory.heartbeat(nodeId))) await directory.register({ id: nodeId, role: 'owner', region, group, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
             await directory.sweep(heartbeatMs * 5);
             await readDirectory();
             // the server's own certificate, signed again well before it ends
             if (Date.now() - certifiedAt > CERTIFICATE_MS / 2) {
-                certificate = (await authority.issue(nodeId, 'owner', keys.publicKey, region)).certificate;
+                certificate = (await authority.issue(nodeId, 'owner', keys.publicKey, region, group)).certificate;
                 certifiedAt = Date.now();
             }
             // a workspace whose instances this server owns stays open while they are owned, though their views are at other servers

@@ -1,28 +1,45 @@
 // The server the Playwright suite runs against: Magnetic from dist on a fresh schema of the test database, with the
 // dev users, the mock OIDC provider and the scripted agent, so no test needs an API key or LinkedIn. The schema is
-// dropped when Playwright stops the server.
+// dropped when Playwright stops the server. It runs as hosted (docs/design/statenet-network.md, S11): the server
+// connects as a role that only reads people's state, and saves it through a relay to an aggregate of its own role.
 //   node e2e/server.mjs   (Playwright's webServer starts it. MAGNETIC_E2E_PORT, default 4390: the pages; +1 the
 //                          runtime; +2 the test control; +3 a stand-in outside API with an OAuth provider, and a
 //                          stand-in Stripe Checkout)
 import { createServer } from 'node:http';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
 import { createStateUiTools } from '@punyts/stateui-mcp';
+import { generateKeyPair, startRelayNode } from '@punyts/statenet';
 import { MockAgentModel, signatureOf, startMagnetic, startMockOidcProvider } from '../dist/index.js';
 import { ALL_MIGRATIONS } from '../dist/storage/db.js';
 import { memoryMailer } from '../dist/mail/Mailer.js';
+import { SecretBox } from '../dist/auth/secrets.js';
+import { startMagneticAggregate } from '../dist/statenet/MagneticAggregate.js';
+import { StatenetAuthority } from '../dist/statenet/StatenetNode.js';
+import { roleDatabases } from '../dist/testing/testDb.js';
 
 const port = Number(process.env.MAGNETIC_E2E_PORT ?? 4390);
 const test = await createTestDatabase(ALL_MIGRATIONS);
 const mock = await startMockOidcProvider();
+const SECRET_KEY = 'e2e-secret-key-of-enough-length';
+// Quiet unless MAGNETIC_E2E_VERBOSE is set
+const quiet = (message, fields) => (process.env.MAGNETIC_E2E_VERBOSE ? process.stderr.write(`[magnetic] ${message} ${JSON.stringify(fields ?? {})}\n`) : undefined);
+// The roles, the aggregate and the relay the hosted stack runs; the statenet's authority is made first, as the
+// aggregate's role may not
+const roles = await roleDatabases(test);
+const authority = new StatenetAuthority(test.db, new SecretBox(SECRET_KEY));
+await authority.keys();
+const aggregate = await startMagneticAggregate(roles.aggregate, new SecretBox(SECRET_KEY), { nodeId: 'aggregate-1', host: '127.0.0.1', port: 0, embedRecords: false, report: quiet });
+const relayKeys = generateKeyPair();
+const relayCertificate = await authority.issue('relay-1', 'relay', relayKeys.publicKey);
+const relay = await startRelayNode({ nodeId: 'relay-1', keys: relayKeys, certificate: relayCertificate.certificate, authorityPublicKey: relayCertificate.authorityPublicKey, parents: [aggregate.url], host: '127.0.0.1', meshPort: 0 });
 // Invites are "emailed" into memory; GET /mail on the control port lists them
 const mailer = memoryMailer();
 const magnetic = await startMagnetic({
-    database: test.db,
+    database: roles.server,
     host: '127.0.0.1',
     port,
     runtimePort: port + 1,
-    // Quiet unless MAGNETIC_E2E_VERBOSE is set
-    report: { info: (message, fields) => (process.env.MAGNETIC_E2E_VERBOSE ? process.stderr.write(`[magnetic] ${message} ${JSON.stringify(fields ?? {})}\n`) : undefined) },
+    report: { info: quiet },
     // frank and gina spend all their agent use, one for each project of the suite
     devUsers: ['alice', 'bob', 'carol', 'dan', 'erin', 'frank', 'gina'],
     // erin runs the server once POST /verify gives her this email (dev users have none)
@@ -30,7 +47,8 @@ const magnetic = await startMagnetic({
     starter: 'none',
     providers: [{ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret }],
     allowHttpProviders: true,
-    secretKey: 'e2e-secret-key-of-enough-length',
+    secretKey: SECRET_KEY,
+    statenet: { meshPort: 0, group: 'e2e', relays: [relay.meshUrl] },
     mailer,
     // Connections may call the stand-in API on loopback, over http
     connectionGuard: { allowHttp: true, allowPrivate: true },
@@ -226,6 +244,9 @@ const stop = () => {
         .then(() => new Promise((resolve) => control.close(resolve)))
         .then(() => new Promise((resolve) => api.close(resolve)))
         .then(() => mock.stop())
+        .then(() => relay.close())
+        .then(() => aggregate.close())
+        .then(() => roles.close())
         .then(() => test.drop())
         .finally(() => process.exit(0));
 };
