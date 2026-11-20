@@ -120,11 +120,11 @@ describe('Grants of state', () => {
         await magnetic.database.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'member')", [org.id, bobId]);
         const made = await json(`/orgs/${org.id}/apps`, alice, 'POST', { name: 'Tickets' });
         const appId = ((await made.json()) as { id: string }).id;
-        await magnetic.database.transaction((tx) => txInstances(tx, org.workspaceId, bobId).write(appId, {}, { route: { screen: 'list' } } as never), { workspaceIds: [org.workspaceId] });
+        await magnetic.database.transaction((tx) => txInstances(tx, org.workspaceId, bobId, magnetic.owners).write(appId, {}, { route: { screen: 'list' } } as never), { workspaceIds: [org.workspaceId] });
 
         // Act
         const viewed = await json(`/orgs/${org.id}/apps/${appId}/instances/${bobId}`, alice, 'GET');
-        const grant = (await magnetic.database.query<{ id: string }>("SELECT id::text FROM state_grant WHERE kind = 'org-read' AND org_id = $1 AND issuer = $2", [org.id, bobId])).rows[0]?.id as string;
+        const grant = (await magnetic.database.query<{ id: string }>("SELECT id::text FROM state_grant WHERE kind = 'org-read' AND org_id = $1 AND issuer = $2", [org.id, magnetic.owners.of(bobId)])).rows[0]?.id as string;
         const event = (await magnetic.database.query<{ detail: { grantId?: string } }>("SELECT detail FROM audit_event WHERE org_id = $1 AND action = 'instance.support_view'", [org.id])).rows[0];
         const token = await grants.tokenFor(grant);
         await json(`/orgs/${org.id}/members/${bobId}`, bob, 'DELETE');

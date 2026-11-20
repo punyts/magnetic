@@ -200,7 +200,7 @@ describe('The org settings pages', () => {
         const workspaceId = (await magnetic.orgs.get(orgId))?.workspaceId as string;
         await magnetic.database.transaction(
             async (tx) => {
-                await txInstances(tx, workspaceId, bobId).write(appId, {}, { route: { screen: 'claim' } } as never);
+                await txInstances(tx, workspaceId, bobId, magnetic.owners).write(appId, {}, { route: { screen: 'claim' } } as never);
             },
             { workspaceIds: [workspaceId] }
         );

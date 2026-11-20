@@ -2,6 +2,7 @@ import { userStateAddress } from '@punyts/stateui-mcp';
 import { PgStateStore } from '@punyts/stateui-pg';
 import type { Database } from '@punyts/stateui-pg';
 import { orgSubject } from '../grants/StateGrants.js';
+import type { OwnerNumbers } from '../statenet/OwnerNumbers.js';
 import type { StateGrants } from '../grants/StateGrants.js';
 
 /** People's own state of the org's apps, read through the statenet storage */
@@ -37,7 +38,9 @@ export class AppInstances {
         private readonly db: Database,
         private readonly access: AppAccess,
         /** The org's standing read of each member's state, through which a support view reads, when the server can sign grants */
-        private readonly grants?: StateGrants
+        private readonly grants?: StateGrants,
+        /** The numbers owners go by in the addresses of their state */
+        private readonly owners?: OwnerNumbers
     ) {}
 
     /** The members who have an instance of the app, the most recently used first */
@@ -47,10 +50,10 @@ export class AppInstances {
             async (tx) =>
                 (
                     await tx.query<{ persona: string; updated_at: Date; name: string | null }>(
-                        `SELECT split_part(h.address, '/', 1) AS persona, h.updated_at, u.name
+                        `SELECT u.id::text AS persona, h.updated_at, u.name
                            FROM namespace_head h
-                           JOIN org_member m ON m.org_id = $3 AND m.user_id::text = split_part(h.address, '/', 1)
-                           JOIN app_user u ON u.id = m.user_id
+                           JOIN app_user u ON u.owner_number::text = split_part(h.address, '/', 1)
+                           JOIN org_member m ON m.org_id = $3 AND m.user_id = u.id
                           WHERE h.workspace_id = $1 AND h.address = split_part(h.address, '/', 1) || '/apps/' || $2
                           ORDER BY h.updated_at DESC, persona`,
                         [workspaceId, appId, orgId]
@@ -80,7 +83,8 @@ export class AppInstances {
                 const app = (await tx.query("SELECT 1 FROM part WHERE workspace_id = $1 AND kind = 'apps' AND id = $2", [workspaceId, appId])).rows.length > 0;
                 if (member === undefined || !app) throw new OrgError(404, 'That person has no instance of this app.');
                 // Their own state of the app, at its statenet address
-                const address = userStateAddress(workspaceId, userId, appId);
+                await this.owners?.ensure(userId, workspaceId);
+                const address = userStateAddress(workspaceId, userId, appId, this.owners);
                 const head = (await tx.query<{ updated_at: Date }>('SELECT updated_at FROM namespace_head WHERE address = $1 AND workspace_id = $2', [address, workspaceId])).rows[0];
                 const state = await STATE.read(tx, address);
                 if (head === undefined || state.value === undefined) throw new OrgError(404, 'That person has no instance of this app.');

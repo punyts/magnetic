@@ -117,7 +117,8 @@ describe('several Magnetic servers on one database', () => {
     it("should give a view at one server the instance another server runs, and take its changes to that server", async () => {
         // Arrange: server one runs the instance, as a tool there made it
         const app = await newApp(one, 'ledger');
-        const address = `${aliceId}/apps/${app.id}`;
+        await one.owners.ensure(aliceId);
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
         const authority = await (await one.workspaces.get(aliceId)).instanceViews.authority(app);
         authority.write({ op: 'set', path: '$.app.note', value: 'from one' });
 
@@ -161,7 +162,8 @@ describe('several Magnetic servers on one database', () => {
     it('should move an instance to the server whose tools act on it, keeping its state', async () => {
         // Arrange
         const app = await newApp(one, 'notes');
-        const address = `${aliceId}/apps/${app.id}`;
+        await one.owners.ensure(aliceId);
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
         (await (await one.workspaces.get(aliceId)).instanceViews.authority(app)).write({ op: 'set', path: '$.app.kept', value: 'yes' });
         const viewAtOne = await viewAt(one, app);
 
@@ -182,7 +184,8 @@ describe('several Magnetic servers on one database', () => {
     it('should wait out the lease of a server that went away without letting go, as after a deploy, instead of failing', async () => {
         // Arrange: the instance is held, for a while yet, by a server that is no longer there
         const app = await newApp(two, 'accounts');
-        const address = `${aliceId}/apps/${app.id}`;
+        await one.owners.ensure(aliceId);
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
         await two.database.query(
             "INSERT INTO namespace_owner (address, node, epoch, lease_until) VALUES ($1, 'gone-in-the-deploy', 7, now() + interval '1 second') ON CONFLICT (address) DO UPDATE SET node = EXCLUDED.node, epoch = EXCLUDED.epoch, lease_until = EXCLUDED.lease_until",
             [address]
@@ -217,7 +220,8 @@ describe('several Magnetic servers on one database', () => {
     it('should let another server take over the instances of a server that stops, at once', async () => {
         // Arrange
         const app = await newApp(one, 'diary');
-        const address = `${aliceId}/apps/${app.id}`;
+        await one.owners.ensure(aliceId);
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
         (await (await one.workspaces.get(aliceId)).instanceViews.authority(app)).write({ op: 'set', path: '$.app.before', value: 'stopped' });
 
         // Act

@@ -96,7 +96,7 @@ export interface StatenetNode {
  * the mesh the other servers and relays link to, and hears the part changes the other servers make. The instance of a
  * namespace this server takes over is started in the workspace `statenet_namespace` names
  */
-export async function startStatenetNode(db: Database, box: SecretBox, workspaces: StatenetWorkspaces, options: StatenetOptions, report: (message: string, fields?: Record<string, unknown>) => void): Promise<StatenetNode> {
+export async function startStatenetNode(db: Database, box: SecretBox, workspaces: StatenetWorkspaces, options: StatenetOptions, report: (message: string, fields?: Record<string, unknown>) => void, owners?: { learn(name: string): Promise<void> }): Promise<StatenetNode> {
     const nodeId = options.nodeId ?? `${hostname().toLowerCase().replace(/[^a-z0-9-]+/g, '-')}-${randomUUID().slice(0, 8)}`;
     const region = options.region ?? '';
     const heartbeatMs = options.heartbeatMs ?? 2_000;
@@ -127,6 +127,8 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         authority: async (address): Promise<Authority> => {
             const workspaceId = await workspaceOf(address);
             if (workspaceId === undefined) throw new Error(`No workspace is known for ${address}`);
+            // the address names its owner by number, which this server may not have met yet
+            await owners?.learn(address.split('/')[0] ?? '');
             const authority = await (await workspaces.get(workspaceId)).hostInstance(address);
             if (authority === undefined) throw new Error(`No app at ${address}`);
             return authority;

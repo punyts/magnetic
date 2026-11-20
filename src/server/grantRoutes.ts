@@ -8,6 +8,7 @@ import { sharedPage } from '../http/orgSettings.js';
 import { orgTextsOf } from '../http/orgText.js';
 import type { PageLook } from '../http/pages.js';
 import { OrgError } from '../orgs/Orgs.js';
+import type { OwnerNumbers } from '../statenet/OwnerNumbers.js';
 import type { Orgs } from '../orgs/Orgs.js';
 
 export interface GrantRouteContext {
@@ -16,6 +17,8 @@ export interface GrantRouteContext {
     readonly grants: StateGrants | undefined;
     readonly keys: OwnerKeys;
     readonly orgs: Orgs;
+    /** The numbers owners go by in grants and beside their keys */
+    readonly owners: OwnerNumbers;
     readonly signedIn: (request: IncomingMessage) => Promise<{ user: User } | undefined>;
     readonly readJson: (request: IncomingMessage) => Promise<unknown>;
     readonly readForm: (request: IncomingMessage) => Promise<URLSearchParams>;
@@ -115,8 +118,10 @@ export function grantRoutes(context: GrantRouteContext): (request: IncomingMessa
             if (grants === undefined) throw new OrgError(409, GRANTS_UNAVAILABLE);
             const id = (match[1] as string).toLowerCase();
             if (match[2] === 'token') {
+                // a grant names who gave it and who holds it by their numbers
                 const row = (await context.db.query<{ subject: string; issuer: string }>('SELECT subject, issuer FROM state_grant WHERE id = $1', [id])).rows[0];
-                if (row === undefined || (row.subject !== user.id && row.issuer !== user.id)) throw new OrgError(404, 'No such grant.');
+                const me = await context.owners.nameOf(user.id);
+                if (row === undefined || (row.subject !== me && row.issuer !== me)) throw new OrgError(404, 'No such grant.');
                 context.sendJson(response, 200, { token: await grants.tokenFor(id) });
             } else {
                 const revoked = await grants.revoke(user.id, id);
@@ -127,7 +132,7 @@ export function grantRoutes(context: GrantRouteContext): (request: IncomingMessa
         }
         if (path === '/keys/rotate' && method === 'POST') {
             if (!context.keys.available) throw new OrgError(409, GRANTS_UNAVAILABLE);
-            context.sendJson(response, 200, { kid: await context.keys.rotate(user.id) });
+            context.sendJson(response, 200, { kid: await context.keys.rotate(await context.owners.nameOf(user.id)) });
             return true;
         }
         match = ORG_ROTATE.exec(path);
@@ -137,7 +142,7 @@ export function grantRoutes(context: GrantRouteContext): (request: IncomingMessa
             await context.orgs.require(orgId, user.id, 'owner');
             const org = await context.orgs.get(orgId);
             if (org === undefined) throw new OrgError(404, 'No such org.');
-            context.sendJson(response, 200, { kid: await context.keys.rotate(org.workspaceId) });
+            context.sendJson(response, 200, { kid: await context.keys.rotate(await context.owners.nameOf(org.workspaceId)) });
             return true;
         }
         return false;

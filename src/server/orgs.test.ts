@@ -169,7 +169,7 @@ describe('Orgs over HTTP', () => {
         const workspaceId = (await magnetic.orgs.get(orgId))?.workspaceId as string;
         await magnetic.database.transaction(
             async (tx) => {
-                const bobState = txInstances(tx, workspaceId, bobId);
+                const bobState = txInstances(tx, workspaceId, bobId, magnetic.owners);
                 await bobState.write(appId, {}, { route: { screen: 'list' } } as never);
                 await bobState.writeData(appId, 'drafts', { model: 'draft', records: { d1: { title: 'Printer jam' } } } as never);
             },

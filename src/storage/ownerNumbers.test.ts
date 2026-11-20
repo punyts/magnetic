@@ -43,11 +43,12 @@ describe('owner numbers', () => {
         ]);
     });
 
-    it('should number those who were there before it in the order they came, people and orgs in one line, and carry on after them', async () => {
+    it("should number those who were there before it in the order they came, people and orgs in one line after Magnetic's own two, and carry on after them", async () => {
         // Arrange: a database from before the migration, with two people and an org between them
         await test.db.query('DROP VIEW statenet_owner');
         await test.db.query('ALTER TABLE app_user DROP COLUMN owner_number');
         await test.db.query('ALTER TABLE org DROP COLUMN owner_number');
+        await test.db.query('DROP TABLE statenet_system_owner');
         await test.db.query('DROP SEQUENCE statenet_owner_number');
         await test.db.query('DELETE FROM org');
         await test.db.query('DELETE FROM app_user');
@@ -60,6 +61,6 @@ describe('owner numbers', () => {
         await test.db.query("INSERT INTO app_user (id, name) VALUES ($1, 'After')", [after]);
 
         // Assert
-        expect([await numberOf('app_user', early), await numberOf('org', org), await numberOf('app_user', late), await numberOf('app_user', after)]).toEqual([1, 2, 3, 4]);
+        expect([await numberOf('app_user', early), await numberOf('org', org), await numberOf('app_user', late), await numberOf('app_user', after)]).toEqual([3, 4, 5, 6]);
     });
 });

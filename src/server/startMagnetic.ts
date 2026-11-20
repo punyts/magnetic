@@ -82,6 +82,7 @@ import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Orgs } from '../orgs/Orgs.js';
 import { AppInstances } from '../orgs/Instances.js';
+import { OwnerNumbers } from '../statenet/OwnerNumbers.js';
 import { OrgPolicies } from '../orgs/Policies.js';
 import { OrgDomains } from '../orgs/Domains.js';
 import type { TxtResolver } from '../orgs/Domains.js';
@@ -301,6 +302,8 @@ export interface RunningMagnetic {
     /** Each workspace's connections to outside APIs */
     readonly connections: Connections;
     readonly grants: Grants;
+    /** The numbers owners go by in addresses, grants and keys */
+    readonly owners: OwnerNumbers;
     /** Each person's "Your apps" */
     readonly homes: HomeApps;
     /** This server's node of the statenet, when it runs as one of several (`statenet`) */
@@ -427,16 +430,19 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
     const sso = new OrgSso(db, orgs, box);
     /** Each owner's signing key and the grants of state (docs/design/statenet-relays.md, S4); grants need the server's key */
+    /** The numbers owners go by in addresses, grants and keys (docs/design/statenet-network.md, "`$` is the owner") */
+    const owners = new OwnerNumbers(db);
+    await owners.load();
     const keys = new OwnerKeys(db, box);
-    const stateGrants = keys.available ? new StateGrants(db, keys, policies) : undefined;
-    const instances = new AppInstances(db, access, stateGrants);
+    const stateGrants = keys.available ? new StateGrants(db, keys, policies, owners) : undefined;
+    const instances = new AppInstances(db, access, stateGrants, owners);
     const rules = new SignInRules(db, domains, policies);
     const index = options.embedder === undefined ? undefined : new EmbeddingIndex(db, options.embedder, EMBEDDING_SOURCES, { report: (message, fields) => options.report.info(message, fields) });
     const search = index === undefined ? undefined : new Search(db, index, access);
     /** The library by meaning, for the catalog searches the keywords answer weakly; shared by every workspace */
     const catalogMeanings = options.embedder === undefined ? undefined : new CatalogEmbeddings(db, options.embedder);
     /** The records of an app's data binding by meaning: logic's `similar` call and the agent's `data_similar` */
-    const similarity = index === undefined ? undefined : new RecordSimilarity(index);
+    const similarity = index === undefined ? undefined : new RecordSimilarity(index, owners);
     index?.start(options.embedEveryMs);
     let origin = '';
     let runtimePort = 0;
@@ -516,7 +522,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                       open: () => workspacesRef?.openAll() ?? []
                   },
                   options.statenet,
-                  (message, fields) => options.report.info(message, fields)
+                  (message, fields) => options.report.info(message, fields),
+                  owners
               );
     /**
      * The aggregate, in this process (docs/design/statenet-network.md, S11a): every instance is saved through it as one
@@ -549,7 +556,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
+                await owners.ensure(workspaceId);
                 const storage = pgWorkspaceStorage(db, workspaceId, {
+                    owners,
                     embedParts: index !== undefined,
                     embedRecords: index !== undefined,
                     namespaces: namespacesOf(workspaceId),
@@ -562,6 +571,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 const services = createServices({
                     storage,
                     ownerId: workspaceId,
+                    owners,
                     report: options.report,
                     origin: () => origin,
                     agentAnswers: false,
@@ -703,6 +713,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const session = await sessions.find(token);
         if (session === undefined || token === undefined) return undefined;
         const user = await accounts.user(session.userId);
+        // their state is addressed by their number from here on
+        if (user !== undefined) await owners.ensure(user.id);
         return user === undefined ? undefined : { user, token };
     }
 
@@ -792,7 +804,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     };
     const handleOrgRoute = orgRoutes(orgContext);
-    const handleGrants = grantRoutes({ db, grants: stateGrants, keys, revoked: (revoked) => sharedData?.revoked(revoked), orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
+    const handleGrants = grantRoutes({ db, grants: stateGrants, keys, owners, revoked: (revoked) => sharedData?.revoked(revoked), orgs, signedIn, readJson: (request) => readJsonBody(request, MAX_FORM_BYTES), readForm, sendJson, sendPage, redirect: (response, location) => redirect(response, location), lookOf });
     const handleOrgSettings = orgSettingsRoutes({ ...orgContext, lookOf, readForm, sendPage, redirect: (response, location) => redirect(response, location), models: () => turns.models });
     const handleConnections = connectionRoutes({
         db,
@@ -818,7 +830,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         sharedDatasets: async (workspaceId) => (stateGrants === undefined ? [] : sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)),
         personaApps: async (workspaceId, ownerId) => {
             // The person's own state of each app is at `<ownerId>/apps/<appId>`
-            const like = ownerId.replace(/[\\%_]/g, '\\$&') + '/apps/%';
+            await owners.ensure(ownerId);
+            const like = owners.of(ownerId) + '/apps/%';
             const rows = await db.transaction(
                 async (tx) => (await tx.query<{ address: string; updated_at: Date }>("SELECT address, updated_at FROM namespace_head WHERE workspace_id = $1 AND address LIKE $2 ORDER BY updated_at DESC, address", [workspaceId, like])).rows,
                 { workspaceIds: [workspaceId] }
@@ -1843,6 +1856,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         grants,
         homes,
         ...(statenet !== undefined && { statenet }),
+        owners,
         stop: async () => {
             if (stopped) return;
             stopped = true;
