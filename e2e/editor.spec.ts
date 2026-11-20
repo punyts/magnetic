@@ -117,21 +117,21 @@ test.describe('The editor', () => {
         await expect(page.locator('body')).toHaveClass(/(^| )editing( |$)/);
     });
 
-    test('a tip that reaches past its panel is shown whole: the clip takes its box while it is open', async ({ page }) => {
+    test('a tip that reaches past its panel is shown whole, above the canvas', async ({ page }) => {
         // Arrange
-        const shapes = async (): Promise<number> =>
-            page.locator('#editor').evaluate((holder) => ((holder as HTMLElement).style.clipPath.match(/M /g) ?? []).length);
-        await expect.poll(shapes).toBeGreaterThan(0);
-        const closed = await shapes();
+        const button = editor.button('Select a part of the app (S)');
+        const tip = editor.editor.locator('.tip:popover-open');
 
         // Act
-        await editor.button('Select a part of the app (S)').hover();
+        await button.hover();
 
-        // Assert
-        await expect(editor.editor.locator('.tip:popover-open')).toHaveText('Select a part of the app (S)');
-        await expect.poll(shapes).toBe(closed + 1);
+        // Assert: the tip is an open popover, in the top layer above the panels and the canvas, and stands out past the
+        // button's panel
+        await expect(tip).toHaveText('Select a part of the app (S)');
+        const [own, shown] = [(await button.boundingBox())!, (await tip.boundingBox())!];
+        expect(shown.x + shown.width).toBeGreaterThan(own.x + own.width);
         await page.mouse.move(700, 450);
-        await expect.poll(shapes).toBe(closed);
+        await expect(tip).toBeHidden();
     });
 
     test('All your apps goes home', async ({ page }) => {

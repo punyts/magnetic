@@ -12,7 +12,7 @@ async function pickView(editor: EditorPage, page: Page, name: 'Screens' | 'State
 
 const sheet = (page: Page) => page.locator('#view-sheet');
 /** Statenet's page, a frame on the board */
-const graph = (page: Page) => page.frameLocator('#statenet iframe');
+const graph = (page: Page) => page.locator('#statenet');
 /** A card or a pill of the Statenet tree by its state path */
 const node = (page: Page, path: string) => graph(page).locator(`[role="treeitem"][data-id="${path}"]`);
 /** The card chosen in the tree */
@@ -24,6 +24,12 @@ const chosen = (page: Page) => graph(page).locator('[role="treeitem"][aria-selec
 const press = async (card: Locator): Promise<void> => {
     await card.evaluate((element) => (element as HTMLElement).focus({ preventScroll: true }));
     await card.page().keyboard.press('Space');
+};
+
+/** Presses a branch's + as the keyboard does: the editor's panels may lie over it where the canvas shows it */
+const add = async (button: Locator): Promise<void> => {
+    await button.evaluate((element) => (element as HTMLElement).focus({ preventScroll: true }));
+    await button.page().keyboard.press('Enter');
 };
 
 test.describe("The editor's views", () => {
@@ -111,6 +117,8 @@ test.describe("The editor's views", () => {
         // Read from one layout at once: a change to the app may draw a new one. The branches of $ share its two sides,
         // the first ones right in order and the rest left; on each side a part stands further out than its branch
         const paths = ['$', '$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath];
+        // Until a card is placed it stands on the right; wait for the layout
+        await expect.poll(() => graph(page).locator('[role="treeitem"][data-placed]').evaluateAll((cards, wanted) => wanted.filter((path) => cards.some((each) => (each as HTMLElement).dataset['id'] === path)).length, paths)).toBe(paths.length);
         const places = await graph(page).locator('[role="treeitem"]').evaluateAll((cards, wanted) => wanted.map((path) => {
             const card = cards.find((each) => (each as HTMLElement).dataset['id'] === path) as HTMLElement;
             const box = card.getBoundingClientRect();
@@ -147,7 +155,7 @@ test.describe("The editor's views", () => {
         const side = sheet(page).locator('.view-side');
 
         // Act: a screen
-        await graph(page).getByRole('button', { name: `Add to ${appPath}.screens` }).click();
+        await add(graph(page).getByRole('button', { name: `Add to ${appPath}.screens` }));
         await side.getByRole('textbox', { name: 'Name' }).fill('second');
         await side.getByRole('button', { name: 'Create' }).click();
 
@@ -155,7 +163,7 @@ test.describe("The editor's views", () => {
         await expect(node(page, `${appPath}.screens.second`)).toBeVisible();
 
         // Act: the dataset bound in the app
-        await graph(page).getByRole('button', { name: `Add to ${appPath}.uses.data` }).click();
+        await add(graph(page).getByRole('button', { name: `Add to ${appPath}.uses.data` }));
         await side.getByRole('combobox', { name: 'Dataset' }).selectOption(dataset);
         await side.getByRole('button', { name: 'Create' }).click();
 
@@ -164,12 +172,12 @@ test.describe("The editor's views", () => {
         await expect(node(page, `$.data.${dataset}`)).not.toContainText('Not used by this app');
 
         // Act: a module working on it, then a rule in it from the form's template
-        await graph(page).getByRole('button', { name: 'Add to $.logic', exact: true }).click();
+        await add(graph(page).getByRole('button', { name: 'Add to $.logic', exact: true }));
         await side.getByRole('textbox', { name: 'Name' }).fill(module);
         await side.getByRole('button', { name: 'Create' }).click();
         await expect(node(page, `$.logic.${module}`)).toBeVisible();
         await expect(node(page, `$.logic.${module}`)).not.toContainText('Not used by this app');
-        await graph(page).getByRole('button', { name: `Add to $.logic.${module}` }).click();
+        await add(graph(page).getByRole('button', { name: `Add to $.logic.${module}` }));
         await side.getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Rule' });
         await side.getByRole('textbox', { name: 'Its name' }).fill('ping');
         await side.getByRole('button', { name: 'Create' }).click();
@@ -246,9 +254,7 @@ test.describe("The editor's views", () => {
         await expect(card).toBeVisible();
         /** A point of the page over the canvas, or the diagram between its cards, with no head or panel of the editor over it */
         const empty = async (): Promise<{ x: number; y: number }> => {
-            const frame = page.locator('#statenet iframe');
-            const at = (await frame.boundingBox()) as { x: number; y: number };
-            const points = await graph(page).locator('ui-viewport').evaluate(() => {
+            const points = await page.evaluate(() => {
                 const deepest = (x: number, y: number): Element | null => {
                     let found = document.elementFromPoint(x, y);
                     while (found?.shadowRoot) {
@@ -262,18 +268,15 @@ test.describe("The editor's views", () => {
                 for (let y = 20; y < innerHeight - 20; y += 16) {
                     for (let x = 20; x < innerWidth - 20; x += 16) {
                         const hit = deepest(x, y);
-                        if (hit !== null && (['viewport', 'world', 'diagram', 'edges'].some((name) => hit.classList.contains(name)) || hit.closest('svg') !== null)) out.push({ x, y });
+                        const top = document.elementFromPoint(x, y);
+                        if (top?.closest('#statenet') && hit !== null && (['viewport', 'world', 'diagram', 'edges'].some((name) => hit.classList.contains(name)) || hit.closest('svg') !== null)) out.push({ x, y });
                     }
                 }
                 return out;
             });
-            const iframe = await frame.elementHandle();
-            for (const point of points) {
-                const x = at.x + point.x;
-                const y = at.y + point.y;
-                if (await page.evaluate(([px, py, element]) => document.elementFromPoint(px as number, py as number) === element, [x, y, iframe] as const)) return { x, y };
-            }
-            throw new Error('No empty point on the canvas');
+            const point = points[0];
+            if (point === undefined) throw new Error('No empty point on the canvas');
+            return point;
         };
 
         // Act and Assert: the ×

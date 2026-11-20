@@ -1,4 +1,5 @@
 import { request } from 'node:http';
+import { APP_PAGE_CSP } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -68,13 +69,13 @@ describe('A server behind a proxy, at two public origins', () => {
         await Promise.all(databases.splice(0).map((test) => test.drop()));
     });
 
-    it('should frame the runtime from the public runtime origin', async () => {
+    it('should give a page the public runtime origin, and run its app in the page with no frame', async () => {
         // Act
         const page = await getAs('magnetic.example', port, '/signin');
 
         // Assert
         expect(page.status).toBe(200);
-        expect(page.headers['content-security-policy']).toContain('frame-src https://run.magnetic.example');
+        expect(page.headers['content-security-policy']).toBe(APP_PAGE_CSP);
         expect(page.body).toMatch(/https:\/\/run\.magnetic\.example\/runtime\/[^"]+\.html/);
     });
 

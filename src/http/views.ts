@@ -77,7 +77,7 @@ export const VIEWS_CSS = [
     '.view-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }',
     // Statenet
     '.statenet { position: absolute; inset: 0; z-index: 2; } .statenet[hidden] { display: none; }',
-    '.statenet > iframe { display: block; width: 100%; height: 100%; border: 0; }',
+    '.statenet > .stateui-panel { position: absolute; inset: 0; }',
     '.view-schema { margin: 4px 0 8px; padding: 8px; overflow: auto; max-height: 220px; border-radius: 8px; font-size: 12px; background: color-mix(in srgb, currentColor 6%, transparent); }',
     // A record table scrolls on its own, sideways; the panel never does
     '.records-wrap { overflow-x: auto; max-width: 100%; margin: 8px 0; }',
@@ -394,7 +394,7 @@ function enterGraph() {
             const page = await response.json();
             if (view !== 'statenet') return false;
             netHolder.replaceChildren();
-            net = { panel: host.mount(netHolder, { document: page.document, icons: page.icons, keys: ['escape'] }, T['shell.view.statenet']), canvas: keyPath(page.document, 'canvas') };
+            net = { panel: host.mount(netHolder, { document: page.document, icons: page.icons, inPage: true }, T['shell.view.statenet']), canvas: keyPath(page.document, 'canvas') };
             netDrawn = '';
             const look = kept && typeof kept.x === 'number' && typeof kept.y === 'number' && typeof kept.zoom === 'number' ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
             netFitted = look !== null;

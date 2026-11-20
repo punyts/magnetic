@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { APP_PAGE_CSP } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -128,8 +129,8 @@ describe('Magnetic', () => {
 
             // Assert
             expect(response.status).toBe(200);
-            // The page is a StateUI app: it posts with fetch, not a form, and its frame comes from the runtime origin
-            expect(response.headers.get('content-security-policy')).toMatch(/frame-src http:\/\/127\.0\.0\.1:\d+/);
+            // The page is a StateUI app run in the page: it posts with fetch, not a form, and frames nothing
+            expect(response.headers.get('content-security-policy')).toBe(APP_PAGE_CSP);
             // With no-referrer a browser posts with Origin: null, which the same-origin check refuses
             expect(response.headers.get('referrer-policy')).toBe('same-origin');
             expect(html).toContain('Sign in as alice');

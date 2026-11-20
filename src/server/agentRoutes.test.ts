@@ -1,4 +1,4 @@
-import { createStateUiTools } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentModel, ModelListener, ModelMessage, ModelRequest } from '../agent/AgentModel.js';
@@ -146,7 +146,8 @@ describe('Agent turns', () => {
         expect(html).toContain(`data-app-id="${appId}"`);
         expect(html).toMatch(/data-runtime-url="http:\/\/127\.0\.0\.1:\d+\/runtime\/[^"]+\.html"/);
         expect(html).toContain('/assets/shell.js');
-        expect(page.headers.get('content-security-policy')).toMatch(/frame-src http:\/\/127\.0\.0\.1:\d+/);
+        // The editor, Statenet and the app run in the page: it frames nothing
+        expect(page.headers.get('content-security-policy')).toBe(APP_PAGE_CSP);
         expect((await fetch(`${magnetic.origin}/assets/shell.js`)).headers.get('content-type')).toMatch(/^text\/javascript/);
     });
 

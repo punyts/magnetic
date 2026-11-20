@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser, UiToolDefinition } from '@punyts/stateui-mcp';
 import { chromium } from 'playwright';
-import type { Browser, FrameLocator, Page } from 'playwright';
+import type { Browser, Locator, Page } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { EDITOR_ICONS } from '../editor/EditorApp.js';
 import { startMagnetic } from './startMagnetic.js';
@@ -79,8 +79,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     let magnetic: RunningMagnetic;
     let browser: Browser;
     let page: Page;
-    /** The editor: a StateUI app in a frame over the canvas, the inspector one of its panels */
-    let editor: FrameLocator;
+    /** The editor: a StateUI app in the page over the canvas, the inspector one of its panels */
+    let editor: Locator;
     /** Whether the inspector showed, and which tool was on, once the page had loaded and before the select tool */
     let onLoad: { open: boolean; tool: unknown };
     let alice: string;
@@ -142,10 +142,9 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await context.addCookies([{ name, value, url: magnetic.origin }]);
         page = await context.newPage();
         await page.goto(`${magnetic.origin}/edit/${appId}`);
-        editor = page.frameLocator('#editor iframe');
+        editor = page.locator('#editor');
         await editor.getByRole('button', { name: 'Use the app (V)' }).waitFor({ timeout: 20_000 });
         // The editor says where its panels are, and the canvas fits the app between them
-        await expect.poll(() => page.evaluate("document.getElementById('editor').style.clipPath.startsWith('path')"), { timeout: 20_000 }).toBe(true);
         await expect.poll(async () => (await pointOf(page, `${HOME}.children.list.children.b`).catch(() => undefined)) !== undefined, { timeout: 20_000 }).toBe(true);
         onLoad = { open: await inspectorOpen(), tool: await page.evaluate('window.magneticShell.tool()') };
         await page.mouse.click(5, 450);
@@ -440,11 +439,11 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await chat.waitFor({ state: 'hidden', timeout: 5000 });
     }, 60_000);
 
-    it("should take the tool keys from the editor's frame, but not while the person types there", async () => {
-        // Arrange: the focus in the editor's frame, on a button of its rail
+    it('should take the tool keys from inside the editor, but not while the person types there', async () => {
+        // Arrange: the focus in the editor, on a button of its rail
         await editor.getByRole('button', { name: 'Layout' }).focus();
 
-        // Act and Assert: H and V switch the tool from inside the frame
+        // Act and Assert: H and V switch the tool from inside the editor
         await page.keyboard.press('h');
         await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('move');
         await page.keyboard.press('v');
@@ -459,23 +458,35 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         expect(await box.inputValue()).toBe('hs');
     }, 60_000);
 
-    it("should cast the panels' shadows from the page and show the app only once it is fitted", async () => {
+    it('should show the app only once it is fitted', async () => {
         // Act
-        const casts = await page.locator('#shadows div').count();
         const waiting = await page.evaluate("document.body.classList.contains('unfitted')");
 
         // Assert
-        expect(casts).toBeGreaterThanOrEqual(5);
         expect(waiting).toBe(false);
     }, 60_000);
 
-    it('should let clicks beside the panels through to the canvas, and clip the editor to its panels', async () => {
+    it('should let clicks beside the panels through to the canvas, and draw no surface of its own there', async () => {
         // Act
-        const clip = await page.evaluate("getComputedStyle(document.getElementById('editor')).clipPath");
         const below = await page.evaluate('document.elementFromPoint(700, 450) && document.elementFromPoint(700, 450).closest("#board") !== null');
+        const onPanel = await page.evaluate('document.elementFromPoint(20, 20) && document.elementFromPoint(20, 20).closest("#editor") !== null');
+        // The app and each passThrough panel down to the stage
+        const surfaces = (await page.evaluate(`(() => {
+            const app = document.querySelector('#editor ui-app-root').shadowRoot.querySelector('ui-app');
+            const found = [app.shadowRoot.querySelector('.app')];
+            for (let scope = app.shadowRoot; scope; ) {
+                const panel = scope.querySelector('ui-panel[pass-through]');
+                if (!panel) break;
+                found.push(panel.shadowRoot.querySelector('.panel'));
+                scope = panel.shadowRoot;
+            }
+            return found.map((element) => getComputedStyle(element).backgroundColor);
+        })()`)) as string[];
 
         // Assert
-        expect(String(clip)).toMatch(/^path\(/);
         expect(below).toBe(true);
+        expect(onPanel).toBe(true);
+        expect(surfaces.length).toBeGreaterThanOrEqual(3);
+        for (const surface of surfaces) expect(surface).toBe('rgba(0, 0, 0, 0)');
     }, 60_000);
 });

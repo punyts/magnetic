@@ -2,10 +2,11 @@ import { expect, test as base } from '@playwright/test';
 import type { BrowserContext, FrameLocator, Locator, Page, TestInfo } from '@playwright/test';
 
 /**
- * Page objects for the suite. Magnetic's pages are StateUI apps in frames from the runtime origin:
- * - the sign-in page: `#page-app iframe`; Your apps: the frame in `body.home`, with its notices in `#notice`;
- * - the editor: `#editor iframe` (Magnetic's editor, an app of its own) beside the screens board, `#screens`, where the
- *   person's app runs in the page: the live screen is `ui-embedded-app[live]`, the others previews of it.
+ * Page objects for the suite. Magnetic's pages are StateUI apps run in the page itself:
+ * - the sign-in and link pages: `#page-app`; Your apps: `.home-app` in `body.home`, with its notices in `#notice`;
+ * - the editor: `#editor` (Magnetic's editor, an app of its own) over the screens board, `#screens`, where the
+ *   person's app runs too: the live screen is `ui-embedded-app[live]`, the others previews of it.
+ * An app another person shared is the one page left in a frame from the runtime origin (`AppPage`).
  * The org settings, shared links and privacy pages are plain HTML.
  */
 
@@ -70,9 +71,9 @@ export async function feedbackSent(): Promise<Array<{ to: string; kind: string; 
 
 /** The sign-in page */
 export class SignInPage {
-    readonly app: FrameLocator;
+    readonly app: Locator;
     constructor(readonly page: Page) {
-        this.app = page.frameLocator('#page-app iframe');
+        this.app = page.locator('#page-app');
     }
     async goto(): Promise<void> {
         await this.page.goto('/signin');
@@ -84,9 +85,9 @@ export class SignInPage {
 
 /** Your apps */
 export class HomePage {
-    readonly app: FrameLocator;
+    readonly app: Locator;
     constructor(readonly page: Page) {
-        this.app = page.frameLocator('body.home iframe');
+        this.app = page.locator('body.home .home-app');
     }
     get notice(): Locator {
         return this.page.locator('#notice');
@@ -133,11 +134,11 @@ export class HomePage {
 /** The editor at /edit/<id>, and the app at /apps/<id> under it */
 export class EditorPage {
     /** Magnetic's editor: the panels, the rail, the chat bar */
-    readonly editor: FrameLocator;
+    readonly editor: Locator;
     /** The person's app on the board: the live screen's card, the app mounted in the page */
     readonly app: Locator;
     constructor(readonly page: Page) {
-        this.editor = page.frameLocator('#editor iframe');
+        this.editor = page.locator('#editor');
         this.app = page.locator('ui-embedded-app[live]');
     }
     get appId(): string {

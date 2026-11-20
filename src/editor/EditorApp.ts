@@ -16,9 +16,9 @@ export const EDITOR_APP = 'magnetic-editor';
 
 /**
  * The editor as a StateUI app: panels floating over the canvas, as Magnetic's editor has always looked. The page lays
- * the editor's frame over the whole window, above the canvas, and lets through only the editor's panels (it clips the
- * frame to the boxes of the stage's children, which the frame reports as they move), so a click anywhere else reaches
- * the canvas and the app on it.
+ * the editor over the whole window, above the canvas, in the page itself; its screen and stage let presses through
+ * (`passThrough`), it and its app draw no surface (`seeThrough`), and its panels take the presses, so the canvas shows
+ * and a click anywhere else reaches it and the app on it.
  *
  * The page drives the editor through its data and its emits only, never through the paths of its nodes, so a person (or
  * the agent) can move, restyle, add or drop any panel and the rest keeps working:
@@ -794,17 +794,20 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
 /**
  * The editor's screen: a stage as big as the window, whose children float over the canvas at their places (the adhoc
  * layout holds each to its edges): the name corner, the Share corner, the rail, the zoom, the chat bar and the chat,
- * the inspector, the two sheets, the blank app's hint and the notice
+ * the inspector, the two sheets, the blank app's hint and the notice. The stage and the screen let a press anywhere
+ * else through to the canvas (`passThrough`)
  */
 function editorScreen(t: Texts): Record<string, unknown> {
     return {
         component: 'panel',
         padding: 'none',
+        passThrough: true,
         layout: { type: 'column', gap: 'none' },
         children: {
             [EDITOR_KEYS.stage]: {
                 component: 'panel',
                 padding: 'none',
+                passThrough: true,
                 placement: { height: 'calc(100vh - 0px)' },
                 layout: { type: 'adhoc' },
                 children: {
@@ -846,7 +849,7 @@ function definition(): Record<string, unknown> {
         paths: { model: 'inspector-path', scope: 'persona' },
         feed: { model: 'inspector-change', scope: 'persona' }
     };
-    return { title: t['editor.title'], data, icons: EDITOR_ICONS, home: editorScreen(t) };
+    return { title: t['editor.title'], data, icons: EDITOR_ICONS, app: { seeThrough: true }, home: editorScreen(t) };
 }
 
 /** The editor as a page of Magnetic's, which a person's copy and an admin's draft are made from */

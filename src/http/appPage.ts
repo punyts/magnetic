@@ -13,8 +13,10 @@ export type PageAction = { readonly go: string } | { readonly post: string; read
 export interface AppPageOptions {
     readonly look: PageLook;
     readonly title: string;
-    /** The runtime page the app frame loads, on the runtime origin */
+    /** The runtime page, on the runtime origin, which the host script is given */
     readonly runtimeUrl: string;
+    /** The hash of the page bundle (`/assets/page/<hash>.js`), which runs the app in the page */
+    readonly pageBundle: string;
     readonly app: PageAppDocument;
     /** What the page writes into the app's data once it is ready */
     readonly data: Readonly<Record<string, unknown>>;
@@ -33,8 +35,8 @@ function block(id: string, value: unknown): string {
 }
 
 /**
- * One of Magnetic's own pages as a StateUI app (sign in, a share link): the app fills the window in a frame the page
- * drives alone (`stateuiHost.mount`, no live app, nothing synced). The page writes its data and does what the server
+ * One of Magnetic's own pages as a StateUI app (sign in, a share link): the app fills the window, run in the page itself
+ * on the page bundle (`stateuiHost.mount` with `inPage`, no live app, nothing synced), which the page drives alone. The page writes its data and does what the server
  * set for each of its emits (`/assets/app-page.js`)
  */
 export function appPage(options: AppPageOptions): string {
@@ -49,11 +51,12 @@ export function appPage(options: AppPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/app-page.css">',
         '</head>',
-        `<body class="view app-page" data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.fallback === true ? ' data-fallback="default"' : ''}>`,
+        `<body class="view app-page" data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.fallback === true ? ' data-fallback="default"' : ''}>`,
         '<div class="page-app" id="page-app"></div>',
         block('page-app-document', options.app),
         block('page-app-data', options.data),
         block('page-app-actions', options.actions),
+        `<script src="/assets/page/${escapeHtml(options.pageBundle)}.js"></script>`,
         '<script type="module" src="/assets/host.js"></script>',
         '<script type="module" src="/assets/app-page.js"></script>',
         '</body>',
@@ -65,7 +68,8 @@ export function appPage(options: AppPageOptions): string {
 /** `/assets/app-page.css` */
 export const APP_PAGE_CSS = `${schemeCss('--paper: #ffffff;', '--paper: #15171c;')}
 html, body.app-page { height: 100%; margin: 0; overflow: hidden; background: var(--paper); }
-.page-app, .page-app iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.page-app { position: fixed; inset: 0; }
+.page-app > .stateui-panel { position: absolute; inset: 0; overflow: auto; }
 `;
 
 /** `/assets/app-page.js`, after the host script */
@@ -94,7 +98,7 @@ holder.addEventListener('stateui:emit', (event) => {
     if (action) void act(action, payload);
 });
 
-const panel = window.stateuiHost.mount(holder, app, document.title);
+const panel = window.stateuiHost.mount(holder, { ...app, inPage: true }, document.title);
 let ready = false;
 // A published page that does not load gives way to Magnetic's own, so a bad publish locks nobody out
 if (document.body.dataset.fallback === 'default') {

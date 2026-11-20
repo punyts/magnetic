@@ -54,7 +54,7 @@ test.describe('Orgs', () => {
         const ada = await context.newPage();
         await ada.goto(link as string);
         await ada.waitForURL(/\/signin/);
-        await ada.frameLocator('#page-app iframe').getByRole('button', { name: 'Sign in with the mock provider' }).click();
+        await ada.locator('#page-app').getByRole('button', { name: 'Sign in with the mock provider' }).click();
         await ada.waitForURL(/\/invites\//);
         await expect(ada.getByText(/as a builder/)).toBeVisible();
         await ada.getByRole('button', { name: 'Join' }).click();
@@ -119,7 +119,7 @@ test.describe('Invites on Your apps', () => {
         const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
         const page = await context.newPage();
         await page.goto('/signin');
-        await page.frameLocator('#page-app iframe').getByRole('button', { name: 'Sign in with the mock provider' }).click();
+        await page.locator('#page-app').getByRole('button', { name: 'Sign in with the mock provider' }).click();
         await page.waitForURL((url) => url.pathname === '/');
         const home = new HomePage(page);
         await expect(home.makeButton).toBeVisible();

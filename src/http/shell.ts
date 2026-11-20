@@ -27,27 +27,6 @@ export interface ShellPageOptions {
     readonly workspace?: string;
 }
 
-/**
- * The policy of the page of an app the person may edit (`shellPage`): the app and the screens board run in the page on
- * the page bundle, so it allows what the runtime frame allows (`'unsafe-eval'`, for `@punyts/expression`, and images and
- * fonts from `data:` and `https:`), and the editor's panels and Statenet are still frames from the runtime origin. Every
- * app in it is the signed-in person's own (docs/design/magnetic-screens-board.md)
- */
-export function shellPageCsp(runtimeOrigin: string): string {
-    return [
-        "default-src 'none'",
-        "script-src 'self' 'unsafe-eval'",
-        "style-src 'self'",
-        "connect-src 'self'",
-        `frame-src ${runtimeOrigin}`,
-        'img-src data: https:',
-        'font-src data:',
-        "form-action 'none'",
-        "base-uri 'none'",
-        "frame-ancestors 'none'"
-    ].join('; ');
-}
-
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
 export const EDIT_KEY = 'mod+shift+e';
 
@@ -65,10 +44,9 @@ export const FRAME_SIZES = [
  * The app runs in the page (`data-surface="page"` and the page bundle): without the editor in `#alone`, which fills the
  * window, and with it on the screens board (`/assets/screens.js`), Magnetic's page `magnetic-screens` mounted in
  * `#screens`: a canvas that pans and zooms with every screen of the app on it, the live app on the screen worked on.
- * The editor is a StateUI app of the person's own (`/assets/editor.json`, their `magnetic-editor`): panels floating
- * over the canvas, in a frame that covers the window above it. The page clips that frame to the panels (the frame says
- * where they are, and again whenever they move), so the rest of the window is the canvas's. The page drives the editor
- * through its data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
+ * The editor is a StateUI app of the person's own (`/assets/editor.json`, their `magnetic-editor`), in the page too:
+ * panels floating over the canvas, on a stage that lets presses through (`panel`'s `passThrough`), so the rest of the
+ * window is the canvas's. The page drives the editor through its data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
  * app, so the app is live while the agent works on it
  */
 export function shellPage(options: ShellPageOptions): string {
@@ -87,7 +65,6 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/views.css">',
         '</head>',
         `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
-        '<div class="shadows" id="shadows" aria-hidden="true"></div>',
         '<div class="editor" id="editor"></div>',
         `<main class="board" id="board" tabindex="-1" aria-label="${escapeHtml(t['screens.board'])}"><div class="screens" id="screens"></div></main>`,
         '<div class="alone" id="alone"></div>',
@@ -113,15 +90,13 @@ export const SHELL_CSS = `${schemeCss(
 )}
 html, body.shell { height: 100%; margin: 0; overflow: hidden; }
 body.view.shell { display: block; font-family: system-ui, sans-serif; color: var(--ink); background: var(--paper); }
-/* The editor's frame covers the window above the canvas, clipped to its panels (the script sets the clip); until the
-   panels are known nothing of it shows. Without the editor it is out of sight but loaded, to come back at once */
-.editor { position: fixed; inset: 0; z-index: 3; clip-path: inset(0 calc(100% - 1px) calc(100% - 1px) 0); }
-.editor iframe { width: 100%; height: 100%; border: 0; display: block; }
-body.shell:not(.editing) .editor { visibility: hidden; pointer-events: none; }
-/* The editor's panels cast their shadows from here, under the frame: the frame is clipped to the panels themselves */
-.shadows { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
-.shadows div { position: absolute; border-radius: 12px; box-shadow: var(--shadow); }
-body.shell:not(.editing) .shadows { display: none; }
+/* The editor covers the window above the canvas and takes only the presses on its panels: its stage lets the rest
+   through (passThrough), and so does the element it is mounted on. Without the editor it is out of sight but loaded,
+   to come back at once */
+.editor { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+.editor > .stateui-panel { position: absolute; inset: 0; }
+body.shell:not(.editing) .editor { visibility: hidden; }
+body.shell:not(.editing) .editor * { pointer-events: none !important; }
 /* The screens board fills the window under the editor: Magnetic's page magnetic-screens (screens.js), which draws the
    canvas itself. Until it has its view it waits out of sight rather than show at the wrong place */
 .board { position: fixed; inset: 0; z-index: 1; overflow: hidden; background: var(--soft); }
@@ -282,7 +257,7 @@ async function mountEditor(which) {
     editorId = editor.id;
     holder.replaceChildren();
     for (const name of Object.keys(editorState)) delete editorState[name];
-    panel = host.mount(holder, { document: editor.document, icons: editor.icons, keys: ['mod+shift+e', ...Object.keys(TOOL_KEYS)] }, T['editor.title']);
+    panel = host.mount(holder, { document: editor.document, icons: editor.icons, inPage: true }, T['editor.title']);
     const timer = setTimeout(() => { if (!ready && NEXT_EDITOR[which]) void mountEditor(NEXT_EDITOR[which]); }, READY_MS);
     holder.onstateuiready = null;
     return new Promise((resolve) => {
@@ -815,12 +790,12 @@ function showTool() {
 const toolListeners = [];
 function setTool(name) { tool = name; showTool(); for (const listener of toolListeners) listener(name); }
 
-// The keyboard comes back to the page from the editor's frame, for the tools' keys, at a press on the board
+// The keyboard comes back to the page at a press on the board
 board.addEventListener('pointerdown', () => {
     if (editing() && document.activeElement === document.body) board.focus({ preventScroll: true });
 }, true);
 
-/** The editor's keys, the same from the page and, through the runtime, from the editor's frame */
+/** The editor's keys: pressed on the page, or raised by an app in it that names them (the board's Escape) */
 const TOOL_KEYS = {
     v: () => setTool('use'),
     h: () => setTool('move'),
@@ -838,78 +813,30 @@ const TOOL_KEYS = {
 /** What Escape lets go of, in turn: inspect.js adds placing and the selection, screens.js the selected screen */
 const escapeListeners = [];
 
-function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
+/** The person is typing: the key's own target, inside any app's shadow DOM, is a field */
+function typing(event) { const target = event.composedPath()[0]; return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
 
 document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') { event.preventDefault(); setEditing(!editing()); return; }
-    if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+    if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event)) return;
     if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
-    // Escape on the page is inspect.js's, which runs the same turn as the escape key; from the editor's frame it comes as a key of the runtime
+    // Escape on the page is inspect.js's
     const run = event.key === 'Escape' ? undefined : TOOL_KEYS[event.key.toLowerCase()] || (event.key === '+' ? TOOL_KEYS['='] : undefined);
     if (run) { event.preventDefault(); run(); }
 });
 document.addEventListener('keyup', (event) => { if (event.key === ' ' && spaceHeld) { event.preventDefault(); spaceHeld = false; showTool(); } });
 addEventListener('blur', () => { if (spaceHeld) { spaceHeld = false; showTool(); } });
 
-// The editor's frame shows only its floating panels: each child of the stage, where the frame says it is now, and the
-// popovers open in it (a button's tip, a menu, an option list), which may reach past every panel. A click anywhere else
-// falls through to the canvas
+// Where the editor's floating panels are (each child of the stage, as the editor says now and whenever they move), so
+// the canvas knows what of the window they cover
 const panels = new Map();
-const RADIUS = 12;
-/** The corner radius of a panel: a pill is round at its ends, every other panel has the theme's 12px */
-function radiusOf(key, rect) {
-    const node = stageChild(key);
-    return node && node.corners === 'pill' ? Math.min(rect.width, rect.height) / 2 : Math.min(RADIUS, rect.width / 2, rect.height / 2);
-}
-function stageChild(key) {
-    for (const screen of Object.values(editorDocument.screens || {})) {
-        let found;
-        const visit = (node) => {
-            if (found || !node || typeof node !== 'object') return;
-            if (node.children && node.children[key] && node.layout && node.layout.type === 'adhoc') { found = node.children[key]; return; }
-            for (const child of Object.values(node.children || {})) visit(child);
-        };
-        visit(screen.root);
-        if (found) return found;
-    }
-    return undefined;
-}
-function roundedRect(rect, r) {
-    const x = rect.x;
-    const y = rect.y;
-    const right = x + rect.width;
-    const bottom = y + rect.height;
-    return 'M' + (x + r) + ' ' + y + 'H' + (right - r) + 'A' + r + ' ' + r + ' 0 0 1 ' + right + ' ' + (y + r) + 'V' + (bottom - r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (right - r) + ' ' + bottom +
-        'H' + (x + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + x + ' ' + (bottom - r) + 'V' + (y + r) + 'A' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + 'Z';
-}
-const shadows = document.getElementById('shadows');
-/** How far past a popover's box the clip reaches, so its own shadow shows */
-const POPOVER_MARGIN = 8;
-function clipEditor(nodes, floating) {
+function placePanels(nodes) {
     panels.clear();
-    const shapes = [];
-    const casts = [];
     for (const node of nodes || []) {
         const key = node.path.slice(node.path.lastIndexOf('.') + 1);
         if (node.rect.width < 1 || node.rect.height < 1) continue;
         panels.set(key, node.rect);
-        const radius = radiusOf(key, node.rect);
-        shapes.push(roundedRect(node.rect, radius));
-        const cast = document.createElement('div');
-        cast.style.borderRadius = radius + 'px';
-        cast.style.left = node.rect.x + 'px';
-        cast.style.top = node.rect.y + 'px';
-        cast.style.width = node.rect.width + 'px';
-        cast.style.height = node.rect.height + 'px';
-        casts.push(cast);
     }
-    shadows.replaceChildren(...casts);
-    for (const rect of floating || []) {
-        if (rect.width < 1 || rect.height < 1) continue;
-        const grown = { x: rect.x - POPOVER_MARGIN, y: rect.y - POPOVER_MARGIN, width: rect.width + 2 * POPOVER_MARGIN, height: rect.height + 2 * POPOVER_MARGIN };
-        shapes.push(roundedRect(grown, POPOVER_MARGIN));
-    }
-    holder.style.clipPath = shapes.length === 0 ? '' : "path('" + shapes.join(' ') + "')";
     if (panels.size > 0) areaChanged();
 }
 function watchStage() {
@@ -924,7 +851,7 @@ function watchStage() {
         };
         visit(screen.root, '$.screens.' + Object.keys(editorDocument.screens).find((name) => editorDocument.screens[name] === screen));
     }
-    panel.watch(children, clipEditor);
+    panel.watch(children, placePanels);
 }
 
 // The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app or the editor
@@ -943,6 +870,7 @@ function setEditing(on) {
     for (const listener of editingListeners) listener(on);
 }
 
+// A chord an app in the page names comes as stateui:key: the live app's Ctrl+Shift+E (data-host-keys), the board's Escape
 addEventListener('stateui:key', (event) => {
     const key = event.detail && event.detail.key;
     if (key === 'mod+shift+e') setEditing(!editing());

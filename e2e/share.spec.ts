@@ -65,7 +65,7 @@ test.describe('Sharing an app', () => {
         await editor.editor.getByRole('button', { name: 'Revoke' }).first().click();
         await expect(editor.editor.getByText('Link revoked.')).toBeVisible();
         await bob.goto(url);
-        await expect(bob.frameLocator('iframe').first().getByText('This link was revoked by the person who shared it.')).toBeVisible();
+        await expect(bob.locator('#page-app').getByText('This link was revoked by the person who shared it.')).toBeVisible();
         await bob.context().close();
     });
 
@@ -90,7 +90,7 @@ test.describe('Sharing an app', () => {
         const url = await makeLink(editor, /^copy/);
         const carol = await personPage(browser, 'carol', page.viewportSize());
         await carol.goto(url);
-        const offer = carol.frameLocator('iframe').first();
+        const offer = carol.locator('#page-app');
         await expect(offer.getByText(/shared a copy of this app with you/)).toBeVisible();
         await offer.getByRole('button', { name: 'Remix' }).click();
         await carol.waitForURL(/\/(edit|apps)\/[0-9a-f-]+$/);

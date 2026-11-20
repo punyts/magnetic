@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, hostPageCsp, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
@@ -18,7 +18,7 @@ import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { privacyPage } from '../http/privacy.js';
 import type { PrivacyContact } from '../http/privacy.js';
 import { databaseExclusive } from '../storage/exclusive.js';
-import { SHELL_CSS, SHELL_JS, shellPage, shellPageCsp } from '../http/shell.js';
+import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME, HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
 import type { Preferences } from '../prefs/Preferences.js';
@@ -453,6 +453,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             look,
             title: t['signin.title'],
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
+            pageBundle,
             app,
             fallback: app.published,
             data: {
@@ -478,6 +479,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             look,
             title,
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
+            pageBundle,
             app,
             fallback: app.published,
             data: { '$.data.link': { title, message, noRemix: remix === undefined } },
@@ -968,28 +970,28 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return `http://${requestHostName(request.headers.host) ?? '127.0.0.1'}:${runtimePort}`;
     }
 
-    /** Sends one of Magnetic's own pages made as a StateUI app: its frame comes from the runtime origin */
+    /** Sends one of Magnetic's own pages made as a StateUI app: the app runs in the page, on the page bundle */
     function sendAppPage(request: IncomingMessage, response: ServerResponse, html: string, status = 200, cookie?: string): void {
         response.writeHead(status, {
             ...(cookie !== undefined && { 'Set-Cookie': cookie }),
             ...COMMON_HEADERS,
             'Referrer-Policy': 'same-origin',
             'Content-Type': 'text/html; charset=utf-8',
-            'Content-Security-Policy': hostPageCsp(runtimeOriginOf(request)),
+            'Content-Security-Policy': APP_PAGE_CSP,
             'Cache-Control': 'no-store'
         });
         response.end(html);
     }
 
-    /** Sends a page that runs an app: its frame comes from the runtime origin */
-    function sendHostPage(request: IncomingMessage, response: ServerResponse, html: string): void {
-        response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': hostPageCsp(runtimeOriginOf(request)), 'Cache-Control': 'no-store' });
+    /** Sends Your apps: the person's own app runs in the page, on the page bundle */
+    function sendHomePage(response: ServerResponse, html: string): void {
+        response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': APP_PAGE_CSP, 'Cache-Control': 'no-store' });
         response.end(html);
     }
 
     /** Sends the page of an app the person may edit, with or without the editor: the app and its screens run in the page */
     function sendShellPage(request: IncomingMessage, response: ServerResponse, html: string): void {
-        response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': shellPageCsp(runtimeOriginOf(request)), 'Cache-Control': 'no-store' });
+        response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': APP_PAGE_CSP, 'Cache-Control': 'no-store' });
         response.end(html);
     }
 
@@ -1045,10 +1047,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             look, (message, fields) => options.report.info(message, fields));
         const home = await services.instanceViews.find(homeId);
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
-        sendHostPage(
-            request,
+        sendHomePage(
             response,
-            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home), look })
+            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home), look })
         );
     }
 

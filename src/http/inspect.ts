@@ -986,8 +986,9 @@ function addSelectedToChat() {
     says(T['inspect.addedToChat']);
 }
 
-function typing(target) { return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
-// Escape lets go of what is being placed, then of the selection, from the page or from the editor's frame
+/** The person is typing: the key's own target, inside any app's shadow DOM, is a field */
+function typing(event) { const target = event.composedPath()[0]; return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
+// Escape lets go of what is being placed, then of the selection
 function letGo() {
     if (placing) { stopPlacing(T['inspect.cancelled']); return true; }
     if (selected) { unselect(); return true; }
@@ -995,7 +996,7 @@ function letGo() {
 }
 shell.onEscape(letGo);
 document.addEventListener('keydown', (event) => {
-    if (!shell.editing() || event.ctrlKey || event.metaKey || typing(event.target)) return;
+    if (!shell.editing() || event.ctrlKey || event.metaKey || typing(event)) return;
     if (event.key === 'Escape') {
         if (shell.escape()) event.preventDefault();
         return;
