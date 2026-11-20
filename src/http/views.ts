@@ -50,7 +50,7 @@ export const VIEWS_CSS = [
     'body.editing[data-view="theme"] #board, body.editing[data-view="logic"] #board { visibility: hidden; }',
     'body:not(.editing) .view-sheet, body:not(.editing) .statenet { display: none !important; }',
     // Statenet is its own page on the board, over the screens; its head and its editor float over it
-    'body.editing[data-view="statenet"] #world { visibility: hidden; }',
+    'body.editing[data-view="statenet"] #screens { visibility: hidden; }',
     '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
     '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet.on-canvas .view-body { margin-top: 12px; }',
@@ -148,8 +148,9 @@ if (!shell) return;
 const editor = shell.editor;
 const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId) + '/views';
-const world = document.getElementById('world');
-const artboard = document.getElementById('artboard');
+// The board's content and the live app's element: detached until the layers reach the apps through their embeddedApp (B3c)
+const world = document.createElement('div');
+const artboard = document.createElement('div');
 const VIEWS = ['screens', 'statenet', 'theme', 'logic'];
 const LAYERS = ['layout', 'data', 'logic'];
 const VIEW_KEY = 'magnetic.editorView.' + appId;
@@ -1337,7 +1338,7 @@ function tiles() {
     for (const preview of world.querySelectorAll('.preview[data-screen]')) {
         const name = preview.dataset.screen;
         if (found.some((tile) => tile.name === name)) continue;
-        const panel = window.magneticScreens ? window.magneticScreens.panelOf(name) : null;
+        const panel = window.magneticScreens && window.magneticScreens.panelOf ? window.magneticScreens.panelOf(name) : null;
         found.push({ name, element: preview, inspect: panel ? (query) => panel.inspect(query) : null, x: parseFloat(preview.style.left) || 0, y: parseFloat(preview.style.top) || 0 });
     }
     return found;

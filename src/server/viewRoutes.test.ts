@@ -292,7 +292,7 @@ describe("The editor's view routes", () => {
         const kept = await post('kept', { view: 'statenet', place: { x: 120, y: -40, zoom: 0.8 } });
         const after = await get('kept?view=statenet');
         const tooFar = await post('kept', { view: 'statenet', place: { x: 0, y: 0, zoom: 9 } });
-        const noView = await get('kept?view=screens');
+        const noView = await get('kept?view=elsewhere');
 
         // Assert
         expect(before).toEqual({ status: 200, body: { place: null } });

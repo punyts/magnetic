@@ -1,7 +1,7 @@
 import type { Database } from '@punyts/stateui-pg';
 
 /** The views of the editor whose place is kept per person */
-export const KEPT_VIEWS = ['statenet'] as const;
+export const KEPT_VIEWS = ['statenet', 'screens'] as const;
 export type KeptView = (typeof KEPT_VIEWS)[number];
 
 /** Where a view was left: the offset of its content in screen pixels, and its zoom */

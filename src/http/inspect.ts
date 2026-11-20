@@ -29,9 +29,10 @@ export const INSPECT_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.
 const base = '/edit/' + encodeURIComponent(appId);
 const shell = window.magneticShell;
 const host = window.stateuiHost;
-const artboard = document.getElementById('artboard');
-const shield = document.getElementById('shield');
-const overlay = document.getElementById('overlay');
+// The live app's element and the overlay on it: detached until the inspector reaches the app through its embeddedApp (B3c)
+const artboard = document.createElement('div');
+const shield = document.createElement('div');
+const overlay = document.createElement('div');
 const editor = shell ? shell.editor : null;
 const TEXT_SAVE_MS = 600;
 const FLASH_MS = 1200;

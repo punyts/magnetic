@@ -18,7 +18,7 @@ import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { privacyPage } from '../http/privacy.js';
 import type { PrivacyContact } from '../http/privacy.js';
 import { databaseExclusive } from '../storage/exclusive.js';
-import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
+import { SHELL_CSS, SHELL_JS, shellPage, shellPageCsp } from '../http/shell.js';
 import { HOME, HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
 import type { Preferences } from '../prefs/Preferences.js';
@@ -51,6 +51,7 @@ import { SitePages } from '../pages/SitePages.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
 import { EDITOR, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
 import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
+import { SCREENS } from '../screens/ScreensPage.js';
 import { STATENET } from '../statenet/StatenetPage.js';
 import type { PageAppDocument } from '../pages/PageApps.js';
 import type { PageSpec } from '../pages/PageSpec.js';
@@ -384,6 +385,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         options.runtimeDir,
         loadCatalogFile().components.map((component) => component.name)
     );
+    // The page of an app runs the app and the screens board in the page itself, on the page bundle
+    if (runtime.page === undefined) throw new Error('The runtime bundle has no page bundle: build stateui-app with build:runtime-bundle');
+    const pageBundle = runtime.page.hash;
     const chunk3d = loadChunk3d(options.chunk3dDir);
     const hostScript = loadHostScript();
     const db = options.database;
@@ -563,7 +567,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** Magnetic's own pages as its code makes them, in the system workspace */
     const pageApps = new PageApps(fixedWorkspace(SYSTEM_USER_ID), toolsOf, stamps, exclusive);
     /** Magnetic's own pages as admins edit and publish them (docs/design/magnetic-editable.md) */
-    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET], exclusive);
+    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS], exclusive);
     /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
     const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
     /** Each person's editor, made from Magnetic's version and kept when they change it */
@@ -983,6 +987,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         response.end(html);
     }
 
+    /** Sends the page of an app the person may edit, with or without the editor: the app and its screens run in the page */
+    function sendShellPage(request: IncomingMessage, response: ServerResponse, html: string): void {
+        response.writeHead(200, { ...COMMON_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': shellPageCsp(runtimeOriginOf(request)), 'Cache-Control': 'no-store' });
+        response.end(html);
+    }
+
     /** `GET /`: the person's "Your apps", with the lists written into its data first */
     async function homeRoute(request: IncomingMessage, response: ServerResponse, user: User): Promise<void> {
         await joinBeta(user.id);
@@ -1251,14 +1261,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/javascript', INSPECT_JS);
             return true;
         }
-        if (method === 'GET' && path === '/assets/statenet.json') {
+        if (method === 'GET' && (path === '/assets/statenet.json' || path === '/assets/screens.json')) {
             if ((await signedIn(request)) === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            const spec = path === '/assets/screens.json' ? SCREENS : STATENET;
             // What an admin published, or Magnetic's own when that does not load
             try {
-                sendJson(response, 200, await sitePages.served(STATENET));
+                sendJson(response, 200, await sitePages.served(spec));
             } catch (error) {
-                options.report.info('Statenet\'s published page did not load', { error: error instanceof Error ? error.message : String(error) });
-                sendJson(response, 200, await sitePages.codeDocument(STATENET));
+                options.report.info('A published page of the editor did not load', { page: spec.name, error: error instanceof Error ? error.message : String(error) });
+                sendJson(response, 200, await sitePages.codeDocument(spec));
             }
             return true;
         }
@@ -1395,6 +1406,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             appId: app.id,
             name: app.name,
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
+            pageBundle,
             ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
             namespace: services.instanceViews.namespace(app, persona),
             models: models.map(modelChoice),
@@ -1416,7 +1428,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendHostPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place)));
+        sendShellPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place)));
         return true;
     }
 
@@ -1440,7 +1452,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const persona = place.orgId === undefined ? undefined : who.user.id;
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendHostPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await workspaceNameOf(place)));
+            sendShellPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await workspaceNameOf(place)));
             return;
         }
         if (what === '/events' && method === 'GET') {

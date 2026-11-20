@@ -7,8 +7,10 @@ import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 export interface ShellPageOptions {
     readonly appId: string;
     readonly name: string;
-    /** The runtime page the app frame loads, on the runtime origin */
+    /** The runtime page the editor's panels load in their frames, on the runtime origin */
     readonly runtimeUrl: string;
+    /** The hash of the page bundle (`/assets/page/<hash>.js`), which runs the app and the screens board in the page */
+    readonly pageBundle: string;
     /** The hash of the 3D chunk, when the server has one */
     readonly chunk3d?: string;
     /** The sync namespace of the app's instance */
@@ -25,6 +27,27 @@ export interface ShellPageOptions {
     readonly workspace?: string;
 }
 
+/**
+ * The policy of the page of an app the person may edit (`shellPage`): the app and the screens board run in the page on
+ * the page bundle, so it allows what the runtime frame allows (`'unsafe-eval'`, for `@punyts/expression`, and images and
+ * fonts from `data:` and `https:`), and the editor's panels and Statenet are still frames from the runtime origin. Every
+ * app in it is the signed-in person's own (docs/design/magnetic-screens-board.md)
+ */
+export function shellPageCsp(runtimeOrigin: string): string {
+    return [
+        "default-src 'none'",
+        "script-src 'self' 'unsafe-eval'",
+        "style-src 'self'",
+        "connect-src 'self'",
+        `frame-src ${runtimeOrigin}`,
+        'img-src data: https:',
+        'font-src data:',
+        "form-action 'none'",
+        "base-uri 'none'",
+        "frame-ancestors 'none'"
+    ].join('; ');
+}
+
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
 export const EDIT_KEY = 'mod+shift+e';
 
@@ -39,12 +62,14 @@ export const FRAME_SIZES = [
  * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window, and Ctrl+Shift+E (Cmd+Shift+E on
  * a Mac) brings the editor around it, and takes it away again, without loading the page again. The address follows.
  *
- * The canvas is the page's: the app's live frame on a board that fills the window, pans and zooms. The editor is a
- * StateUI app of the person's own (`/assets/editor.json`, their `magnetic-editor`): panels floating over the canvas,
- * in a frame that covers the window above it. The page clips that frame to the panels (the frame says where they are,
- * and again whenever they move), so the rest of the window is the canvas's. The page drives the editor through its
- * data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to build the app frame,
- * so the app is live while the agent works on it
+ * The app runs in the page (`data-surface="page"` and the page bundle): without the editor in `#alone`, which fills the
+ * window, and with it on the screens board (`/assets/screens.js`), Magnetic's page `magnetic-screens` mounted in
+ * `#screens`: a canvas that pans and zooms with every screen of the app on it, the live app on the screen worked on.
+ * The editor is a StateUI app of the person's own (`/assets/editor.json`, their `magnetic-editor`): panels floating
+ * over the canvas, in a frame that covers the window above it. The page clips that frame to the panels (the frame says
+ * where they are, and again whenever they move), so the rest of the window is the canvas's. The page drives the editor
+ * through its data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
+ * app, so the app is live while the agent works on it
  */
 export function shellPage(options: ShellPageOptions): string {
     const t = textsOf(options.look.language);
@@ -61,15 +86,15 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/shell.css">',
         '<link rel="stylesheet" href="/assets/views.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="shadows" id="shadows" aria-hidden="true"></div>',
         '<div class="editor" id="editor"></div>',
-        '<main class="board" id="board" tabindex="-1">',
-        `<div class="world" id="world"><div class="artboard" id="artboard" data-app-frame><p class="artboard-label" aria-hidden="true"><span>${escapeHtml(options.name)}</span><span id="artboard-size"></span></p><div class="shield" id="shield" hidden></div><div class="overlay" id="overlay" aria-hidden="true"></div></div></div>`,
-        '</main>',
+        `<main class="board" id="board" tabindex="-1" aria-label="${escapeHtml(t['screens.board'])}"><div class="screens" id="screens"></div></main>`,
+        '<div class="alone" id="alone"></div>',
         `<p class="hint" id="hint" role="status" hidden>${escapeHtml(t['shell.hintBefore'])} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> ${escapeHtml(t['shell.hintAfter'])}</p>`,
         `<script type="application/json" id="magnetic-models">${JSON.stringify(models).replace(/</g, '\\u003c')}</script>`,
         textBlock(options.look.language),
+        `<script src="/assets/page/${escapeHtml(options.pageBundle)}.js"></script>`,
         '<script type="module" src="/assets/host.js"></script>',
         '<script type="module" src="/assets/shell.js"></script>',
         '<script type="module" src="/assets/inspect.js"></script>',
@@ -97,46 +122,16 @@ body.shell:not(.editing) .editor { visibility: hidden; pointer-events: none; }
 .shadows { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 .shadows div { position: absolute; border-radius: 12px; box-shadow: var(--shadow); }
 body.shell:not(.editing) .shadows { display: none; }
-/* Until the editor says where its panels are, the app waits out of sight rather than show at the wrong place */
-body.shell.editing.unfitted .world { visibility: hidden; }
-/* The canvas fills the window under the editor */
-.board { position: fixed; inset: 0; z-index: 1; overflow: hidden; touch-action: none; cursor: default; background-color: var(--soft); background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); }
-.board.moving, .board.moving .shield { cursor: grab; }
-.board.dragging, .board.dragging .shield { cursor: grabbing; }
-.world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
-.world.glide { transition: transform 0.25s ease; }
-.artboard { position: relative; background: var(--paper); border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
-/* Each screen of the app in a slot of its own, in rows left to right: the live frame in the slot of the screen it shows, the
-   others as previews (screens.js) with a cover that makes the screen the one worked on */
-body.shell.editing .artboard { left: var(--slot-x, 0px); top: var(--slot-y, 0px); }
-.preview { position: absolute; top: 0; background: var(--paper); border-radius: calc(6px / var(--zoom, 1)); box-shadow: var(--shadow); }
-.preview-frame, .preview-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; border-radius: inherit; overflow: hidden; }
-.preview-cover { position: absolute; inset: 0; z-index: 1; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: inherit; }
-.preview-cover:hover, .preview-cover:focus-visible { outline: calc(2px / var(--zoom, 1)) solid var(--accent, #3d5afe); }
-.preview-idle { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font: calc(14px / var(--zoom, 1)) system-ui, sans-serif; }
-body.shell:not(.editing) .preview { display: none; }
-/* Many screens in view, or far out: each screen is a tile with its name, dragged to another slot to move the screen.
-   Nothing renders: the live frame hides (its screen has a tile) until a tile is pressed, and the name above a tile goes */
-body.screen-names .preview-idle { color: var(--ink); font-size: calc(20px / var(--zoom, 1)); font-weight: 600; padding: 0 calc(12px / var(--zoom, 1)); text-align: center; }
-body.screen-names .preview-cover { cursor: grab; }
-body.screen-names .preview .artboard-label { display: none; }
-body.live-hidden .artboard, body.no-screens .artboard { visibility: hidden; }
-.add-screen { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(12px / var(--zoom, 1)); box-sizing: border-box; border: calc(2px / var(--zoom, 1)) dashed var(--dot); border-radius: calc(12px / var(--zoom, 1)); background: transparent; color: var(--muted); font: calc(18px / var(--zoom, 1)) system-ui, sans-serif; cursor: pointer; }
-.add-screen:hover, .add-screen:focus-visible { border-color: var(--accent); color: var(--ink); outline: none; }
-.add-screen[hidden] { display: none; }
-.add-screen svg { width: calc(48px / var(--zoom, 1)); height: calc(48px / var(--zoom, 1)); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.preview-tools { display: none; position: absolute; z-index: 2; top: calc(8px / var(--zoom, 1)); right: calc(8px / var(--zoom, 1)); gap: calc(4px / var(--zoom, 1)); }
-body.screen-names .preview-tools { display: flex; }
-.preview-tool, .live-close { display: grid; place-items: center; width: calc(28px / var(--zoom, 1)); height: calc(28px / var(--zoom, 1)); padding: 0; border: calc(1px / var(--zoom, 1)) solid var(--dot); border-radius: calc(6px / var(--zoom, 1)); background: var(--paper); color: var(--muted); cursor: pointer; }
-.preview-tool[hidden], .live-close[hidden] { display: none; }
-.preview-tool:hover, .preview-tool:focus-visible, .live-close:hover, .live-close:focus-visible { color: var(--ink); border-color: var(--accent); outline: none; }
-.preview-tool svg, .live-close svg { width: 60%; height: 60%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.live-close { position: absolute; z-index: 3; transform: translate(-100%, calc(-100% - 6px / var(--zoom, 1))); }
-.preview.lifted { z-index: 3; opacity: 0.85; box-shadow: 0 calc(12px / var(--zoom, 1)) calc(32px / var(--zoom, 1)) rgba(20, 24, 40, 0.3); }
-.preview.lifted .preview-cover { cursor: grabbing; }
-.drop-slot { position: absolute; box-sizing: border-box; border: calc(2px / var(--zoom, 1)) dashed var(--accent); border-radius: calc(6px / var(--zoom, 1)); background: color-mix(in srgb, var(--accent) 8%, transparent); pointer-events: none; z-index: 2; }
-.drop-slot[hidden] { display: none; }
-/* A screen's menu, opened from its preview */
+/* The screens board fills the window under the editor: Magnetic's page magnetic-screens (screens.js), which draws the
+   canvas itself. Until it has its view it waits out of sight rather than show at the wrong place */
+.board { position: fixed; inset: 0; z-index: 1; overflow: hidden; background: var(--soft); }
+.board > .screens, .board > .screens > .stateui-panel { position: absolute; inset: 0; }
+.board > .screens.unplaced { visibility: hidden; }
+body.shell:not(.editing) .board { display: none; }
+/* Without the editor the app fills the window */
+.alone { position: fixed; inset: 0; z-index: 1; overflow: auto; background: var(--paper); }
+body.shell.editing .alone { display: none; }
+/* A screen's menu, opened from its tile */
 .screen-menu { position: fixed; z-index: 5; display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 280px; padding: 6px; border-radius: 10px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); border: 1px solid var(--dot); font: 13px system-ui, sans-serif; }
 .screen-menu > button { text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .screen-menu > button:hover, .screen-menu > button:focus-visible { background: var(--soft); outline: none; }
@@ -151,12 +146,6 @@ body.screen-names .preview-tools { display: flex; }
 .screen-menu-row button.danger { border-color: #c62828; }
 .screen-menu-status { margin: 0; padding: 0 8px; color: #c62828; font-size: 12px; }
 .screen-menu-status:empty { display: none; }
-body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: inherit; display: block; }
-.artboard-label { position: absolute; left: 0; bottom: 100%; margin: 0 0 calc(6px / var(--zoom, 1)); display: flex; gap: 0.5em; white-space: nowrap; font-size: calc(12px / var(--zoom, 1)); color: var(--muted); }
-.artboard-label span:first-child { color: var(--ink); font-weight: 600; }
-.shield { position: absolute; inset: 0; z-index: 1; }
-.shield[hidden] { display: none; }
-.board.selecting .shield { cursor: crosshair; }
 .overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .overlay .box { position: absolute; box-sizing: border-box; border: calc(1.5px / var(--zoom, 1)) solid var(--accent); border-radius: calc(3px / var(--zoom, 1)); }
 .overlay .box.hover { border-style: dashed; opacity: 0.8; }
@@ -173,11 +162,6 @@ body.view.shell .artboard iframe { position: absolute; inset: 0; width: 100%; he
 .overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
 .overlay .dot { position: absolute; width: calc(10px / var(--zoom, 1)); height: calc(10px / var(--zoom, 1)); margin: calc(-5px / var(--zoom, 1)); border-radius: 50%; background: var(--accent); }
 body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); z-index: 3; }
-/* Without the editor the app fills the window: no canvas */
-body.shell:not(.editing) .artboard-label { display: none; }
-body.shell:not(.editing) .board { background: var(--paper); }
-body.shell:not(.editing) .world { transform: none !important; transition: none; }
-body.shell:not(.editing) .artboard { width: 100vw !important; height: 100vh !important; border-radius: 0; box-shadow: none; }
 .hint { position: fixed; z-index: 4; left: 50%; bottom: 1rem; transform: translateX(-50%); margin: 0; padding: 0.45rem 0.9rem; border-radius: 1rem; background: var(--ink); color: var(--paper); font: 0.85rem system-ui, sans-serif; box-shadow: var(--shadow); transition: opacity 0.4s; pointer-events: none; }
 .hint[hidden] { display: none; }
 .hint.gone { opacity: 0; }
@@ -510,7 +494,7 @@ async function loadLinks() {
 }
 /**
  * The component library beside the rail: shown when the editor opens on a wide window, and after that as the person
- * last left it in this browser. The rail's button is soft while it shows. A fitted view fits again around it
+ * last left it in this browser. The rail's button is soft while it shows. A fitted board fits again around it (screens.js)
  */
 let libraryOpen = null;
 let screensOpen = false;
@@ -523,7 +507,6 @@ function showLibraryPanel(open, remember) {
     if (open && sharedOpen) showSharedPanel(false);
     ed({ libraryHidden: !open, libraryLook: open ? 'soft' : 'ghost', libraryTone: open ? 'accent' : 'neutral' });
     if (remember) { try { localStorage.setItem('magnetic.library', open ? '1' : '0'); } catch { /* storage may be blocked */ } }
-    if (fittedRail !== null) setTimeout(() => fit(true), 50);
 }
 /** The Screens panel takes the library's place beside the rail: opening one closes the other */
 function showScreensPanel(open) {
@@ -532,7 +515,6 @@ function showScreensPanel(open) {
     if (open && connectionsOpen) showConnectionsPanel(false);
     if (open && sharedOpen) showSharedPanel(false);
     ed({ screensHidden: !open, screensLook: open ? 'soft' : 'ghost', screensTone: open ? 'accent' : 'neutral' });
-    if (fittedRail !== null) setTimeout(() => fit(true), 50);
 }
 /**
  * The Connections panel, in the library's place too: the outside APIs the app's workspace has and their endpoints, from
@@ -546,7 +528,6 @@ function showConnectionsPanel(open) {
     if (open && sharedOpen) showSharedPanel(false);
     ed({ connectionsHidden: !open, connectionsLook: open ? 'soft' : 'ghost', connectionsTone: open ? 'accent' : 'neutral' });
     if (open) void loadConnections();
-    if (fittedRail !== null) setTimeout(() => fit(true), 50);
 }
 let connectionsManage = null;
 const endpointsById = new Map();
@@ -583,7 +564,6 @@ function showSharedPanel(open) {
     if (open && connectionsOpen) showConnectionsPanel(false);
     ed({ sharedHidden: !open, sharedLook: open ? 'soft' : 'ghost', sharedTone: open ? 'accent' : 'neutral' });
     if (open) void loadShared();
-    if (fittedRail !== null) setTimeout(() => fit(true), 50);
 }
 let sharedManage = null;
 const sharedById = new Map();
@@ -671,8 +651,8 @@ emitListeners.push((name, payload) => {
     switch (name) {
         case 'home': location.assign('/'); return;
         case 'open': window.open('/apps/' + encodeURIComponent(appId), '_blank', 'noopener'); return;
-        case 'size': setSize(String(value), true); return;
-        case 'turn': turned = !turned; setSize(size, true); saveView(); return;
+        case 'size': setSize(String(value)); return;
+        case 'turn': turned = !turned; setSize(size); return;
         case 'zoomIn': case 'zoomOut': case 'zoomReset': case 'zoomFit': zoom(name); return;
         case 'tool': if (typeof value === 'string' && value) setTool(value); return;
         case 'share': if (editorState.shareHidden === false) { showSheet('share', false); return; } showSheet('share', true); shareSays(''); void loadLinks(); return;
@@ -739,57 +719,25 @@ emitListeners.push((name, payload) => {
     }
 });
 
-// The canvas: the app is a frame on a board that pans and zooms. Scrolling on the board pans it, Ctrl or a pinch
-// zooms, and dragging the board pans it. Over the app, the app gets the pointer, unless the Move tool is on or Space
-// is held: then a shield covers the frame and the pointer moves the board. The view is kept per app in this browser
+// The canvas is the screens board's (screens.js), a page that pans and zooms itself. The page keeps the size the app's
+// screens have on it, kept per app in this browser, and the tools; the zoom control and its keys drive the board, or
+// Statenet while it shows (views.js)
 const board = document.getElementById('board');
-const world = document.getElementById('world');
-const artboard = document.getElementById('artboard');
-const shield = document.getElementById('shield');
-const sizeLabel = document.getElementById('artboard-size');
 const SIZES = { desktop: [1280, 800], tablet: [834, 1112], phone: [390, 844] };
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 4;
-const VIEW_KEY = 'magnetic.view.' + appId;
-const view = { x: 0, y: 0, zoom: 1 };
+const FRAME_KEY = 'magnetic.frame.' + appId;
 let size = 'desktop';
 /** The frame is turned: its width and height swap, landscape to portrait or back */
 let turned = false;
 let tool = 'use';
 let spaceHeld = false;
-let saveTimer = null;
-/** What the zoom control and its keys drive instead of the board while Statenet shows (views.js): { zoomIn, zoomOut, zoomReset, fit } */
+/** What the zoom control and its keys drive: the board (base, screens.js), or Statenet while it shows (driver, views.js); each { zoomIn, zoomOut, zoomReset, fit } */
+let baseDriver = null;
 let driver = null;
+/** The board's zoom, shown again when Statenet hands the zoom back */
+let baseZoom = 1;
 
-function clampZoom(zoom) { return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)); }
-
-function writeView() {
-    saveTimer = null;
-    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size, turned })); } catch { /* storage may be blocked */ }
-}
-
-function saveView() {
-    if (saveTimer !== null) clearTimeout(saveTimer);
-    saveTimer = setTimeout(writeView, 300);
-}
-
-// A reload or a move away right after a change still keeps it
-addEventListener('pagehide', () => {
-    if (saveTimer === null) return;
-    clearTimeout(saveTimer);
-    writeView();
-});
-
-function render(glide) {
-    world.classList.toggle('glide', Boolean(glide));
-    world.style.transform = 'translate(' + view.x + 'px, ' + view.y + 'px) scale(' + view.zoom + ')';
-    world.style.setProperty('--zoom', String(view.zoom));
-    let step = 24 * view.zoom;
-    while (step < 12) step *= 4;
-    board.style.backgroundSize = step + 'px ' + step + 'px';
-    board.style.backgroundPosition = view.x + 'px ' + view.y + 'px';
-    if (!driver) ed({ zoom: Math.round(view.zoom * 100) + '%' });
-    saveView();
+function keepFrame() {
+    try { localStorage.setItem(FRAME_KEY, JSON.stringify({ size, turned })); } catch { /* storage may be blocked */ }
 }
 
 // Where the frame can show without the floating panels covering it: right of the rail, below the corners, above the
@@ -812,55 +760,23 @@ function freeArea() {
     return { left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
 }
 
-function frameWidth() { return artboard.offsetWidth; }
-/** How far right and down the live frame's slot is on the board (screens.js sets them), in the frame's pixels */
-function slotX() { return Number(artboard.dataset.slotX || 0); }
-function slotY() { return Number(artboard.dataset.slotY || 0); }
 const sizeListeners = [];
-function frameHeight() { return artboard.offsetHeight; }
-
-// The rail the last automatic fit went around, while the view is still that fit (no pan or zoom since): when the
-// other rail shows instead (the window crossed 760px, or the editor showed its narrow rail after the first fit), the
-// frame is fitted again
-let fittedRail = null;
-function railShown() { return panels.has('railTop') ? 'railTop' : 'rail'; }
-
-// Fit the frame, or what the view shows in its place, into the free area, never past 100%
-function fit(glide) {
-    fittedRail = railShown();
-    const area = freeArea();
-    const box = { x: slotX(), y: slotY(), width: frameWidth(), height: frameHeight() };
-    view.zoom = clampZoom(Math.min(1, area.width / box.width, area.height / box.height));
-    view.x = area.left + (area.width - box.width * view.zoom) / 2 - box.x * view.zoom;
-    view.y = area.top + (area.height - box.height * view.zoom) / 2 - box.y * view.zoom;
-    render(glide);
-}
-
-// Zoom keeping the board point under (cx, cy) where it is
-function zoomAt(zoom, cx, cy, glide) {
-    fittedRail = null;
-    const next = clampZoom(zoom);
-    view.x = cx - ((cx - view.x) / view.zoom) * next;
-    view.y = cy - ((cy - view.y) / view.zoom) * next;
-    view.zoom = next;
-    render(glide);
-}
-
-function zoomCentre(zoom) {
-    const area = freeArea();
-    zoomAt(zoom, area.left + area.width / 2, area.top + area.height / 2, true);
+/** Who is told when the free area changes (the editor's panels moved), and when the editor shows or goes */
+const areaListeners = [];
+const editingListeners = [];
+let lastArea = '';
+function areaChanged() {
+    const area = JSON.stringify(freeArea());
+    if (area === lastArea) return;
+    lastArea = area;
+    for (const listener of areaListeners) listener();
 }
 
 /** Zooms the board, or what drives the zoom in its place */
 function zoom(kind) {
-    if (driver) { driver[kind === 'zoomFit' ? 'fit' : kind](); return; }
-    if (kind === 'zoomIn') zoomCentre(view.zoom * 1.25);
-    else if (kind === 'zoomOut') zoomCentre(view.zoom / 1.25);
-    else if (kind === 'zoomReset') zoomCentre(1);
-    else fit(true);
+    const to = driver || baseDriver;
+    if (to) to[kind === 'zoomFit' ? 'fit' : kind]();
 }
-
-function panBy(dx, dy) { fittedRail = null; view.x += dx; view.y += dy; render(false); }
 
 /** The frame size, in the frame's pixels: the chosen size's, swapped when the frame is turned */
 function frameSize() {
@@ -868,15 +784,11 @@ function frameSize() {
     return turned ? [height, width] : [width, height];
 }
 
-function setSize(id, refit) {
+function setSize(id) {
     size = SIZES[id] ? id : 'desktop';
-    const [width, height] = frameSize();
-    artboard.style.width = width + 'px';
-    artboard.style.height = height + 'px';
-    sizeLabel.textContent = width + ' × ' + height;
+    keepFrame();
     ed({ size });
     for (const listener of sizeListeners) listener();
-    if (refit) fit(true);
 }
 
 function moving() { return tool === 'move' || spaceHeld; }
@@ -884,7 +796,6 @@ function moving() { return tool === 'move' || spaceHeld; }
 function showTool() {
     board.classList.toggle('moving', moving());
     board.classList.toggle('selecting', !moving() && (tool === 'select' || tool === 'place'));
-    shield.hidden = !moving() && tool === 'use' && !board.classList.contains('dragging');
     const shownTool = tool === 'place' ? 'select' : tool;
     const look = (on) => (on ? 'solid' : 'ghost');
     const tone = (on) => (on ? 'accent' : 'neutral');
@@ -898,71 +809,10 @@ function showTool() {
 const toolListeners = [];
 function setTool(name) { tool = name; showTool(); for (const listener of toolListeners) listener(name); }
 
-board.addEventListener('wheel', (event) => {
-    if (!editing()) return;
-    event.preventDefault();
-    const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1;
-    const box = board.getBoundingClientRect();
-    if (event.ctrlKey || event.metaKey) {
-        const delta = Math.max(-30, Math.min(30, event.deltaY * scale));
-        zoomAt(view.zoom * Math.exp(-delta * 0.01), event.clientX - box.left, event.clientY - box.top, false);
-    } else if (event.shiftKey && event.deltaX === 0) {
-        panBy(-event.deltaY * scale, 0);
-    } else {
-        panBy(-event.deltaX * scale, -event.deltaY * scale);
-    }
-}, { passive: false });
-
-// Dragging pans; two touches pinch
-const pointers = new Map();
-let pinch = null;
-
-function pinchState() {
-    const [a, b] = [...pointers.values()];
-    return { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
-board.addEventListener('pointerdown', (event) => {
-    if (!editing()) return;
-    // The keyboard comes back to the page from the editor's frame, for the tools' keys
-    if (document.activeElement !== board && !typing(document.activeElement)) board.focus({ preventScroll: true });
-    const onBackground = event.target === board || event.target === world;
-    if (!(onBackground || (event.target === shield && moving()) || event.button === 1)) return;
-    if (event.button !== 0 && event.button !== 1) return;
-    event.preventDefault();
-    board.setPointerCapture(event.pointerId);
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    board.classList.add('dragging');
-    shield.hidden = false;
-    pinch = pointers.size === 2 ? pinchState() : null;
-});
-
-board.addEventListener('pointermove', (event) => {
-    const last = pointers.get(event.pointerId);
-    if (last === undefined) return;
-    const now = { x: event.clientX, y: event.clientY };
-    pointers.set(event.pointerId, now);
-    if (pointers.size === 2 && pinch !== null) {
-        const next = pinchState();
-        const box = board.getBoundingClientRect();
-        view.x += next.x - pinch.x;
-        view.y += next.y - pinch.y;
-        zoomAt(view.zoom * (next.distance / pinch.distance), next.x - box.left, next.y - box.top, false);
-        pinch = next;
-    } else if (pointers.size === 1) {
-        panBy(now.x - last.x, now.y - last.y);
-    }
-});
-
-function endDrag(event) {
-    if (!pointers.delete(event.pointerId)) return;
-    pinch = pointers.size === 2 ? pinchState() : null;
-    if (pointers.size > 0) return;
-    board.classList.remove('dragging');
-    showTool();
-}
-board.addEventListener('pointerup', endDrag);
-board.addEventListener('pointercancel', endDrag);
+// The keyboard comes back to the page from the editor's frame, for the tools' keys, at a press on the board
+board.addEventListener('pointerdown', () => {
+    if (editing() && document.activeElement === document.body) board.focus({ preventScroll: true });
+}, true);
 
 /** The editor's keys, the same from the page and, through the runtime, from the editor's frame */
 const TOOL_KEYS = {
@@ -1054,9 +904,7 @@ function clipEditor(nodes, floating) {
         shapes.push(roundedRect(grown, POPOVER_MARGIN));
     }
     holder.style.clipPath = shapes.length === 0 ? '' : "path('" + shapes.join(' ') + "')";
-    if (!fitted && panels.size > 0) { fitted = true; fit(false); }
-    else if (fittedRail !== null && panels.size > 0 && railShown() !== fittedRail) fit(true);
-    if (panels.size > 0) document.body.classList.remove('unfitted');
+    if (panels.size > 0) areaChanged();
 }
 function watchStage() {
     const stage = pathOfKey('stage');
@@ -1076,21 +924,17 @@ function watchStage() {
 // The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app or the editor
 function editing() { return document.body.classList.contains('editing'); }
 
-let fitted = false;
-
 function setEditing(on) {
     document.body.classList.toggle('editing', on);
     history.replaceState(null, '', (on ? '/edit/' : '/apps/') + encodeURIComponent(appId) + location.search);
     if (on) {
         hideHint();
         if (panel && ready) watchStage();
-        if (!fitted) { fitted = true; fit(false); } else render(false);
     } else {
         showSheet('share', false);
         if (spaceHeld) { spaceHeld = false; showTool(); }
-        const frame = artboard.querySelector('iframe');
-        if (frame) frame.focus();
     }
+    for (const listener of editingListeners) listener(on);
 }
 
 addEventListener('stateui:key', (event) => {
@@ -1122,30 +966,34 @@ const magneticShell = {
         showFocus();
         if (open) showChat(true);
     },
-    refit: () => render(false),
     /** The app has screens (false) or none (true): screens.js says */
     noScreens(on) {
         if (noScreens === on) return;
         noScreens = on;
         ed({ hintHidden: hintHidden() });
     },
+    /** The editor shows (true) or goes (false): screens.js moves the live app between the board and the window */
+    onEditing: (listener) => editingListeners.push(listener),
     canvas: {
-        /** The frame size, in the frame's pixels */
+        /** The size of the app's screens, in their own pixels */
         size: frameSize,
-        /** Moves the board left by dx and up by dy of the frame's pixels: the live frame stays where it is on the screen when its slot moves by them */
-        shift(dx, dy = 0) { view.x -= dx * view.zoom; view.y -= dy * view.zoom; render(false); },
         onSize: (listener) => sizeListeners.push(listener),
-        fitted: () => fittedRail !== null,
-        fit: () => fit(false),
         /** Where the board shows without the editor's panels covering it, in window pixels: { left, top, width, height } */
         freeArea,
+        /** Calls back when the free area changes: the editor's panels showed, moved or went */
+        onArea: (listener) => areaListeners.push(listener),
+        /** The board's zoom (screens.js): { zoomIn, zoomOut, zoomReset, fit }, what the zoom control drives when nothing else does */
+        base(next) { baseDriver = next; },
         /**
          * Hands the zoom control and its keys to Statenet (views.js): { zoomIn, zoomOut, zoomReset, fit }, or null to give
-         * them back to the board. While it drives, the zoom shown is what showZoom says
+         * them back to the board
          */
-        drive(next) { driver = next; if (!driver) render(false); },
-        /** Shows a zoom (1 is 100%) on the zoom control, while a driver has it */
-        showZoom(value) { if (driver) ed({ zoom: Math.round(value * 100) + '%' }); }
+        drive(next) { driver = next; if (!driver) ed({ zoom: Math.round(baseZoom * 100) + '%' }); },
+        /** Shows a zoom (1 is 100%) on the zoom control: the board's (from 'base'), or Statenet's while it drives */
+        showZoom(value, from) {
+            if (from === 'base') baseZoom = value;
+            if ((from === 'base') === !driver) ed({ zoom: Math.round(value * 100) + '%' });
+        }
     },
     editorChanged,
     onEscape: (listener) => escapeListeners.push(listener),
@@ -1194,7 +1042,7 @@ const PHONE = window.matchMedia('(max-width: 479.98px)');
 // The rail shows in the Screens view only: the other views (views.js) have their tools in their sheet
 let appView = false;
 function showWidth() { ed({ narrowHidden: !NARROW.matches, wideHidden: NARROW.matches || appView, isNarrow: NARROW.matches, noModels: MODELS.length < 2 || PHONE.matches }); }
-NARROW.addEventListener('change', () => { showWidth(); fitted = false; });
+NARROW.addEventListener('change', showWidth);
 PHONE.addEventListener('change', showWidth);
 
 /** Everything the editor shows, written again after it (re)loads */
@@ -1213,7 +1061,6 @@ function showAll() {
         model,
         noModels: MODELS.length < 2 || PHONE.matches
     });
-    render(false);
     showTool();
     showMessages();
     showCalls();
@@ -1225,19 +1072,11 @@ function showAll() {
     if (editing()) watchStage();
 }
 
-if (document.body.classList.contains('editing')) document.body.classList.add('unfitted');
 (function startCanvas() {
     let kept = null;
-    try { kept = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch { /* storage may be blocked */ }
+    try { kept = JSON.parse(localStorage.getItem(FRAME_KEY) || 'null'); } catch { /* storage may be blocked */ }
     turned = Boolean(kept && kept.turned === true);
-    setSize((kept && kept.size) || (innerWidth < 760 ? 'phone' : 'desktop'), false);
-    if (kept && [kept.x, kept.y, kept.zoom].every(Number.isFinite)) {
-        view.x = kept.x;
-        view.y = kept.y;
-        view.zoom = clampZoom(kept.zoom);
-        fitted = true;
-    }
-    render(false);
+    setSize((kept && kept.size) || (innerWidth < 760 ? 'phone' : 'desktop'));
     showTool();
 })();
 
