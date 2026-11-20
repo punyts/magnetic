@@ -6,6 +6,8 @@ import type { Connections } from '../connections/Connections.js';
 import { CallRefused } from '../connections/guard.js';
 import { isKeptView, keptPlaceOf } from '../editor/EditorViews.js';
 import type { EditorViews } from '../editor/EditorViews.js';
+import { LOGIC_GROUPS as GROUPS } from '../logic/LogicPage.js';
+import { THEME_PRESETS } from '../theme/ThemePage.js';
 import { ownerTreeOf, screenInfoOf, themeTokensOf, unitsOf } from '../inspector/viewInfo.js';
 import type { GraphConnection, ThemeBody } from '../inspector/viewInfo.js';
 
@@ -45,13 +47,9 @@ export interface ViewPlace {
     readonly manages: boolean;
 }
 
-/** The theme presets `ui_theme_create` makes a theme from */
-const PRESETS = ['clean', 'moody', 'playful', 'professional'];
 /** The most records of a dataset or a state value a view shows */
 const MOST_RECORDS = 200;
 const NAME = /^[a-z][a-z0-9-]*$/;
-/** The groups of a logic module's units */
-const UNIT_GROUPS = ['machines', 'rules', 'tables', 'computes', 'effects'];
 
 /** A refusal the view shows: a status and a message (a tool's message, which names paths, never values) */
 class Refused extends Error {
@@ -156,7 +154,7 @@ export function viewRoutes(context: ViewRouteContext) {
             }),
             each('logic', async (name) => {
                 const body = await bodyOf(place, 'logic', name);
-                const units = UNIT_GROUPS.flatMap((group) => (isRecord(body[group]) ? Object.keys(body[group] as JsonRecord).map((unit) => ({ group, name: unit })) : []));
+                const units = GROUPS.flatMap((group) => (isRecord(body[group]) ? Object.keys(body[group] as JsonRecord).map((unit) => ({ group, name: unit })) : []));
                 return { name, units, needs: isRecord(body['needs']) ? Object.keys(body['needs']) : [] };
             }),
             names('themes'),
@@ -335,7 +333,7 @@ export function viewRoutes(context: ViewRouteContext) {
         const readers = await themeReaders(place);
         const workspaceThemes = (await place.services.parts.list('themes')).map((summary) => summary.name);
         const name = wanted !== null && themes.includes(wanted) ? wanted : themes[0];
-        const base = { appRevision: app.revision, themes: themes.map((each, index) => ({ name: each, isDefault: index === 0, usedBy: readers.get(each) ?? [] })), workspaceThemes, presets: PRESETS };
+        const base = { appRevision: app.revision, themes: themes.map((each, index) => ({ name: each, isDefault: index === 0, usedBy: readers.get(each) ?? [] })), workspaceThemes, presets: THEME_PRESETS };
         if (name === undefined) return { ...base, theme: null };
         const found = await place.services.parts.findByName('themes', name);
         if (found === undefined) return { ...base, theme: null };
@@ -369,7 +367,7 @@ export function viewRoutes(context: ViewRouteContext) {
                 return { theme: to };
             }
             case 'create': {
-                const preset = typeof body['preset'] === 'string' && PRESETS.includes(body['preset']) ? body['preset'] : 'clean';
+                const preset = typeof body['preset'] === 'string' && THEME_PRESETS.includes(body['preset']) ? body['preset'] : 'clean';
                 if (!NAME.test(name)) throw new Refused(400, 'A theme name is lower case letters, digits and dashes, starting with a letter.');
                 await call(place.services, 'ui_theme_create', { name, preset });
                 await configure([...themes, name]);

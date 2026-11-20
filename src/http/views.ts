@@ -35,28 +35,23 @@ import { SCRIPT_TEXTS } from './text.js';
 /** `/assets/views.css`: the views' sheet, Statenet's frame, token table, lanes and tile layers (a file: the page's policy allows no inline style) */
 export const VIEWS_CSS = [
     // The views are the editor's: with it hidden the app fills the window, whatever view was last shown
-    'body.editing[data-view="theme"] #board, body.editing[data-view="logic"] #board { visibility: hidden; }',
-    'body:not(.editing) .view-sheet, body:not(.editing) .statenet { display: none !important; }',
-    // Statenet is its own page on the board, over the screens; its head and its editor float over it
-    'body.editing[data-view="statenet"] #screens { visibility: hidden; }',
+    'body:not(.editing) .view-sheet, body:not(.editing) .statenet, body:not(.editing) .view-page { display: none !important; }',
+    // Statenet, Theme and Logic are pages of their own on the board, over the screens; the side panel floats over them
+    'body.editing[data-view="statenet"] #screens, body.editing[data-view="theme"] #screens, body.editing[data-view="logic"] #screens { visibility: hidden; }',
+    '.view-page { position: absolute; z-index: 2; overflow: auto; } .view-page[hidden] { display: none; }',
     '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
     '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet.on-canvas .view-body { margin-top: 12px; }',
-    '.view-sheet.on-canvas .view-head h2 { display: none; }',
-    '.view-sheet.on-canvas .view-head:not(:has(.view-tools > *, .view-status:not(:empty), .view-back:not([hidden]))) { display: none; }',
-    '.view-sheet.on-canvas .view-main { visibility: hidden; }',
-    '@media (min-width: 760px) { .view-sheet.on-canvas .view-side { align-self: flex-start; max-height: 100%; } }',
+    '.view-sheet.on-canvas .view-head:not(:has(.view-status:not(:empty))) { display: none; }',
+    '@media (min-width: 760px) { .view-sheet.on-canvas .view-side { align-self: flex-start; max-height: 100%; margin-left: auto; } }',
     '.view-sheet.on-canvas .view-side { pointer-events: auto; border-left: 0; border-top: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet { position: fixed; z-index: 0; left: 12px; right: 12px; top: 64px; bottom: 96px; display: flex; flex-direction: column; background: var(--paper, #fff); color: var(--ink, #111); border-radius: 12px; box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }',
     '@media (max-width: 759.98px) { .view-sheet { top: 112px; left: 8px; right: 8px; bottom: 132px; } }',
     '.view-sheet[hidden] { display: none; }',
     '.view-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line, #e3e3e3); }',
-    '.view-head h2 { margin: 0 8px 0 0; font-size: 16px; }',
-    '.view-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }',
     '.view-status { margin-left: auto; color: var(--muted, #666); font-size: 13px; }',
     '.view-status.refused { color: #b3261e; }',
     '.view-body { flex: 1; display: flex; min-height: 0; }',
-    '.view-main { flex: 1; overflow: auto; padding: 16px; position: relative; }',
     '.view-side { width: min(360px, 45%); overflow-x: hidden; overflow-y: auto; padding: 16px; border-left: 1px solid var(--line, #e3e3e3); }',
     '.view-side[hidden] { display: none; }',
     '.view-side-head { display: flex; align-items: flex-start; gap: 8px; } .view-side-head h3 { flex: 1; min-width: 0; margin-top: 0; overflow-wrap: anywhere; }',
@@ -64,7 +59,7 @@ export const VIEWS_CSS = [
     '.glyph { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }',
     '.view-close .glyph { width: 14px; height: 14px; }',
     '.view-sheet .view-close:hover, .view-close:hover { background: color-mix(in srgb, currentColor 14%, transparent); }',
-    '@media (max-width: 759.98px) { .view-body { flex-direction: column; } .view-side { width: auto; border-left: 0; border-top: 1px solid var(--line, #e3e3e3); max-height: 50%; } }',
+    '@media (max-width: 759.98px) { .view-body { flex-direction: column; } .view-side { width: auto; border-left: 0; border-top: 1px solid var(--line, #e3e3e3); max-height: 50%; } .view-sheet.on-canvas .view-side { margin-top: auto; } }',
     '.view-sheet button, .view-sheet select, .view-sheet input, .view-sheet textarea { font: inherit; }',
     '.view-sheet button { border: 1px solid var(--line, #ccc); background: transparent; color: inherit; border-radius: 999px; padding: 3px 12px; cursor: pointer; }',
     '.view-sheet button.on { background: var(--accent, #3d5afe); border-color: var(--accent, #3d5afe); color: #fff; }',
@@ -87,31 +82,9 @@ export const VIEWS_CSS = [
     '.view-sheet button.remove:hover { background: color-mix(in srgb, currentColor 14%, transparent); }',
     '.view-field { display: grid; gap: 2px; margin: 8px 0; } .view-field > span { font-size: 12px; color: var(--muted, #666); }',
     '.view-output { white-space: pre-wrap; max-height: 200px; overflow: auto; }',
-    '.view-back { font-weight: 600; }',
     '.view-link { color: var(--accent, #3d5afe); font-weight: 600; }',
     '.view-side .view-row button.screen { border-radius: 8px; }',
     '.records { border-collapse: collapse; font-size: 12px; } .records td, .records th { border-bottom: 1px solid var(--line, #eee); padding: 2px 4px; text-align: left; } .records input { width: 110px; }',
-    // Theme
-    '.specimens { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }',
-    '.specimen { border-radius: 12px; padding: 16px; border: 1px solid; }',
-    '.specimen h4 { margin: 0 0 4px; font-size: 18px; } .specimen p { margin: 0 0 12px; } .specimen span { display: inline-block; padding: 4px 12px; border-radius: 999px; }',
-    '.tokens { border-collapse: collapse; width: 100%; font-size: 13px; }',
-    '.tokens th, .tokens td { border-bottom: 1px solid var(--line, #eee); padding: 4px 6px; text-align: left; vertical-align: middle; }',
-    '.tokens th.group { padding-top: 16px; text-transform: uppercase; font-size: 11px; letter-spacing: .06em; color: var(--muted, #666); }',
-    '.tokens .cell { cursor: text; border-radius: 4px; padding: 2px 4px; display: inline-flex; gap: 6px; align-items: center; }',
-    '.tokens .cell:hover { background: color-mix(in srgb, var(--accent, #3d5afe) 8%, transparent); }',
-    '.tokens .cell.set { font-weight: 600; }',
-    '.swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); display: inline-block; }',
-    // Logic
-    '.lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; } @media (max-width: 759.98px) { .lanes { grid-template-columns: 1fr; } }',
-    '.lane h3 { display: flex; gap: 8px; align-items: center; }',
-    '.unit { border: 1px solid var(--line, #ddd); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: var(--paper, #fff); }',
-    '.unit.chosen { outline: 2px solid var(--accent, #3d5afe); }',
-    '.unit header { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }',
-    '.unit-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent, #3d5afe); }',
-    '.unit-paths { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted, #666); overflow-wrap: anywhere; }',
-    '.states { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; } .state { border: 1px solid var(--line, #ccc); border-radius: 999px; padding: 1px 10px; font-size: 12px; } .state.initial { border-color: var(--accent, #3d5afe); }',
-    '.flow { font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; } .flow i { color: var(--muted, #666); font-style: normal; }',
     // The layers on the screen cards: each in its app's own pixels, following the card and scaled as the canvas scales it
     '.views-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }',
     '.views-layer[hidden] { display: none; }',
@@ -195,19 +168,20 @@ function glyphButton(name, label, run, className) {
 }
 
 const sheet = element('section', { className: 'view-sheet', id: 'view-sheet', hidden: true, 'aria-live': 'polite' });
-const heading = element('h2');
-const tools = element('div', { className: 'view-tools' });
 const status = element('p', { className: 'view-status', role: 'status' });
-const main = element('div', { className: 'view-main' });
 const side = element('aside', { className: 'view-side', hidden: true });
-/** Back to Statenet, shown in Theme or Logic when a card of the graph led there */
-const back = element('button', { type: 'button', className: 'view-back', hidden: true, text: T['views.backToGraph'] });
-back.addEventListener('click', () => setView('statenet'));
-sheet.append(element('header', { className: 'view-head' }, [back, heading, tools, status]), element('div', { className: 'view-body' }, [main, side]));
+sheet.append(element('header', { className: 'view-head' }, [status]), element('div', { className: 'view-body' }, [side]));
 document.body.append(sheet);
 
-function says(text, refused) { status.textContent = text || ''; status.classList.toggle('refused', Boolean(refused)); }
-function unchoose() { for (const chosen of document.querySelectorAll('.view-main .chosen')) chosen.classList.remove('chosen'); }
+/** What the view says last: a change saved, or why it was refused. Theme and Logic show it in their page */
+let said = '';
+function says(text, refused) {
+    said = text || '';
+    if (page) { pageWrite({ status: refused ? '' : said, refusal: refused ? said : '', noRefusal: !refused || !said }); return; }
+    status.textContent = said;
+    status.classList.toggle('refused', Boolean(refused));
+}
+function unchoose() { if (chosenUnit !== null) { chosenUnit = null; drawLogic(); } }
 function closeSide() {
     side.hidden = true;
     side.replaceChildren();
@@ -234,7 +208,7 @@ async function change(what, body) {
             return undefined;
         }
         says(T['views.saved']);
-        setTimeout(() => { if (status.textContent === T['views.saved']) says(''); }, 1500);
+        setTimeout(() => { if (said === T['views.saved']) says(''); }, 1500);
         return answer;
     } catch { says(T['views.refused'], true); return undefined; }
 }
@@ -267,11 +241,12 @@ function showSelector() {
     shell.showContext(chips);
 }
 
-/** Shows a view; fromGraph when a card of Statenet led there, so the head offers the way back */
-function setView(name, fromGraph) {
+/** Shows a view; led when a card of Statenet led there, so the page offers the way back */
+function setView(name, led) {
     if (!VIEWS.includes(name)) return;
-    back.hidden = !(fromGraph && view === 'statenet' && (name === 'theme' || name === 'logic'));
+    fromGraph = Boolean(led && view === 'statenet' && (name === 'theme' || name === 'logic'));
     if (name !== 'statenet') leaveGraph();
+    if (name !== 'theme' && name !== 'logic') leavePage();
     view = name;
     store(VIEW_KEY, view);
     document.body.dataset.view = view;
@@ -285,10 +260,10 @@ function setView(name, fromGraph) {
     shell.setTool('use');
     shell.showInspector(false);
     sheet.hidden = false;
-    sheet.classList.toggle('on-canvas', view === 'statenet');
+    sheet.classList.add('on-canvas');
     closeSide();
     says('');
-    heading.textContent = T['shell.view.' + view];
+    pageWrite({ noBack: !fromGraph });
     void load();
 }
 
@@ -572,7 +547,6 @@ function cardOf(node, note) {
 /** Writes the tree to Statenet's page: the cards shown, a pill at the end of each branch with parts left out, the links */
 function drawGraph() {
     if (view !== 'statenet' || !graph || !net) return;
-    tools.replaceChildren();
     const { shown, hidden } = shownNodes();
     const nodes = [];
     const pills = [];
@@ -1051,85 +1025,182 @@ function authFields(auth) {
     return fields;
 }
 
+// ---- Theme and Logic: pages of Magnetic's on the board ---------------------------------------------------------------
+
+/*
+ * Theme and Logic are Magnetic's pages magnetic-theme (src/theme/ThemePage.ts) and magnetic-logic
+ * (src/logic/LogicPage.ts), mounted on the board while their view shows, in the area the editor's panels leave free.
+ * This script writes their $.data.theme or $.data.logic and acts on their emits; the side panel opens beside them
+ */
+const pageHolder = element('div', { className: 'view-page', id: 'view-page', hidden: true });
+document.getElementById('board').append(pageHolder);
+/** The mounted page: its view and its panel; null while neither Theme nor Logic shows */
+let page = null;
+let pageMounting = null;
+/** Whether a card of Statenet led to the view shown, so the page offers the way back */
+let fromGraph = false;
+
+/** The page's data, below $.data.<view> */
+function pageWrite(fields) {
+    if (page) page.panel.write(Object.entries(fields).map(([name, value]) => ({ path: '$.data.' + page.view + '.' + name, value })));
+}
+/** Places the page in the area the editor's panels leave free */
+function placePage() {
+    const free = shell.canvas.freeArea();
+    Object.assign(pageHolder.style, { left: free.left + 'px', top: free.top + 'px', width: Math.max(0, free.width) + 'px', height: Math.max(0, free.height) + 'px' });
+}
+addEventListener('resize', () => { if (page) placePage(); });
+
+/** Mounts the view's page on the board; true once it is there */
+function enterPage(name) {
+    pageHolder.hidden = false;
+    placePage();
+    if (page && page.view === name) return Promise.resolve(true);
+    if (pageMounting) return pageMounting.then(() => enterPage(name));
+    leavePage();
+    pageHolder.hidden = false;
+    pageMounting = (async () => {
+        try {
+            const response = await fetch('/assets/' + name + '.json', { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error(T['views.refused']);
+            const served = await response.json();
+            if (view !== name) return false;
+            pageHolder.replaceChildren();
+            page = { view: name, panel: host.mount(pageHolder, { document: served.document, icons: served.icons, inPage: true }, T['shell.view.' + name]) };
+            pageWrite({ noBack: !fromGraph });
+            return true;
+        } catch (error) {
+            says(error.message, true);
+            return false;
+        } finally {
+            pageMounting = null;
+        }
+    })();
+    return pageMounting;
+}
+function leavePage() {
+    if (page) page.panel.dispose();
+    page = null;
+    pageHolder.replaceChildren();
+    pageHolder.hidden = true;
+}
+
+pageHolder.addEventListener('stateui:emit', (event) => {
+    const { name, payload } = event.detail || {};
+    if (!page) return;
+    if (name === 'back') { setView('statenet'); return; }
+    if (page.view === 'theme') void themeEmit(name, payload);
+    else if (page.view === 'logic') void logicEmit(name, payload);
+});
+
 // ---- Theme ---------------------------------------------------------------------------------------------------------
 
+/** The modes the page has a column and a specimen for (THEME_MODES) */
+const THEME_MODES = ['light', 'dark', 'contrast'];
 let chosenTheme = null;
 let theme = null;
+/** The token records last written to the page, by path: what a changed record is compared with */
+let themeRows = new Map();
 /** The shared themes this person chose to edit for every app that uses them, this visit */
 const editShared = new Set();
 
-function colorish(value) { return typeof value === 'string' && /^(#|rgb|hsl|oklch|color-mix)/.test(value); }
 function valueIn(mode, path) { const token = theme.tokens.find((each) => each.path === path); return token ? token.values[mode] : undefined; }
 
+/** The reads of the Theme and Logic views in flight: only the last one started draws, so a read that began before a write cannot undo what the write showed */
+let readTurn = 0;
 async function loadTheme(name) {
-    try { theme = await getJson('/theme' + (name ? '?theme=' + encodeURIComponent(name) : '')); } catch (error) { says(error.message, true); return; }
-    if (view !== 'theme') return;
+    const turn = ++readTurn;
+    let answer;
+    try { answer = await getJson('/theme' + (name ? '?theme=' + encodeURIComponent(name) : '')); } catch (error) { if (turn === readTurn) says(error.message, true); return; }
+    if (turn !== readTurn) return;
+    theme = answer;
+    if (view !== 'theme' || !(await enterPage('theme')) || view !== 'theme') return;
     chosenTheme = theme.theme;
-    themeTools();
-    if (!theme.theme) { main.replaceChildren(element('p', { className: 'view-note', text: T['views.noTheme'] })); return; }
-    const shared = theme.usedBy.length > 0 && !editShared.has(theme.theme);
-    const ask = shared ? element('div', { className: 'view-ask', role: 'alert' }, [
-        element('span', { text: fill(T['views.sharedTheme'], { apps: theme.usedBy.join(', ') }) }),
-        button(T['views.editForAll'], () => { editShared.add(theme.theme); void loadTheme(theme.theme); }),
-        button(T['views.cloneForApp'], () => void cloneTheme())
-    ]) : null;
-    const specimens = element('div', { className: 'specimens' }, theme.modes.map((mode) => {
-        const card = element('div', { className: 'specimen' }, [
-            element('h4', { text: T['views.mode.' + mode] || mode }),
-            element('p', { text: T['views.specimenText'] }),
-            element('span', { text: T['views.specimenButton'] })
-        ]);
-        card.style.background = shown(valueIn(mode, 'color.surface.base'));
-        card.style.color = shown(valueIn(mode, 'color.text.base'));
-        card.style.borderColor = shown(valueIn(mode, 'color.border.base'));
-        const pill = card.querySelector('span');
-        pill.style.background = shown(valueIn(mode, 'color.accent.base'));
-        pill.style.color = shown(valueIn(mode, 'color.accent.on'));
-        const family = theme.tokens.find((token) => token.type === 'fontFamily');
-        if (family) card.style.fontFamily = shown(family.values[mode]);
-        return card;
-    }));
-    const table = element('table', { className: 'tokens' }, [element('tr', {}, [element('th', { text: T['views.token'] }), element('th', { text: T['views.allModes'] }), ...theme.modes.map((mode) => element('th', { text: T['views.mode.' + mode] || mode }))])]);
+    const current = theme.themes.find((each) => each.name === theme.theme);
+    const others = theme.workspaceThemes.filter((each) => !theme.themes.some((used) => used.name === each));
+    const fields = {
+        themes: Object.fromEntries(theme.themes.map((each) => [each.name, { _label: (each.isDefault ? '★ ' : '') + each.name }])),
+        chosen: theme.theme || '',
+        others: Object.fromEntries(others.map((each) => [each, { _label: each }])),
+        adding: '',
+        noTheme: !theme.theme,
+        hasTheme: Boolean(theme.theme),
+        noDefault: !current || current.isDefault,
+        noClone: !current || theme.usedBy.length === 0,
+        noRemove: !current,
+        noOthers: others.length === 0
+    };
+    if (!theme.theme) { themeRows = new Map(); pageWrite({ ...fields, tokens: [], notShared: true }); return; }
+    const locked = theme.usedBy.length > 0 && !editShared.has(theme.theme);
+    const specimens = Object.fromEntries(THEME_MODES.map((mode) => [mode, {
+        surface: shown(valueIn(mode, 'color.surface.base')),
+        border: shown(valueIn(mode, 'color.border.base')),
+        text: shown(valueIn(mode, 'color.text.base')),
+        accent: shown(valueIn(mode, 'color.accent.base')),
+        accentOn: shown(valueIn(mode, 'color.accent.on'))
+    }]));
     let group = '';
-    for (const token of theme.tokens) {
-        if (token.group !== group) { group = token.group; table.append(element('tr', {}, [element('th', { className: 'group', colspan: 2 + theme.modes.length, text: group })])); }
-        table.append(element('tr', { 'data-token': token.path }, [
-            element('td', { text: token.path.slice(group.length + 1) || token.path }),
-            element('td', {}, [cell(token, null, shared)]),
-            ...theme.modes.map((mode) => element('td', {}, [cell(token, mode, shared)]))
-        ]));
-    }
-    main.replaceChildren(...[ask, specimens, table].filter(Boolean));
+    const tokens = theme.tokens.map((token) => {
+        const first = token.group !== group;
+        group = token.group;
+        const row = { id: token.path, group: first ? group : '', name: token.path.slice(group.length + 1) || token.path, locked };
+        const own = 'own' in token;
+        row.all = own ? shown(token.own) : '';
+        row.allShown = '';
+        row.allLabel = token.path + ' ' + T['views.allModes'];
+        for (const mode of THEME_MODES) {
+            const set = Object.hasOwn(token.modes, mode);
+            row[mode] = set ? shown(token.modes[mode]) : '';
+            row[mode + 'Shown'] = theme.modes.includes(mode) ? shown(token.values[mode]) : '';
+            row[mode + 'Label'] = token.path + ' ' + (T['views.mode.' + mode] || mode);
+        }
+        return row;
+    });
+    themeRows = new Map(tokens.map((row) => [row.id, row]));
+    pageWrite({ ...fields, specimens, tokens, notShared: !locked, sharedText: locked ? fill(T['views.sharedTheme'], { apps: theme.usedBy.join(', ') }) : '' });
 }
 
-/** One token's value for all modes (mode null) or in one mode: what it shows, and pressed, a field that writes it */
-function cell(token, mode, locked) {
-    const set = mode === null ? 'own' in token : Object.hasOwn(token.modes, mode);
-    const value = mode === null ? (set ? token.own : '') : token.values[mode];
-    const box = element('span', { className: 'cell' + (set ? ' set' : ''), tabindex: locked ? undefined : 0, role: locked ? undefined : 'button', 'aria-label': token.path + ' ' + (mode || T['views.allModes']) });
-    const plain = mode === null ? (set ? valueIn(theme.modes[0], token.path) : '') : value;
-    if (colorish(plain)) { const swatch = element('i', { className: 'swatch' }); swatch.style.background = plain; box.append(swatch); }
-    box.append(document.createTextNode(mode === null ? shown(value) || '·' : shown(set ? token.modes[mode] : value)));
-    if (locked) return box;
-    const edit = () => {
-        const input = element('input', { value: shown(mode === null ? token.own : set ? token.modes[mode] : value), 'aria-label': token.path });
-        box.replaceWith(input);
-        input.focus();
-        input.select();
-        let done = false;
-        const finish = async (save) => {
-            if (done) return;
-            done = true;
-            if (save && input.value.trim() !== '') await writeToken(token, mode, typed(input.value.trim()));
-            else if (save && mode === null && 'own' in token) await writeTheme([{ op: 'remove', path: token.path }]);
-            else input.replaceWith(box);
-        };
-        input.addEventListener('keydown', (event) => { if (event.key === 'Enter') void finish(true); if (event.key === 'Escape') { event.stopPropagation(); void finish(false); } });
-        input.addEventListener('blur', () => void finish(false));
+async function themeEmit(name, payload) {
+    // A button's emit sends the value it is given; a field's change sends { value }
+    const value = typeof payload === 'string' ? payload : payload && typeof payload.value === 'string' ? payload.value : '';
+    const act = async (action, extra) => {
+        const answer = await change('theme', { action, theme: theme && theme.theme, ...extra });
+        if (answer) await loadTheme(answer.theme || null);
     };
-    box.addEventListener('click', edit);
-    box.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); edit(); } });
-    return box;
+    switch (name) {
+        case 'choose': if (value && (!theme || value !== theme.theme)) await loadTheme(value); return;
+        case 'token': if (payload && typeof payload === 'object') await tokenChanged(payload); return;
+        case 'editAll': if (theme && theme.theme) { editShared.add(theme.theme); await loadTheme(theme.theme); } return;
+        case 'clone': if (theme && theme.theme) await cloneTheme(); return;
+        case 'default': if (theme && theme.theme) await act('default'); return;
+        case 'remove': if (theme && theme.theme && confirm(fill(T['views.removeThemeConfirm'], { name: theme.theme }))) await act('remove'); return;
+        case 'add': if (value) { const answer = await change('theme', { action: 'add', theme: value }); if (answer) await loadTheme(answer.theme); else pageWrite({ adding: '' }); } return;
+        case 'create': {
+            const preset = theme && theme.presets.includes(value) ? value : 'clean';
+            const chosen = prompt(T['views.themeName'], freeThemeName(preset));
+            if (!chosen) return;
+            const answer = await change('theme', { action: 'create', theme: chosen.trim(), preset });
+            if (answer) await loadTheme(answer.theme);
+            return;
+        }
+        default:
+    }
+}
+
+/**
+ * A token's record came back with a value changed in one column: all modes, or one mode. A value cleared for all modes
+ * takes the theme's own value away; one cleared in a mode, or a record that changed nothing, is shown as it was
+ */
+async function tokenChanged(record) {
+    const before = themeRows.get(record.id);
+    const token = theme && theme.tokens.find((each) => each.path === record.id);
+    if (!before || !token) return;
+    const column = ['all', ...THEME_MODES].find((each) => typeof record[each] === 'string' && record[each] !== before[each]);
+    if (column === undefined) return;
+    const text = record[column].trim();
+    if (text !== '') await writeToken(token, column === 'all' ? null : column, typed(text));
+    else if (column === 'all' && 'own' in token) await writeTheme([{ op: 'remove', path: token.path }]);
+    else await loadTheme(theme.theme);
 }
 
 /**
@@ -1155,7 +1226,7 @@ async function writeToken(token, mode, value) {
 
 async function writeTheme(operations) {
     const answer = await change('theme', { action: 'write', theme: theme.theme, revision: theme.revision, operations });
-    if (!answer) { void loadTheme(theme.theme); return; }
+    if (!answer) { await loadTheme(theme.theme); return; }
     const failing = (answer.contrast || []).filter((pair) => pair.passesAA === false);
     await loadTheme(theme.theme);
     if (failing.length > 0) says(fill(T['views.contrast'], { count: failing.length, pairs: failing.slice(0, 3).map((pair) => pair.mode + ': ' + pair.text + ' / ' + pair.surface + ' ' + pair.ratio.toFixed(1)).join(', ') }), true);
@@ -1174,39 +1245,11 @@ async function cloneTheme() {
     if (answer) { shell.editorChanged(); await loadTheme(answer.theme); }
 }
 
-function themeTools() {
-    const items = theme.themes.map((each) => {
-        const pick = button((each.isDefault ? '★ ' : '') + each.name, () => void loadTheme(each.name), each.name === theme.theme ? 'on' : '');
-        pick.setAttribute('aria-pressed', String(each.name === theme.theme));
-        return pick;
-    });
-    const act = (action, extra) => async () => {
-        const answer = await change('theme', { action, theme: theme.theme, ...extra });
-        if (answer) await loadTheme(answer.theme || null);
-    };
-    const current = theme.themes.find((each) => each.name === theme.theme);
-    if (current && !current.isDefault) items.push(button(T['views.makeDefault'], act('default')));
-    if (current && theme.usedBy.length > 0) items.push(button(T['views.cloneForApp'], () => void cloneTheme()));
-    if (current) items.push(button(T['views.removeTheme'], () => { if (confirm(fill(T['views.removeThemeConfirm'], { name: theme.theme }))) void act('remove')(); }, 'danger'));
-    const others = theme.workspaceThemes.filter((name) => !theme.themes.some((each) => each.name === name));
-    if (others.length > 0) {
-        const add = element('select', { 'aria-label': T['views.addTheme'] }, [element('option', { value: '', text: T['views.addTheme'] }), ...others.map((name) => element('option', { value: name, text: name }))]);
-        add.addEventListener('change', async () => { if (!add.value) return; const answer = await change('theme', { action: 'add', theme: add.value }); if (answer) await loadTheme(answer.theme); });
-        items.push(add);
-    }
-    const preset = element('select', { 'aria-label': T['views.preset'] }, theme.presets.map((name) => element('option', { value: name, text: T['views.preset.' + name] || name })));
-    items.push(preset, button(T['views.newTheme'], async () => {
-        const name = prompt(T['views.themeName'], freeThemeName(preset.value));
-        if (!name) return;
-        const answer = await change('theme', { action: 'create', theme: name.trim(), preset: preset.value });
-        if (answer) await loadTheme(answer.theme);
-    }));
-    tools.replaceChildren(...items);
-}
-
 // ---- Logic ---------------------------------------------------------------------------------------------------------
 
 let logic = null;
+/** The unit open in the side panel, lit in its lane */
+let chosenUnit = null;
 function triggerText(trigger) {
     if (!trigger || typeof trigger !== 'object') return shown(trigger);
     const at = trigger.path || (trigger.result ? '→ ' + trigger.result : '');
@@ -1221,53 +1264,13 @@ function commandsText(commands) {
     return list.map((command) => command && typeof command === 'object' ? [command.command, command.target || command.path || command.name].filter(Boolean).join(' ') : shown(command)).join(', ') || '—';
 }
 
-function unitBody(unit) {
+/** What a unit does, in a line: a machine's transitions, a rule's when and do, an effect's request, a table's or compute's inputs and outputs */
+function doesText(unit) {
     const value = unit.value || {};
-    if (unit.group === 'machines') {
-        const states = new Set([value.initial]);
-        for (const transition of value.transitions || []) { if (transition.from) [].concat(transition.from).forEach((name) => states.add(name)); if (transition.to) states.add(transition.to); }
-        return [
-            element('div', { className: 'states' }, [...states].filter(Boolean).map((name) => element('span', { className: 'state' + (name === value.initial ? ' initial' : ''), text: name }))),
-            ...(value.transitions || []).map((transition) => element('p', { className: 'flow' }, [
-                document.createTextNode([].concat(transition.from || '*').join('|') + ' → ' + (transition.to || '·') + ' '),
-                element('i', { text: T['views.when'] + ' ' + triggerText(transition.when) + (transition.do ? ' · ' + commandsText(transition.do) : '') })
-            ]))
-        ];
-    }
-    if (unit.group === 'rules') return [element('p', { className: 'flow' }, [element('i', { text: T['views.when'] + ' ' }), document.createTextNode(triggerText(value.when) + ' → ' + commandsText(value.do))])];
-    if (unit.group === 'effects') return [element('p', { className: 'flow', text: triggerText({ path: value.request }) + ' → ' + commandsText(value.run) })];
-    return [element('p', { className: 'flow', text: shown(value.inputs) + ' → ' + shown(value.outputs) })];
-}
-
-async function loadLogic() {
-    try { logic = await getJson('/logic'); } catch (error) { says(error.message, true); return; }
-    if (view !== 'logic') return;
-    const group = element('select', { 'aria-label': T['views.unitKind'] }, Object.keys(UNIT_KINDS).map((name) => element('option', { value: name, text: T['views.unit.' + UNIT_KINDS[name]] })));
-    tools.replaceChildren(group, button(T['views.newUnit'], () => {
-        const name = prompt(T['views.unitName'], '');
-        if (!name) return;
-        unitEditor({ group: group.value, kind: UNIT_KINDS[group.value], name: name.trim(), value: UNIT_TEMPLATES[group.value], own: true, isNew: true }, null);
-    }));
-    const lane = (runs) => element('section', { className: 'lane', 'data-runs': runs }, [
-        element('h3', { text: T['views.runs.' + runs] }),
-        element('p', { className: 'view-note', text: T['views.lane.' + runs] }),
-        ...logic.units.filter((unit) => unit.runs === runs).map((unit) => {
-            const card = element('article', { className: 'unit', 'data-unit': unit.group + '.' + unit.name }, [
-                element('header', {}, [element('span', { className: 'unit-kind', text: T['views.unit.' + unit.kind] || unit.kind }), element('b', { text: unit.name }), unit.position !== undefined ? element('span', { className: 'view-note', text: '#' + (unit.position + 1) }) : null]),
-                ...unitBody(unit),
-                element('p', { className: 'unit-paths', text: (unit.reads.length ? T['views.reads'] + ' ' + unit.reads.join(', ') : '') + (unit.writes.length ? '  ' + T['views.writes'] + ' ' + unit.writes.join(', ') : '') })
-            ]);
-            card.addEventListener('click', () => unitEditor(unit, card));
-            return card;
-        })
-    ]);
-    const handlers = element('section', {}, [
-        element('h3', { text: T['views.handlers'] }),
-        element('p', { className: 'view-note', text: T['views.handlersNote'] }),
-        ...logic.handlers.map((handler) => element('p', { className: 'flow' }, [element('b', { text: handler.screen + ' ' }), document.createTextNode(handler.node.replace(/^\$\.screens\.[^.]+\.root/, '') + ' · ' + handler.event + ' → ' + commandsText(handler.commands))]))
-    ]);
-    main.replaceChildren(element('div', { className: 'lanes' }, [lane('server'), lane('browser')]), handlers);
-    if (logic.units.length === 0) main.prepend(element('p', { className: 'view-note', text: T['views.noUnits'] }));
+    if (unit.group === 'machines') return (value.transitions || []).map((transition) => [].concat(transition.from || '*').join('|') + ' → ' + (transition.to || '·')).join(', ') || shown(value.initial);
+    if (unit.group === 'rules') return T['views.when'] + ' ' + triggerText(value.when) + ' → ' + commandsText(value.do);
+    if (unit.group === 'effects') return triggerText({ path: value.request }) + ' → ' + commandsText(value.run);
+    return shown(value.inputs) + ' → ' + shown(value.outputs);
 }
 
 /** The server keeps what a browser cannot be trusted with: a guard, an effect, a call, a $.server path */
@@ -1276,36 +1279,95 @@ function serverOnly(unit) {
     return unit.kind === 'guard' || unit.group === 'effects' || text.includes('"call"') || text.includes('$.server');
 }
 
-function unitEditor(unit, card) {
+function unitId(unit) { return unit.group + '.' + unit.name; }
+
+async function loadLogic() {
+    const turn = ++readTurn;
+    let answer;
+    try { answer = await getJson('/logic'); } catch (error) { if (turn === readTurn) says(error.message, true); return; }
+    if (turn !== readTurn) return;
+    logic = answer;
+    if (view !== 'logic' || !(await enterPage('logic')) || view !== 'logic') return;
+    drawLogic();
+}
+
+function drawLogic() {
+    if (!logic || !page || page.view !== 'logic') return;
+    const units = logic.units.map((unit, index) => ({
+        id: unitId(unit),
+        runs: unit.runs === 'browser' ? 'browser' : 'server',
+        order: index + 1,
+        kind: T['views.unit.' + unit.kind] || unit.kind,
+        title: unit.name + (unit.position !== undefined ? ' #' + (unit.position + 1) : ''),
+        does: doesText(unit),
+        paths: (unit.reads.length ? T['views.reads'] + ' ' + unit.reads.join(', ') : '') + (unit.writes.length ? '  ' + T['views.writes'] + ' ' + unit.writes.join(', ') : ''),
+        chosen: unitId(unit) === chosenUnit,
+        fixed: !unit.own,
+        noServer: !unit.own || unit.runs !== 'browser',
+        noBrowser: !unit.own || unit.runs === 'browser' || serverOnly(unit)
+    }));
+    const handlers = logic.handlers.map((handler, index) => ({ id: 'h' + index, screen: handler.screen, does: handler.node.replace(/^\$\.screens\.[^.]+\.root/, '') + ' · ' + handler.event + ' → ' + commandsText(handler.commands) }));
+    pageWrite({ units, handlers, hasUnits: units.length > 0, noHandlers: handlers.length === 0 });
+}
+
+async function logicEmit(name, payload) {
+    const id = typeof payload === 'string' ? payload : payload && typeof payload === 'object' && typeof payload.key === 'string' ? payload.key : '';
+    const unit = logic && logic.units.find((each) => unitId(each) === id);
+    switch (name) {
+        case 'open': if (unit) unitEditor(unit); return;
+        case 'move': {
+            if (!unit) return;
+            // The button moves a unit to the other lane; a drag says which lane it was dropped in
+            const to = typeof payload === 'string' ? (unit.runs === 'browser' ? 'server' : 'browser') : payload.to;
+            if (to === (unit.runs === 'browser' ? 'browser' : 'server')) { drawLogic(); return; }
+            if (!unit.own) { says(fill(T['views.fromModule'], { module: unit.module || '' }), true); drawLogic(); return; }
+            if (to === 'browser' && serverOnly(unit)) { says(T['views.mustServer'], true); drawLogic(); return; }
+            const value = JSON.parse(JSON.stringify(unit.value || {}));
+            if (to === 'browser') value.runs = 'browser'; else delete value.runs;
+            if (!(await writeUnit(id, value))) drawLogic();
+            return;
+        }
+        case 'delete': if (unit && unit.own && confirm(fill(T['views.deleteUnitConfirm'], { name: unit.name }))) await writeUnit(id, null); return;
+        case 'create': {
+            const group = Object.hasOwn(UNIT_KINDS, payload) ? payload : 'rules';
+            const unitName = prompt(T['views.unitName'], '');
+            if (!unitName) return;
+            unitEditor({ group, kind: UNIT_KINDS[group], name: unitName.trim(), value: UNIT_TEMPLATES[group], own: true, isNew: true });
+            return;
+        }
+        default:
+    }
+}
+
+/** Sets a unit, or removes it (value null), through the person's tools; true when it was written */
+async function writeUnit(id, value) {
+    const answer = await change('logic', { unit: id, revision: logic.revision, ...(value === null ? { remove: true } : { value }) });
+    if (!answer) return false;
+    shell.editorChanged();
+    closeSide();
+    await loadLogic();
+    return true;
+}
+
+/** A unit as JSON at the side: saved when it is the app's own, shown when it comes from a logic module */
+function unitEditor(unit) {
     const text = element('textarea', { 'aria-label': unit.group + '.' + unit.name });
     text.value = JSON.stringify(unit.value, null, 2);
-    const id = unit.group + '.' + unit.name;
-    const write = async (value) => {
-        const answer = await change('logic', { unit: id, revision: logic.revision, ...(value === null ? { remove: true } : { value }) });
-        if (answer) { shell.editorChanged(); closeSide(); await loadLogic(); }
-    };
-    const parsed = () => { try { return JSON.parse(text.value); } catch { says(T['views.notJson'], true); return undefined; } };
+    const id = unitId(unit);
     const parts = [element('p', { className: 'view-note', text: (T['views.unit.' + unit.kind] || unit.kind) + ' · ' + T['views.runs.' + (unit.runs || 'server')] })];
     if (!unit.own) {
         parts.push(element('p', { className: 'view-note', text: fill(T['views.fromModule'], { module: unit.module || '' }) }), text);
         text.readOnly = true;
     } else {
-        parts.push(text);
-        const row = element('div', { className: 'view-row' }, [button(T['views.save'], () => { const value = parsed(); if (value !== undefined) void write(value); })]);
-        if (!unit.isNew) {
-            const browser = unit.runs === 'browser';
-            const move = button(browser ? T['views.moveToServer'] : T['views.moveToBrowser'], () => {
-                const value = parsed();
-                if (value === undefined) return;
-                if (browser) delete value.runs; else value.runs = 'browser';
-                void write(value);
-            });
-            if (!browser && serverOnly(unit)) { move.disabled = true; move.title = T['views.mustServer']; }
-            row.append(move, button(T['views.delete'], () => { if (confirm(fill(T['views.deleteUnitConfirm'], { name: unit.name }))) void write(null); }, 'danger'));
-        }
-        parts.push(row);
+        parts.push(text, element('div', { className: 'view-row' }, [button(T['views.save'], () => {
+            let value;
+            try { value = JSON.parse(text.value); } catch { says(T['views.notJson'], true); return; }
+            void writeUnit(id, value);
+        })]));
     }
-    sideOpen(card, unit.name, parts);
+    sideOpen(null, unit.name, parts, id);
+    chosenUnit = unit.isNew ? null : id;
+    drawLogic();
 }
 
 // ---- The layers on the screen tiles --------------------------------------------------------------------------------
@@ -1498,14 +1560,22 @@ function follow() {
 requestAnimationFrame(follow);
 // A change to the app redraws the view; while a field of the sheet is being edited, once it is left
 let reloadWaiting = false;
-const editing = () => sheet.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+/** Whether the person types in a field of the side panel or of the page shown, whose shadow roots hold the field */
+const editing = () => {
+    let active = document.activeElement;
+    if (!active || !(sheet.contains(active) || pageHolder.contains(active))) return false;
+    while (active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+    return /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+};
 new MutationObserver(() => {
     if (view === 'screens') { if (layersShown()) void drawLayers(); return; }
     // The revision is written again as it was (a reconnect): Statenet's tree is read only for a new one
     if (view === 'statenet' && graph && (document.body.dataset.revision || null) === graphRevision) return;
     if (editing()) reloadWaiting = true; else void load();
 }).observe(document.body, { attributes: true, attributeFilter: ['data-revision'] });
-sheet.addEventListener('focusout', () => setTimeout(() => { if (reloadWaiting && !editing()) { reloadWaiting = false; if (view !== 'screens') void load(); } }, 0));
+const reloadLeft = () => setTimeout(() => { if (reloadWaiting && !editing()) { reloadWaiting = false; if (view !== 'screens') void load(); } }, 0);
+sheet.addEventListener('focusout', reloadLeft);
+pageHolder.addEventListener('focusout', reloadLeft);
 addEventListener('stateui:change', (event) => {
     const path = event.detail && typeof event.detail.path === 'string' ? event.detail.path : '';
     if (path.startsWith('$.route') && view === 'screens') void drawLayers();

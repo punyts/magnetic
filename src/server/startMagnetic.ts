@@ -53,6 +53,8 @@ import { EDITOR, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
 import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
 import { SCREENS } from '../screens/ScreensPage.js';
 import { STATENET } from '../statenet/StatenetPage.js';
+import { THEME } from '../theme/ThemePage.js';
+import { LOGIC } from '../logic/LogicPage.js';
 import type { PageAppDocument } from '../pages/PageApps.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
@@ -117,6 +119,13 @@ const MAX_NODE_OPERATIONS = 20;
 /** A state or node path a person points the agent at ("Ask the agent" in the State tab), and how many a turn takes */
 const FOCUS_PATH = /^\$\.(data|app|screens)(\.[A-Za-z0-9_-]{1,64}){0,16}$/;
 const MAX_FOCUS = 5;
+/** The editor's pages that `views.ts` and `screens.ts` mount, by the path each is served at to a signed-in person */
+const EDITOR_PAGES: ReadonlyMap<string, PageSpec> = new Map([
+    ['/assets/screens.json', SCREENS],
+    ['/assets/statenet.json', STATENET],
+    ['/assets/theme.json', THEME],
+    ['/assets/logic.json', LOGIC]
+]);
 
 /** An app part, as the views find it */
 type AppPart = NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>;
@@ -569,7 +578,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** Magnetic's own pages as its code makes them, in the system workspace */
     const pageApps = new PageApps(fixedWorkspace(SYSTEM_USER_ID), toolsOf, stamps, exclusive);
     /** Magnetic's own pages as admins edit and publish them (docs/design/magnetic-editable.md) */
-    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS], exclusive);
+    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC], exclusive);
     /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
     const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
     /** Each person's editor, made from Magnetic's version and kept when they change it */
@@ -1262,9 +1271,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/javascript', INSPECT_JS);
             return true;
         }
-        if (method === 'GET' && (path === '/assets/statenet.json' || path === '/assets/screens.json')) {
+        const editorPage = method === 'GET' ? EDITOR_PAGES.get(path) : undefined;
+        if (editorPage !== undefined) {
             if ((await signedIn(request)) === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
-            const spec = path === '/assets/screens.json' ? SCREENS : STATENET;
+            const spec = editorPage;
             // What an admin published, or Magnetic's own when that does not load
             try {
                 sendJson(response, 200, await sitePages.served(spec));

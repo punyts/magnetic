@@ -250,10 +250,12 @@ The commands are:
       Functions are hard IP: `$.functions.<group>.<name>` and a library component's `$.components.<component>.functions.<name>`,
       each a card with its kind and where it runs, no + and no editor; its panel shows its summary and schemas, and a
       unit links to the function it runs.
-    - **Theme:** a sheet over the board: a specimen per mode and a token table edited in place, per mode. It offers Edit for all or Clone for
-      a theme other apps use.
-    - **Logic:** a sheet over the board: units in a Server lane and a Browser lane, with Move to the browser or server, plus the screens'
-      handlers.
+    - **Theme:** a page of Magnetic's on the board (`magnetic-theme`): a specimen per mode and a table of tokens whose value
+      for all modes and in each mode is edited in place. A theme other apps use is read-only until Edit for all or Clone
+      for this app.
+    - **Logic:** a page of Magnetic's on the board (`magnetic-logic`): unit cards in a Server lane and a Browser lane,
+      dragged or moved with their buttons between them, deleted from the card and opened in the side panel, plus the
+      screens' handlers.
 
     The routes are `/edit/<appId>/views/<name>` (`src/server/viewRoutes.ts`), each through the person's own tools.
     Each turn carries the view's part of the app (`ui_get` of the theme, `ui_state_get` on `$.data`, `ui_tree`

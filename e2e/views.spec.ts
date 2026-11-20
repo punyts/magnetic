@@ -11,6 +11,16 @@ async function pickView(editor: EditorPage, page: Page, name: 'Screens' | 'State
 }
 
 const sheet = (page: Page) => page.locator('#view-sheet');
+/** The Theme or Logic view's page on the board */
+const viewPage = (page: Page) => page.locator('#view-page');
+/** The theme the Theme view shows */
+const chosenTheme = (page: Page) => viewPage(page).getByRole('combobox', { name: 'Theme', exact: true });
+/** Makes a theme of the app's own from the Theme view's page, named as the prompt is answered */
+async function newTheme(page: Page, name: string): Promise<void> {
+    page.once('dialog', (dialog) => void dialog.accept(name));
+    await viewPage(page).getByRole('button', { name: 'New theme' }).click();
+    await expect(chosenTheme(page)).toHaveValue(name);
+}
 /** Statenet's page, a frame on the board */
 const graph = (page: Page) => page.locator('#statenet');
 /** A card or a pill of the Statenet tree by its state path */
@@ -97,9 +107,7 @@ test.describe("The editor's views", () => {
         // Arrange: a theme of the app's own
         const name = uniqueName(info, 'tree');
         await pickView(editor, page, 'Theme');
-        page.once('dialog', (dialog) => void dialog.accept(name));
-        await sheet(page).getByRole('button', { name: 'New theme' }).click();
-        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+        await newTheme(page, name);
 
         // Act
         await pickView(editor, page, 'Statenet');
@@ -192,9 +200,7 @@ test.describe("The editor's views", () => {
         // Arrange: a theme of the app's own
         const name = uniqueName(info, 'card');
         await pickView(editor, page, 'Theme');
-        page.once('dialog', (dialog) => void dialog.accept(name));
-        await sheet(page).getByRole('button', { name: 'New theme' }).click();
-        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+        await newTheme(page, name);
         await pickView(editor, page, 'Statenet');
         const side = sheet(page).locator('.view-side');
 
@@ -213,10 +219,13 @@ test.describe("The editor's views", () => {
         await expect(node(page, `$.themes.${name}`)).toBeVisible();
         await side.getByRole('button', { name: 'Edit in the Theme view' }).click();
         await expect(page.locator('body')).toHaveAttribute('data-view', 'theme');
-        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
-        await sheet(page).getByRole('button', { name: '← Statenet' }).click();
+        await expect(chosenTheme(page)).toHaveValue(name);
+        await viewPage(page).getByRole('button', { name: '← Statenet' }).click();
         await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
-        await expect(sheet(page).getByRole('button', { name: '← Statenet' })).toBeHidden();
+        // Picked from the selector, the Theme view has no way back
+        await pickView(editor, page, 'Theme');
+        await expect(chosenTheme(page)).toBeVisible();
+        await expect(viewPage(page).getByRole('button', { name: '← Statenet' })).toBeHidden();
     });
     test("a function is hard IP: the host's under $.functions and a component's under its component, each with a panel of what it does and nothing to edit", async ({ page }) => {
         // Arrange
@@ -325,8 +334,8 @@ test.describe("The editor's views", () => {
 
         // Assert
         await expect(page.locator('body')).toHaveAttribute('data-view', 'logic');
-        await expect(sheet(page).locator('[data-unit*="seen"]')).toBeVisible();
-        await sheet(page).getByRole('button', { name: '← Statenet' }).click();
+        await expect(viewPage(page).locator('ui-card').filter({ hasText: 'seen' })).toBeVisible();
+        await viewPage(page).getByRole('button', { name: '← Statenet' }).click();
         await expect(node(page, `$.logic.${module}`)).toBeVisible();
     });
 
@@ -344,38 +353,78 @@ test.describe("The editor's views", () => {
     });
 
     test("the Theme view makes a theme and edits a token's value in one mode", async ({ page }, info) => {
-        // Theme names are the owner's: each run and project makes its own
+        // Arrange: theme names are the owner's, so each run and project makes its own
         const name = uniqueName(info, 'theme');
         await pickView(editor, page, 'Theme');
-        page.once('dialog', (dialog) => void dialog.accept(name));
-        await sheet(page).getByRole('button', { name: 'New theme' }).click();
-        await expect(sheet(page).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
-        // The specimens show the theme in each mode, the table each token
-        await expect(sheet(page).locator('.specimen')).not.toHaveCount(0);
-        await sheet(page).getByRole('button', { name: 'color.accent.base dark' }).click();
-        const field = sheet(page).getByRole('textbox', { name: 'color.accent.base' });
-        await field.fill('#ff6600');
-        await field.press('Enter');
-        await expect(sheet(page).getByRole('button', { name: 'color.accent.base dark' })).toContainText('#ff6600');
-        await expect(sheet(page).getByRole('button', { name: 'color.accent.base light' })).not.toContainText('#ff6600');
+        await newTheme(page, name);
+        const cell = (label: string) => viewPage(page).getByRole('textbox', { name: `palette.neutral.50 ${label}`, exact: true });
+        // A specimen of the theme for each mode above the tokens
+        await expect(viewPage(page).locator('ui-drawing')).toHaveCount(3);
+
+        // Act
+        await cell('Dark').fill('#ff6600');
+        await cell('Dark').blur();
+
+        // Assert: saved in that mode alone, and shown so once the theme is read again
+        await expect(viewPage(page)).toContainText('Saved');
+        await expect(cell('Dark')).toHaveValue('#ff6600');
+        await expect(cell('Light')).not.toHaveValue('#ff6600');
+        await expect(cell('High contrast')).not.toHaveValue('#ff6600');
     });
 
-    test('the Logic view makes a rule on the server and moves it to the browser', async ({ page }) => {
+    test('the Theme view clones a theme another app uses into one of the app\'s own', async ({ page, home }, info) => {
+        // Arrange: a theme of this app's, added to a second app, which then shares it
+        const name = uniqueName(info, 'shared');
+        const copy = uniqueName(info, 'copy');
+        await pickView(editor, page, 'Theme');
+        await newTheme(page, name);
+        await home.goto();
+        const second = await home.makeApp(uniqueName(info, 'second'));
+        await second.ask('Home words');
+        await second.button('Close the chat').click();
+        await pickView(second, page, 'Theme');
+        await viewPage(page).getByRole('combobox', { name: 'Add a theme…' }).selectOption(name);
+        await expect(chosenTheme(page)).toHaveValue(name);
+        await expect(viewPage(page)).toContainText('Other apps use this theme too');
+        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 Dark', exact: true })).toBeDisabled();
+
+        // Act
+        page.once('dialog', (dialog) => void dialog.accept(copy));
+        await viewPage(page).getByRole('button', { name: 'Clone for this app' }).first().click();
+
+        // Assert: the copy is the app's, shown and editable; no other app uses it
+        await expect(chosenTheme(page)).toHaveValue(copy);
+        await expect(viewPage(page)).not.toContainText('Other apps use this theme too');
+        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 Dark', exact: true })).toBeEnabled();
+    });
+
+    test('the Logic view makes a rule on the server, moves it to the browser and deletes it', async ({ page }) => {
+        // Arrange
         await pickView(editor, page, 'Logic');
-        await expect(sheet(page).getByText('The app has no logic yet.')).toBeVisible();
-        await sheet(page).getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Rule' });
+        const logic = viewPage(page);
+        const card = (lane: string) => logic.getByRole('group', { name: lane, exact: true }).locator('ui-card').filter({ hasText: 'remember' });
+        await expect(logic.getByText('The app has no logic yet.')).toBeVisible();
+
+        // Act: a rule, written in the side panel
+        await logic.getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Rule' });
         page.once('dialog', (dialog) => void dialog.accept('remember'));
-        await sheet(page).getByRole('button', { name: 'New', exact: true }).click();
-        const text = sheet(page).getByRole('textbox', { name: 'rules.remember' });
-        await text.fill(JSON.stringify({ when: { path: '$.data.picked' }, do: [{ command: 'set', target: '$.data.seen', value: true }] }));
+        await logic.getByRole('button', { name: 'New', exact: true }).click();
+        await sheet(page).getByRole('textbox', { name: 'rules.remember' }).fill(JSON.stringify({ when: { path: '$.data.picked' }, do: [{ command: 'set', target: '$.data.seen', value: true }] }));
         await sheet(page).getByRole('button', { name: 'Save', exact: true }).click();
-        const server = sheet(page).locator('.lane[data-runs="server"]');
-        const browser = sheet(page).locator('.lane[data-runs="browser"]');
-        await expect(server.locator('[data-unit="rules.remember"]')).toBeVisible();
-        await server.locator('[data-unit="rules.remember"]').click();
-        await sheet(page).getByRole('button', { name: 'Move to the browser' }).click();
-        await expect(browser.locator('[data-unit="rules.remember"]')).toBeVisible();
-        await expect(server.locator('[data-unit="rules.remember"]')).toHaveCount(0);
+
+        // Assert: its card in the Server lane
+        await expect(card('Server')).toBeVisible();
+
+        // Act and Assert: its button moves it to the browser
+        await card('Server').getByRole('button', { name: 'Move to the browser', exact: true }).click();
+        await expect(card('Browser')).toBeVisible();
+        await expect(card('Server')).toHaveCount(0);
+
+        // Its delete asks first
+        page.once('dialog', (dialog) => void dialog.accept());
+        await card('Browser').getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(card('Browser')).toHaveCount(0);
+        await expect(logic.getByText('The app has no logic yet.')).toBeVisible();
     });
 
     test('the chat bar shows what the view tells the agent: the view, and in Screens each layer that is on', async ({ page }) => {
