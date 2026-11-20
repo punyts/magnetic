@@ -12,9 +12,24 @@ import { SCRIPT_TEXTS } from './text.js';
  *   from the document on a name tile); Data lists the state paths the screen reads and writes down its right edge,
  *   `$.external` ones as from outside; Logic marks the nodes with handlers, lists the app's units that touch the
  *   screen down its left edge, each marked Server or Browser, and draws an arrow to each screen it leads to.
- * - **Statenet**: the owner's tree by state path, drawn on the board from `GET /edit/<id>/views/graph`: `$`, its
- *   branches shared between its right and left sides, every part with what the app does not use dimmed, and one level below a part. Pressing a node opens its
- *   editor at the side: a dataset's records, a model's fields, a path of the state, a module's unit, a connection and
+ * - **Statenet**: the owner's tree by state path from `GET /edit/<id>/views/graph`, shown by Magnetic's page
+ *   `magnetic-statenet` (`src/statenet/StatenetPage.ts`) mounted on the board: a canvas that pans and zooms, `import { SCRIPT_TEXTS } from './text.js';
+
+/**
+ * `/assets/views.js`: the editor's views (docs/design/magnetic-show-views.md), after `/assets/shell.js`,
+ * `/assets/inspect.js` and `/assets/screens.js`.
+ *
+ * The view selector at the top right (the editor app's `view` emit) picks what the canvas shows, kept per app in this
+ * browser:
+ *
+ * - **Screens**: the board of screens, with the rail's tools. The rail's layers draw on every screen tile: Layout
+ *   outlines each node that lays out others with its key and layout (measured in a mounted frame, a schematic drawn
+ *   from the document on a name tile); Data lists the state paths the screen reads and writes down its right edge,
+ *   `$.external` ones as from outside; Logic marks the nodes with handlers, lists the app's units that touch the
+ *   screen down its left edge, each marked Server or Browser, and draws an arrow to each screen it leads to.
+ with its
+ *   branches on its right and left sides, every part with what the app does not use lying flat, and one level below a
+ *   part. The editor's zoom runs the canvas's commands while it shows. Pressing a node opens its editor at the side: a dataset's records, a model's fields, a path of the state, a module's unit, a connection and
  *   its endpoints (for those who manage connections). A + on a branch or a part opens a form that makes what it holds
  *   and puts it to use in the app.
  * - **Theme**: the app's themes, and the chosen one as a specimen per mode above its tokens, each token's value for
@@ -29,13 +44,13 @@ import { SCRIPT_TEXTS } from './text.js';
  * a refusal shows the tool's message. The views' text is `T` (the page's texts), and the agent's next request is told
  * about the view shown (`magneticShell.contextOf`).
  */
-/** `/assets/views.css`: the views' sheet, graph, token table, lanes and tile layers (a file: the page's policy allows no inline style) */
+/** `/assets/views.css`: the views' sheet, Statenet's frame, token table, lanes and tile layers (a file: the page's policy allows no inline style) */
 export const VIEWS_CSS = [
     // The views are the editor's: with it hidden the app fills the window, whatever view was last shown
     'body.editing[data-view="theme"] #board, body.editing[data-view="logic"] #board { visibility: hidden; }',
-    'body:not(.editing) .view-sheet, body:not(.editing) #world > .graph { display: none !important; }',
-    // Statenet is drawn on the board in place of the screens; its head and its editor float over it
-    'body.editing[data-view="statenet"] #world > :not(.graph) { visibility: hidden; }',
+    'body:not(.editing) .view-sheet, body:not(.editing) .statenet { display: none !important; }',
+    // Statenet is its own page on the board, over the screens; its head and its editor float over it
+    'body.editing[data-view="statenet"] #world { visibility: hidden; }',
     '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
     '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet.on-canvas .view-body { margin-top: 12px; }',
@@ -73,40 +88,9 @@ export const VIEWS_CSS = [
     '.view-ask { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent, #3d5afe) 10%, transparent); }',
     '.view-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }',
     // Statenet
-    '.graph { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; color: var(--ink, #111); font: 14px/1.4 system-ui, sans-serif; }',
-    '.graph button { font: inherit; border: 1px solid var(--line, #ccc); color: inherit; cursor: pointer; pointer-events: auto; }',
-    '.graph-node { position: absolute; z-index: 1; display: flex; align-items: flex-start; gap: 4px; width: 220px; box-sizing: border-box; padding: 0; border: 1px solid var(--line, #ccc); border-radius: 10px; background: var(--paper, #fff); }',
-    '.graph-node.leaf { width: 160px; font-size: 13px; }',
-    '.graph-leaves { position: absolute; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; width: 420px; }',
-    '.graph-leaves > .graph-node { position: relative; width: auto; max-width: 200px; }',
-    '.graph-leaves .graph-kind { display: none; }',
-    '.graph .graph-open { flex: 1; min-width: 0; display: block; text-align: left; margin: 0; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; }',
-    '.graph-node.leaf .graph-open { padding: 5px 8px; }',
-    // A + is a handle on the card's outer edge, where the lines to what it holds start: shown on hover, focus and the
-    // chosen card, and always where there is no hover (touch)
-    '.graph .graph-add { position: absolute; z-index: 2; top: 50%; right: -13px; display: grid; place-items: center; width: 24px; height: 24px; margin: -12px 0 0; padding: 0; border: 2px solid var(--accent, #3d5afe); border-radius: 50%; color: var(--ink, #111); background: var(--paper, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.3); cursor: pointer; opacity: 0; transform: scale(.7); transition: opacity .12s, transform .12s; }',
-    '.graph .left > .graph-add { right: auto; left: -13px; }',
-    '.graph .graph-add .glyph { width: 10px; height: 10px; stroke-width: 2.25; }',
-    '.graph :is(.graph-node, .graph-group):is(:hover, :focus-within, .chosen) > .graph-add { opacity: 1; transform: none; }',
-    '.graph .graph-add:hover, .graph .graph-add:focus-visible { transform: scale(1.15); outline: none; color: var(--paper, #fff); background: var(--accent, #3d5afe); }',
-    '@media (hover: none) { .graph .graph-add { opacity: 1; transform: none; } }',
-    '.graph-node.current { border: 2px solid var(--accent, #3d5afe); }',
-    '.graph-group { position: absolute; z-index: 1; display: flex; align-items: center; padding: 3px 12px; border-radius: 999px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--accent, #3d5afe); background: color-mix(in srgb, var(--accent, #3d5afe) 14%, var(--paper, #fff)); pointer-events: auto; }',
-    '.graph-group.path { font-family: ui-monospace, monospace; }',
-    '.graph-group.unused { opacity: .55; }',
-    '.graph-leaves.left { justify-content: flex-end; }',
-    '.graph .graph-more { border: 0; padding: 0; background: transparent; color: inherit; font-weight: 600; }',
-    '.graph-node.outside { border-style: dashed; }',
-    // A function is hard IP: code the operator installed, marked by a bar on its edge, with no + and no editor
-    '.graph-node.hard { box-shadow: inset 4px 0 0 var(--accent, #3d5afe); } .graph-node.hard.left { box-shadow: inset -4px 0 0 var(--accent, #3d5afe); }',
+    '.statenet { position: absolute; inset: 0; z-index: 2; } .statenet[hidden] { display: none; }',
+    '.statenet > iframe { display: block; width: 100%; height: 100%; border: 0; }',
     '.view-schema { margin: 4px 0 8px; padding: 8px; overflow: auto; max-height: 220px; border-radius: 8px; font-size: 12px; background: color-mix(in srgb, currentColor 6%, transparent); }',
-    '.graph-node.unused { opacity: .5; }',
-    '.graph-node.chosen { outline: 2px solid var(--accent, #3d5afe); outline-offset: 2px; opacity: 1; }',
-    '.graph-node b { display: block; overflow-wrap: anywhere; } .graph-node small { display: block; color: var(--muted, #666); overflow-wrap: anywhere; }',
-    '.graph-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent, #3d5afe); }',
-    '.graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }',
-    '.graph-edges path { fill: none; stroke: var(--muted, #999); stroke-width: 1.5; }',
-    '.graph-edges path.across { stroke-dasharray: 5 4; stroke: var(--accent, #3d5afe); visibility: hidden; } .graph-edges path.across.lit { visibility: visible; }',
     // A record table scrolls on its own, sideways; the panel never does
     '.records-wrap { overflow-x: auto; max-width: 100%; margin: 8px 0; }',
     '.records tr.adding td { border-bottom: 0; padding-top: 8px; }',
@@ -235,12 +219,13 @@ sheet.append(element('header', { className: 'view-head' }, [back, heading, tools
 document.body.append(sheet);
 
 function says(text, refused) { status.textContent = text || ''; status.classList.toggle('refused', Boolean(refused)); }
-function unchoose() { for (const chosen of document.querySelectorAll('.view-main .chosen, .graph .chosen')) chosen.classList.remove('chosen'); }
+function unchoose() { for (const chosen of document.querySelectorAll('.view-main .chosen')) chosen.classList.remove('chosen'); }
 function closeSide() {
     side.hidden = true;
     side.replaceChildren();
     unchoose();
-    for (const path of document.querySelectorAll('.graph-edges path.lit')) path.classList.remove('lit');
+    chosenBox = null;
+    if (view === 'statenet') netWrite({ selected: '', inset: insetOf() });
 }
 
 async function getJson(path) {
@@ -294,13 +279,10 @@ function showSelector() {
     shell.showContext(chips);
 }
 
-/** Where the board showed the screens before Statenet took it, to go back there */
-let screensLook = null;
 /** Shows a view; fromGraph when a card of Statenet led there, so the head offers the way back */
 function setView(name, fromGraph) {
     if (!VIEWS.includes(name)) return;
     back.hidden = !(fromGraph && view === 'statenet' && (name === 'theme' || name === 'logic'));
-    if (name === 'statenet' && view !== 'statenet') screensLook = shell.canvas.look();
     if (name !== 'statenet') leaveGraph();
     view = name;
     store(VIEW_KEY, view);
@@ -342,32 +324,147 @@ editor.onEmit((name, payload) => {
         void drawLayers();
     }
 });
-// A press on the empty board, not a drag that pans it, lets the chosen card go and closes its panel
-const canvasBoard = document.getElementById('board');
-let pressed = null;
-canvasBoard.addEventListener('pointerdown', (event) => {
-    pressed = view === 'statenet' && event.button === 0 && (event.target === canvasBoard || event.target === world) ? { x: event.clientX, y: event.clientY } : null;
-}, true);
-canvasBoard.addEventListener('pointerup', (event) => {
-    if (pressed && !side.hidden && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 5) closeSide();
-    pressed = null;
-}, true);
 shell.onEscape(() => { if (view !== 'screens' && !side.hidden) { closeSide(); return true; } return false; });
 
 // ---- Statenet ------------------------------------------------------------------------------------------------------
 
+/*
+ * Statenet is Magnetic's page magnetic-statenet (src/statenet/StatenetPage.ts), mounted on the board while the view
+ * shows: a canvas that pans and zooms around the owner's tree. This script writes its $.data.statenet (the cards, the
+ * links, the chosen card, the view and what the panels cover), acts on its emits, and runs the commands of its canvas
+ * (the node keyed canvas) for the editor's zoom
+ */
+const NET = '$.data.statenet';
+const NET_VIEW_KEY = 'magnetic.statenet.' + appId;
+const netHolder = element('div', { className: 'statenet', id: 'statenet', hidden: true });
+document.getElementById('board').append(netHolder);
 let graph = null;
-/** The graph on the board, in the world that pans and zooms, while Statenet shows */
-let graphBoard = null;
-/** The board is fitted to the graph once each time Statenet is entered, not when a change to the app redraws it */
-let graphFitted = false;
-function leaveGraph() {
-    if (graphBoard) { graphBoard.remove(); graphBoard = null; }
-    if (view !== 'statenet') return;
-    graphFitted = false;
-    shell.canvas.fitTo(null);
-    if (screensLook) shell.canvas.lookAt(screensLook); else shell.canvas.fit();
+/** The mounted page: its panel and the path of its canvas; null while Statenet does not show */
+let net = null;
+/** The mount under way, so a second load waits for it */
+let netMounting = null;
+/** The view is fitted to the tree once its cards are placed, when this browser kept no view of the app's Statenet */
+let netFitted = false;
+/** The nodes and links last written, so a reload that left the tree as it was writes nothing */
+let netDrawn = '';
+/** The card a press chose, with its box in the tree, to bring into view beside the panel it opens */
+let chosenBox = null;
+
+/** The state path of the node a key names in a document, as shell.js finds the editor's stage */
+function keyPath(doc, key) {
+    const visit = (node, at) => {
+        if (!node || typeof node !== 'object') return null;
+        for (const [name, child] of Object.entries(node.children || {})) {
+            if (name === key) return at + '.children.' + name;
+            const found = visit(child, at + '.children.' + name);
+            if (found) return found;
+        }
+        return null;
+    };
+    for (const [name, screen] of Object.entries(doc.screens || {})) {
+        const found = visit(screen.root, '$.screens.' + name);
+        if (found) return found;
+    }
+    return null;
 }
+function netWrite(fields) {
+    if (net) net.panel.write(Object.entries(fields).map(([name, value]) => ({ path: NET + '.' + name, value })));
+}
+function netCommand(command, value) {
+    if (net && net.canvas) net.panel.command(net.canvas, command, value);
+}
+/** What covers the canvas, in pixels from each edge: the editor's panels, and the side panel when it is open */
+function insetOf() {
+    const free = shell.canvas.freeArea();
+    const inset = { top: free.top, left: free.left, right: Math.max(0, innerWidth - free.left - free.width), bottom: Math.max(0, innerHeight - free.top - free.height) };
+    if (!side.hidden) {
+        const over = side.getBoundingClientRect();
+        // At 760px and wider the panel is at the right, below that along the bottom (as the sheet's CSS lays it out)
+        if (matchMedia('(min-width: 760px)').matches) inset.right = Math.max(inset.right, innerWidth - over.left);
+        else inset.bottom = Math.max(inset.bottom, innerHeight - over.top);
+    }
+    return inset;
+}
+addEventListener('resize', () => { if (net) netWrite({ inset: insetOf() }); });
+
+/** Mounts Statenet's page on the board and gives it the editor's zoom */
+function enterGraph() {
+    netHolder.hidden = false;
+    shell.canvas.drive({ zoomIn: () => netCommand('zoomIn'), zoomOut: () => netCommand('zoomOut'), zoomReset: () => netCommand('zoomReset'), fit: () => netCommand('fit') });
+    if (net) return Promise.resolve(true);
+    if (netMounting) return netMounting;
+    netMounting = (async () => {
+        try {
+            const response = await fetch('/assets/statenet.json', { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error(T['views.refused']);
+            const page = await response.json();
+            if (view !== 'statenet') return false;
+            netHolder.replaceChildren();
+            net = { panel: host.mount(netHolder, { document: page.document, icons: page.icons, keys: ['escape'] }, T['shell.view.statenet']), canvas: keyPath(page.document, 'canvas') };
+            netDrawn = '';
+            const kept = stored(NET_VIEW_KEY, null);
+            const look = kept && typeof kept.x === 'number' && typeof kept.y === 'number' && typeof kept.zoom === 'number' ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
+            netFitted = look !== null;
+            netWrite({ view: look || { x: 0, y: 0, zoom: 1 }, inset: insetOf(), selected: '' });
+            shell.canvas.showZoom(look ? look.zoom : 1);
+            return true;
+        } catch (error) {
+            says(error.message, true);
+            return false;
+        } finally {
+            netMounting = null;
+        }
+    })();
+    return netMounting;
+}
+function leaveGraph() {
+    if (net) net.panel.dispose();
+    net = null;
+    chosenBox = null;
+    netHolder.replaceChildren();
+    netHolder.hidden = true;
+    shell.canvas.drive(null);
+}
+
+netHolder.addEventListener('stateui:emit', (event) => {
+    const { name, payload } = event.detail || {};
+    const id = payload && typeof payload === 'object' && typeof payload.id === 'string' ? payload.id : typeof payload === 'string' ? payload : '';
+    const box = payload && typeof payload === 'object' ? payload.box : undefined;
+    switch (name) {
+        // A press on the chosen card lets it go, as the panel's x, a press on the empty canvas and Escape do
+        case 'select': if (id) choose(id, box); else closeSide(); return;
+        case 'open': if (id) choose(id, box); return;
+        case 'press': closeSide(); return;
+        case 'add': {
+            const node = graph && graph.nodes.find((each) => each.id === id);
+            if (node && node.add) { chosenBox = null; void addUnder(node, null); }
+            return;
+        }
+        case 'view':
+            if (payload && typeof payload.zoom === 'number') { store(NET_VIEW_KEY, { x: payload.x, y: payload.y, zoom: payload.zoom }); shell.canvas.showZoom(payload.zoom); }
+            return;
+        case 'layout': if (!netFitted) { netFitted = true; netCommand('fit'); } return;
+        default:
+    }
+});
+
+/** A card was pressed: a part's editor opens beside it; the pill at the end of a branch shows all of its parts, or fewer */
+function choose(id, box) {
+    if (!graph) return;
+    if (id.endsWith('#more')) {
+        const branch = id.slice(0, -'#more'.length);
+        if (graphOpened.has(branch)) graphOpened.delete(branch); else graphOpened.add(branch);
+        netWrite({ selected: '' });
+        drawGraph();
+        return;
+    }
+    const node = graph.nodes.find((each) => each.id === id);
+    if (!node) return;
+    chosenBox = box && typeof box === 'object' ? { id, box } : null;
+    if (node.kind === 'branch' || node.kind === 'owner') sideOpen(null, node.label, [element('p', { className: 'view-note', text: node.id })], node.id);
+    else void openNode(node, null);
+}
+
 function kindText(node) { return T['views.kind.' + node.kind] || node.kind; }
 function noteText(node) {
     const unused = node.used ? '' : T['views.note.unused'];
@@ -391,7 +488,7 @@ function noteText(node) {
         default: return node.note;
     }
 }
-/** The leaves below a part: drawn smaller */
+/** The leaves below a part: the diagram wraps them in one block beside it */
 const LEAVES = ['screen', 'binding', 'personal', 'state', 'record', 'field', 'unit', 'endpoint', 'shared', 'otherApp', 'instance'];
 
 /** How many parts a branch shows that the app does not use, before a pill for the rest */
@@ -425,252 +522,70 @@ function shownNodes() {
 }
 
 async function loadGraph() {
-    let next;
-    try { next = await getJson('/graph'); } catch (error) { says(error.message, true); return; }
-    // A new revision that left the tree as it was (a screen's layout, a token) keeps the board as it is
-    const same = graph !== null && graphBoard !== null && JSON.stringify({ ...next, revision: 0 }) === JSON.stringify({ ...graph, revision: 0 });
-    graph = next;
-    if (!same) drawGraph();
+    if (!(await enterGraph())) return;
+    try { graph = await getJson('/graph'); } catch (error) { says(error.message, true); return; }
+    drawGraph();
 }
 
+/** One card of the page: the record its template draws */
+function cardOf(node, note) {
+    const pill = node.kind === 'branch' || node.kind === 'owner';
+    return {
+        id: node.id,
+        parent: node.parent || '',
+        wrap: LEAVES.includes(node.kind),
+        label: node.label,
+        kind: pill ? '' : kindText(node),
+        note,
+        noKind: pill,
+        noNote: !note,
+        noAdd: !node.add,
+        addLabel: node.add ? fill(T['views.addTo'], { path: node.id }) : '',
+        corners: pill ? 'pill' : 'rounded',
+        // A part the app does not use, or one outside the owner's, lies flat; the app being edited is selected
+        elevation: pill || !node.used || node.outside ? 'flat' : 'raised',
+        current: Boolean(node.current),
+        muted: !pill && !node.used
+    };
+}
+
+/** Writes the tree to Statenet's page: the cards shown, a pill at the end of each branch with parts left out, the links */
 function drawGraph() {
-    if (view !== 'statenet' || !graph) return;
+    if (view !== 'statenet' || !graph || !net) return;
     tools.replaceChildren();
-    const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
     const { shown, hidden } = shownNodes();
-    const items = new Map();
+    const nodes = [];
+    const pills = [];
     for (const node of graph.nodes) {
         if (!shown.has(node.id)) continue;
-        const plus = node.add ? glyphButton('plus', fill(T['views.addTo'], { path: node.id }), () => void addUnder(node, items.get(node.id).element), 'graph-add') : null;
-        let made;
-        if (node.kind === 'branch' || node.kind === 'owner') {
-            made = element('div', { className: 'graph-group path' + (node.used ? '' : ' unused'), 'data-node': node.id, title: node.id }, [element('span', { text: node.label }), plus]);
-        } else {
-            const open = element('button', { type: 'button', className: 'graph-open', title: node.id }, [
-                element('span', { className: 'graph-kind', text: kindText(node) }),
-                element('b', { text: node.label }),
-                noteText(node) ? element('small', { text: noteText(node) }) : null,
-                node.more ? element('small', { text: fill(T['views.note.more'], { count: node.more }) }) : null
-            ]);
-            made = element('div', { className: 'graph-node' + (LEAVES.includes(node.kind) ? ' leaf' : '') + (node.outside ? ' outside' : '') + (node.kind === 'function' ? ' hard' : '') + (node.used ? '' : ' unused') + (node.current ? ' current' : ''), 'data-node': node.id }, [open, plus]);
-            // Pressing the chosen card again lets it go, as the panel's × and a press on the empty board do
-            open.addEventListener('click', () => {
-                if (made.classList.contains('chosen') && !side.hidden) closeSide();
-                else void openNode(node, made);
-            });
-        }
-        items.set(node.id, { element: made, pill: node.kind === 'branch' || node.kind === 'owner', kind: node.kind, id: node.id, children: [], parent: null });
+        const pill = node.kind === 'branch' || node.kind === 'owner';
+        const note = pill ? '' : [noteText(node), node.more ? fill(T['views.note.more'], { count: node.more }) : ''].filter(Boolean).join(' · ');
+        nodes.push(cardOf(node, note));
+        // A branch with parts left out ends in a pill that shows them all; an opened one in a pill that shows fewer
+        if (!pill || node.parent !== '$') continue;
+        const left = hidden.get(node.id) || 0;
+        if (left === 0 && !graphOpened.has(node.id)) continue;
+        pills.push({ ...cardOf({ id: node.id + '#more', parent: node.id, kind: 'branch', label: left > 0 ? fill(T['views.note.more'], { count: left }) : T['views.showFewer'], used: true }, ''), wrap: false, noAdd: true });
     }
-    let root = null;
-    for (const node of graph.nodes) {
-        const item = items.get(node.id);
-        if (!item) continue;
-        const parent = node.parent === null ? null : items.get(node.parent);
-        if (!parent) { root = item; continue; }
-        item.parent = parent;
-        parent.children.push(item);
-    }
-    // A branch with parts left out ends in a pill that shows them all; an opened one in a pill that shows fewer
-    for (const [id, item] of items) {
-        if (!item.pill || nodes.get(id).parent !== '$') continue;
-        const left = hidden.get(id) || 0;
-        if (left === 0 && !graphOpened.has(id)) continue;
-        const toggle = button(left > 0 ? fill(T['views.note.more'], { count: left }) : T['views.showFewer'], () => {
-            if (left > 0) graphOpened.add(id); else graphOpened.delete(id);
-            drawGraph();
-        }, 'graph-more');
-        const more = { element: element('div', { className: 'graph-group more' }, [toggle]), pill: true, kind: 'more', id: id + '#more', children: [], parent: item };
-        item.children.push(more);
-    }
-    // The leaves of a part (its records, fields, screens, bindings, units) wrap in one block beside it, not a row each
-    for (const item of items.values()) {
-        const held = item.children.filter((child) => !child.pill);
-        if (held.length < 2 || !held.every((child) => LEAVES.includes(child.kind) && child.children.length === 0)) continue;
-        const block = { element: element('div', { className: 'graph-leaves' }, held.map((leaf) => leaf.element)), pill: false, kind: 'leaves', id: item.id + '#leaves', children: [], parent: item, leaves: held };
-        item.children = [block, ...item.children.filter((child) => child.pill)];
-    }
-    const edges = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    edges.setAttribute('class', 'graph-edges');
-    const board = element('div', { className: 'graph' }, [edges]);
-    for (const item of treeItems(root)) board.append(item.element);
-    if (graphBoard) graphBoard.remove();
-    graphBoard = board;
-    world.append(board);
-    layOut(root, board);
-    for (const block of treeItems(root)) {
-        for (const leaf of block.leaves || []) Object.assign(leaf, { side: block.side, x: block.x + leaf.element.offsetLeft, y: block.y + leaf.element.offsetTop, w: leaf.element.offsetWidth, h: leaf.element.offsetHeight });
-    }
-    drawEdges(root, graph, edges);
-    shell.canvas.fitTo(() => ({ x: 0, y: 0, width: board.offsetWidth, height: board.offsetHeight }));
-    if (!graphFitted) { graphFitted = true; shell.canvas.fit(); }
-    // A card chosen before the redraw stays chosen, with its edges lit
-    const chosen = side.hidden ? null : side.dataset.node;
-    if (chosen && nodes.has(chosen)) light(chosen);
-}
-
-/** Marks a card chosen and lights the edges that are not the tree's: what it uses, or what uses it */
-function light(id) {
-    if (!graphBoard) return;
-    for (const path of graphBoard.querySelectorAll('.graph-edges path.across')) path.classList.toggle('lit', path.dataset.from === id || path.dataset.to === id);
-    const card = graphBoard.querySelector('[data-node="' + CSS.escape(id) + '"]');
-    if (card) card.classList.add('chosen');
-}
-
-function treeItems(item) { return [item, ...item.children.flatMap(treeItems)]; }
-
-const ROW_GAP = 10;
-const GROUP_GAP = 28;
-const COLUMN_GAP = 72;
-
-/** Places the tree's elements in the graph's own pixels: each subtree stacked down, a parent across from the middle of its children */
-function layOut(root, board) {
-    for (const item of treeItems(root)) { item.w = item.element.offsetWidth; item.h = item.element.offsetHeight; }
-    const shift = (item, dy) => { item.y += dy; for (const child of item.children) shift(child, dy); };
-    // Stacks a list of siblings down from top, each beside its own children; the bottom
-    const stack = (list, depth, top, widths) => {
-        let y = top;
-        list.forEach((item, index) => {
-            if (index > 0) y += item.children.length > 0 || list[index - 1].children.length > 0 ? GROUP_GAP : ROW_GAP;
-            widths[depth] = Math.max(widths[depth] || 0, item.w);
-            item.depth = depth;
-            if (item.children.length === 0) { item.y = y; y += item.h; return; }
-            const bottom = stack(item.children, depth + 1, y, widths);
-            const first = item.children[0];
-            const last = item.children[item.children.length - 1];
-            item.y = (first.y + first.h / 2 + last.y + last.h / 2) / 2 - item.h / 2;
-            if (item.y < y) {
-                const down = y - item.y;
-                item.y = y;
-                for (const child of item.children) shift(child, down);
-                y = bottom + down;
-            } else y = Math.max(bottom, item.y + item.h);
-        });
-        return y;
-    };
-    root.x = 0;
-    root.y = -root.h / 2;
-    root.depth = 0;
-    root.side = 1;
-    // The branches of $ share the two sides: the first ones go right and the rest left, split where the two heights
-    // come closest, so each side reads down in the branches' order
-    const heights = root.children.map((item) => stack([item], 1, 0, []));
-    const total = heights.reduce((sum, height) => sum + height, 0);
-    let split = root.children.length;
-    let best = Infinity;
-    for (let count = 1, right = 0; count <= root.children.length; count++) {
-        right += heights[count - 1];
-        const apart = Math.abs(right - (total - right));
-        if (apart < best) { best = apart; split = count; }
-    }
-    const sideOf = (item, way) => {
-        item.side = way;
-        for (const each of [item, ...(item.leaves || [])]) each.element.classList.toggle('left', way < 0);
-        for (const child of item.children) sideOf(child, way);
-    };
-    root.children.forEach((item, index) => sideOf(item, index < split ? 1 : -1));
-    for (const side of [1, -1]) {
-        const list = root.children.filter((item) => item.side === side);
-        if (list.length === 0) continue;
-        const widths = [];
-        const height = stack(list, 1, 0, widths);
-        for (const item of list) shift(item, -height / 2);
-        // The columns go out from the app: left-aligned to its right, right-aligned to its left
-        const start = [side > 0 ? root.w : 0];
-        for (let depth = 1; depth < widths.length; depth++) start[depth] = start[depth - 1] + side * ((depth > 1 ? widths[depth - 1] : 0) + COLUMN_GAP);
-        // The branches and the parts in them stand in columns; what a part holds sits just beside it
-        for (const item of list.flatMap(treeItems)) {
-            if (item.depth > 2) item.x = side > 0 ? item.parent.x + item.parent.w + COLUMN_GAP : item.parent.x - COLUMN_GAP - item.w;
-            else item.x = side > 0 ? start[item.depth] : start[item.depth] - item.w;
-        }
-    }
-    const all = treeItems(root);
-    const minX = Math.min(...all.map((item) => item.x));
-    const minY = Math.min(...all.map((item) => item.y));
-    for (const item of all) {
-        item.x -= minX;
-        item.y -= minY;
-        item.element.style.left = item.x + 'px';
-        item.element.style.top = item.y + 'px';
-    }
-    board.style.width = Math.max(...all.map((item) => item.x + item.w)) + 'px';
-    board.style.height = Math.max(...all.map((item) => item.y + item.h)) + 'px';
-}
-
-/** The tree's links from each branch to what it holds, and the other edges, lit when one of their ends is chosen */
-function drawEdges(root, graph, svg) {
-    const all = treeItems(root);
-    const items = new Map(all.flatMap((item) => [[item.id, item], ...(item.leaves || []).map((leaf) => [leaf.id, leaf])]));
-    const curve = (x1, y1, x2, y2, className, label, from, to) => {
-        const bend = Math.max(24, Math.abs(x2 - x1) / 2) * (x2 >= x1 ? 1 : -1);
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + (x1 + bend) + ',' + y1 + ' ' + (x2 - bend) + ',' + y2 + ' ' + x2 + ',' + y2);
-        if (className) path.setAttribute('class', className);
-        if (from) { path.dataset.from = from; path.dataset.to = to; }
-        if (label) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = label; path.append(title); }
-        svg.append(path);
-    };
-    const middle = (item) => item.y + item.h / 2;
-    for (const item of all) {
-        for (const child of item.children) {
-            if (child.side < 0) curve(item.x, middle(item), child.x + child.w, middle(child), child.pill ? 'branch' : '');
-            else curve(item.x + item.w, middle(item), child.x, middle(child), child.pill ? 'branch' : '');
-        }
-    }
-    // Across the tree: on one side, from the outer edge of one to the outer edge of the other, bowing outwards; from
-    // one side to the other, between their inner edges
-    for (const edge of graph.edges) {
-        const a = items.get(edge.from);
-        const b = items.get(edge.to);
-        if (!a || !b) continue;
-        const bow = 40 + Math.abs(middle(a) - middle(b)) / 8;
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        if (a.side < 0 && b.side < 0) {
-            const x = Math.min(a.x, b.x) - bow;
-            path.setAttribute('d', 'M' + a.x + ',' + middle(a) + ' C' + x + ',' + middle(a) + ' ' + x + ',' + middle(b) + ' ' + b.x + ',' + middle(b));
-        } else if (a.side > 0 && b.side > 0) {
-            const x = Math.max(a.x + a.w, b.x + b.w) + bow;
-            path.setAttribute('d', 'M' + (a.x + a.w) + ',' + middle(a) + ' C' + x + ',' + middle(a) + ' ' + x + ',' + middle(b) + ' ' + (b.x + b.w) + ',' + middle(b));
-        } else {
-            const x1 = a.side < 0 ? a.x + a.w : a.x;
-            const x2 = b.side < 0 ? b.x + b.w : b.x;
-            const bend = Math.max(24, Math.abs(x2 - x1) / 2) * (x2 >= x1 ? 1 : -1);
-            path.setAttribute('d', 'M' + x1 + ',' + middle(a) + ' C' + (x1 + bend) + ',' + middle(a) + ' ' + (x2 - bend) + ',' + middle(b) + ' ' + x2 + ',' + middle(b));
-        }
-        path.setAttribute('class', 'across ' + edge.kind);
-        path.dataset.from = edge.from;
-        path.dataset.to = edge.to;
-        if (edge.label) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = edge.label; path.append(title); }
-        svg.append(path);
-    }
+    const links = graph.edges.filter((edge) => shown.has(edge.from) && shown.has(edge.to)).map((edge) => ({ from: edge.from, to: edge.to, kind: edge.kind, label: edge.label || '' }));
+    const drawn = JSON.stringify({ nodes: [...nodes, ...pills], links });
+    // A new revision that left the tree as it was (a screen's layout, a token) writes nothing
+    if (drawn === netDrawn) return;
+    netDrawn = drawn;
+    netWrite({ nodes: [...nodes, ...pills], links, selected: side.hidden ? '' : side.dataset.node || '' });
 }
 
 function sideOpen(card, title, children, id) {
     unchoose();
-    for (const path of document.querySelectorAll('.graph-edges path.lit')) path.classList.remove('lit');
     if (card) card.classList.add('chosen');
-    if (id) light(id);
     side.dataset.node = id || '';
     const close = glyphButton('cross', T['views.close'], closeSide, 'view-close');
     side.replaceChildren(element('div', { className: 'view-side-head' }, [element('h3', { text: title }), close]), ...children.filter(Boolean));
     side.hidden = false;
-    if (card && graphBoard && graphBoard.contains(card)) reveal(card);
-}
-
-/** Moves the board so the panel does not cover the chosen card: left at a wide window, up at a narrow one */
-function reveal(card) {
-    if (side.hidden) return;
-    const at = card.getBoundingClientRect();
-    const over = side.getBoundingClientRect();
-    const head = sheet.querySelector('.view-head').getBoundingClientRect();
-    const MARGIN = 24;
-    // At 760px and wider the panel is at the right, below that along the bottom (as the sheet's CSS lays it out)
-    if (matchMedia('(min-width: 760px)').matches) {
-        const dx = at.right + MARGIN - over.left;
-        if (dx > 0 && at.bottom > over.top && at.top < over.bottom) shell.canvas.pan(-Math.min(dx, Math.max(0, at.left - MARGIN)), 0);
-    } else {
-        const dy = at.bottom + MARGIN - over.top;
-        if (dy > 0) shell.canvas.pan(0, -Math.min(dy, Math.max(0, at.top - head.bottom - MARGIN)));
-    }
+    if (view !== 'statenet' || !net) return;
+    // The chosen card is lit, and brought into view beside the panel, which now covers part of the canvas
+    netWrite({ selected: id || '', inset: insetOf() });
+    if (chosenBox && chosenBox.id === id) netCommand('lookAt', chosenBox.box);
 }
 
 /** A row of buttons, one per screen, each showing that screen in the Screens view */
@@ -818,7 +733,7 @@ async function addUnder(node, card) {
                     if (await change('logic', { module: nameOf(node), unit, revision: module.revision, value })) {
                         await loadGraph();
                         const made = graph.nodes.find((each) => each.id === node.id + '.' + unit);
-                        if (made) await moduleUnitEditor(made, graphBoard.querySelector('[data-node="' + CSS.escape(made.id) + '"]'));
+                        if (made) await moduleUnitEditor(made, null);
                     }
                 });
             }

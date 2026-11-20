@@ -239,9 +239,11 @@ The commands are:
     **Statenet**, **Theme** and **Logic** each have their tools in a head and an editor at the side:
     - **Statenet:** the owner's tree by state path (`$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
       `$.components`, `$.patterns`, `$.connections`, `$.functions`, `$.personas` with only your own persona), every part with what this app does not use dimmed and one level
-      below each, drawn on the board in place of the screens: it pans, zooms and fits like them. A + on each branch
+      below each. It is a page of Magnetic's (`magnetic-statenet`, a canvas that pans and zooms around a tree of
+      cards) shown over the board in place of the screens; the editor's zoom and Fit drive its canvas, and its view is
+      kept per app. A + on each branch
       makes what it holds (an app, a screen, a binding, a theme, a dataset, a model, a module or one of its units) and
-      puts it to use in the app. Each card opens an editor at the side, and the board moves
+      puts it to use in the app. Each card opens an editor at the side, and the canvas moves
       the card clear of it: records, model fields, running state and connections (for managers); the app's and a
       component's screens; a theme's default and removal; the way to the Theme or Logic view and back. Removing
       anything asks first.

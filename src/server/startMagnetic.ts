@@ -51,6 +51,7 @@ import { SitePages } from '../pages/SitePages.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
 import { EDITOR, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
 import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
+import { STATENET } from '../statenet/StatenetPage.js';
 import type { PageAppDocument } from '../pages/PageApps.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { APP_PAGE_CSS, APP_PAGE_JS, appPage } from '../http/appPage.js';
@@ -561,7 +562,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** Magnetic's own pages as its code makes them, in the system workspace */
     const pageApps = new PageApps(fixedWorkspace(SYSTEM_USER_ID), toolsOf, stamps, exclusive);
     /** Magnetic's own pages as admins edit and publish them (docs/design/magnetic-editable.md) */
-    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR], exclusive);
+    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET], exclusive);
     /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
     const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
     /** Each person's editor, made from Magnetic's version and kept when they change it */
@@ -1246,6 +1247,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (method === 'GET' && path === '/assets/inspect.js') {
             sendAsset(response, 'text/javascript', INSPECT_JS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/statenet.json') {
+            if ((await signedIn(request)) === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
+            // What an admin published, or Magnetic's own when that does not load
+            try {
+                sendJson(response, 200, await sitePages.served(STATENET));
+            } catch (error) {
+                options.report.info('Statenet\'s published page did not load', { error: error instanceof Error ? error.message : String(error) });
+                sendJson(response, 200, await sitePages.codeDocument(STATENET));
+            }
             return true;
         }
         if (method === 'GET' && path === '/assets/editor.json') {

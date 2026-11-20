@@ -673,10 +673,7 @@ emitListeners.push((name, payload) => {
         case 'open': window.open('/apps/' + encodeURIComponent(appId), '_blank', 'noopener'); return;
         case 'size': setSize(String(value), true); return;
         case 'turn': turned = !turned; setSize(size, true); saveView(); return;
-        case 'zoomIn': zoomCentre(view.zoom * 1.25); return;
-        case 'zoomOut': zoomCentre(view.zoom / 1.25); return;
-        case 'zoomReset': zoomCentre(1); return;
-        case 'zoomFit': fit(true); return;
+        case 'zoomIn': case 'zoomOut': case 'zoomReset': case 'zoomFit': zoom(name); return;
         case 'tool': if (typeof value === 'string' && value) setTool(value); return;
         case 'share': if (editorState.shareHidden === false) { showSheet('share', false); return; } showSheet('share', true); shareSays(''); void loadLinks(); return;
         case 'shareClose': showSheet('share', false); return;
@@ -761,15 +758,13 @@ let turned = false;
 let tool = 'use';
 let spaceHeld = false;
 let saveTimer = null;
-/** What the board fits instead of the live frame (the Statenet graph, set by views.js): a box in the frame's pixels. While
- * it is set the view is not kept, so the screens' view is the one a reload finds */
-let fitBox = null;
+/** What the zoom control and its keys drive instead of the board while Statenet shows (views.js): { zoomIn, zoomOut, zoomReset, fit } */
+let driver = null;
 
 function clampZoom(zoom) { return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)); }
 
 function writeView() {
     saveTimer = null;
-    if (fitBox !== null) return;
     try { localStorage.setItem(VIEW_KEY, JSON.stringify({ x: view.x, y: view.y, zoom: view.zoom, size, turned })); } catch { /* storage may be blocked */ }
 }
 
@@ -793,7 +788,7 @@ function render(glide) {
     while (step < 12) step *= 4;
     board.style.backgroundSize = step + 'px ' + step + 'px';
     board.style.backgroundPosition = view.x + 'px ' + view.y + 'px';
-    ed({ zoom: Math.round(view.zoom * 100) + '%' });
+    if (!driver) ed({ zoom: Math.round(view.zoom * 100) + '%' });
     saveView();
 }
 
@@ -834,7 +829,7 @@ function railShown() { return panels.has('railTop') ? 'railTop' : 'rail'; }
 function fit(glide) {
     fittedRail = railShown();
     const area = freeArea();
-    const box = fitBox !== null ? fitBox() : { x: slotX(), y: slotY(), width: frameWidth(), height: frameHeight() };
+    const box = { x: slotX(), y: slotY(), width: frameWidth(), height: frameHeight() };
     view.zoom = clampZoom(Math.min(1, area.width / box.width, area.height / box.height));
     view.x = area.left + (area.width - box.width * view.zoom) / 2 - box.x * view.zoom;
     view.y = area.top + (area.height - box.height * view.zoom) / 2 - box.y * view.zoom;
@@ -854,6 +849,15 @@ function zoomAt(zoom, cx, cy, glide) {
 function zoomCentre(zoom) {
     const area = freeArea();
     zoomAt(zoom, area.left + area.width / 2, area.top + area.height / 2, true);
+}
+
+/** Zooms the board, or what drives the zoom in its place */
+function zoom(kind) {
+    if (driver) { driver[kind === 'zoomFit' ? 'fit' : kind](); return; }
+    if (kind === 'zoomIn') zoomCentre(view.zoom * 1.25);
+    else if (kind === 'zoomOut') zoomCentre(view.zoom / 1.25);
+    else if (kind === 'zoomReset') zoomCentre(1);
+    else fit(true);
 }
 
 function panBy(dx, dy) { fittedRail = null; view.x += dx; view.y += dy; render(false); }
@@ -965,10 +969,10 @@ const TOOL_KEYS = {
     v: () => setTool('use'),
     h: () => setTool('move'),
     s: () => setTool('select'),
-    '=': () => zoomCentre(view.zoom * 1.25),
-    '-': () => zoomCentre(view.zoom / 1.25),
-    '0': () => zoomCentre(1),
-    '1': () => fit(true),
+    '=': () => zoom('zoomIn'),
+    '-': () => zoom('zoomOut'),
+    '0': () => zoom('zoomReset'),
+    '1': () => zoom('zoomFit'),
     a: () => showLibraryPanel(!libraryOpen, true),
     p: () => showScreensPanel(!screensOpen),
     c: () => showConnectionsPanel(!connectionsOpen),
@@ -1133,14 +1137,15 @@ const magneticShell = {
         onSize: (listener) => sizeListeners.push(listener),
         fitted: () => fittedRail !== null,
         fit: () => fit(false),
-        /** Where the board is, or null before it was placed */
-        look: () => (fitted ? { x: view.x, y: view.y, zoom: view.zoom } : null),
-        /** Puts the board back where a look had it */
-        lookAt(look) { fittedRail = null; view.x = look.x; view.y = look.y; view.zoom = clampZoom(look.zoom); render(false); },
-        /** What the board fits instead of the live frame: a function giving a box in the frame's pixels, or null for the frame */
-        fitTo(box) { fitBox = box; },
-        /** Moves the board by dx and dy screen pixels, gliding */
-        pan(dx, dy) { fittedRail = null; view.x += dx; view.y += dy; render(true); }
+        /** Where the board shows without the editor's panels covering it, in window pixels: { left, top, width, height } */
+        freeArea,
+        /**
+         * Hands the zoom control and its keys to Statenet (views.js): { zoomIn, zoomOut, zoomReset, fit }, or null to give
+         * them back to the board. While it drives, the zoom shown is what showZoom says
+         */
+        drive(next) { driver = next; if (!driver) render(false); },
+        /** Shows a zoom (1 is 100%) on the zoom control, while a driver has it */
+        showZoom(value) { if (driver) ed({ zoom: Math.round(value * 100) + '%' }); }
     },
     editorChanged,
     onEscape: (listener) => escapeListeners.push(listener),
