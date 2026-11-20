@@ -534,10 +534,27 @@ function shownNodes() {
     return { shown, hidden };
 }
 
+/** The load under way, whether another was asked for meanwhile, and the revision the last one read */
+let graphLoading = null;
+let graphAgain = false;
+let graphRevision = null;
+
+/**
+ * Reads the tree and draws it, one load at a time: a load asked for while one runs runs once after it. The tree is
+ * fetched while the page mounts
+ */
 async function loadGraph() {
-    if (!(await enterGraph())) return;
-    try { graph = await getJson('/graph'); } catch (error) { says(error.message, true); return; }
-    drawGraph();
+    if (graphLoading) { graphAgain = true; return graphLoading; }
+    graphLoading = (async () => {
+        graphRevision = document.body.dataset.revision || null;
+        const fetched = getJson('/graph');
+        fetched.catch(() => undefined);
+        if (!(await enterGraph())) return;
+        try { graph = await fetched; } catch (error) { says(error.message, true); return; }
+        drawGraph();
+    })();
+    try { await graphLoading; } finally { graphLoading = null; }
+    if (graphAgain) { graphAgain = false; return loadGraph(); }
 }
 
 /** One card of the page: the record its template draws */
@@ -554,6 +571,8 @@ function cardOf(node, note) {
         noNote: !note,
         noAdd: !node.add,
         addLabel: node.add ? fill(T['views.addTo'], { path: node.id }) : '',
+        // A part has room around its texts; a pill and a leaf of a block less
+        padding: pill || LEAVES.includes(node.kind) ? 'sm' : 'md',
         corners: pill ? 'pill' : 'rounded',
         // A part the app does not use, or one outside the owner's, lies flat; the app being edited is selected
         elevation: pill || !node.used || node.outside ? 'flat' : 'raised',
@@ -1453,6 +1472,8 @@ let reloadWaiting = false;
 const editing = () => sheet.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
 new MutationObserver(() => {
     if (view === 'screens') { if (layersShown()) void drawLayers(); return; }
+    // The revision is written again as it was (a reconnect): Statenet's tree is read only for a new one
+    if (view === 'statenet' && graph && (document.body.dataset.revision || null) === graphRevision) return;
     if (editing()) reloadWaiting = true; else void load();
 }).observe(document.body, { attributes: true, attributeFilter: ['data-revision'] });
 sheet.addEventListener('focusout', () => setTimeout(() => { if (reloadWaiting && !editing()) { reloadWaiting = false; if (view !== 'screens') void load(); } }, 0));

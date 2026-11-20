@@ -14,28 +14,34 @@ const field = (name: string, type: string, value: unknown): Record<string, unkno
 
 /**
  * One card of the tree, drawn for each record of `nodes`: the record says how it looks. A branch, the owner and the
- * "N more" pill are pills (`corners`), a part is a raised card with its kind above its label and note, flat when the app
- * does not use it, with its label muted; the app being edited is selected (`current`). A + adds under the record and is
- * named by it (`addLabel`)
+ * "N more" pill are pills (`corners`), a part is a raised card with its kind above its label and its note below, flat
+ * when the app does not use it, with its label muted; the app being edited is selected (`current`). A part has room
+ * around its texts (`padding` md), a pill and a leaf less (sm). A + adds under the record and is named by it (`addLabel`)
  */
 function card(): Record<string, unknown> {
     return {
         component: 'card',
-        padding: 'sm',
-        density: 'compact',
+        '<-padding': '$row.padding',
         '<-corners': '$row.corners',
         '<-elevation': '$row.elevation',
         '<-selected': '$row.current',
-        layout: { type: 'row', gap: 'sm', align: 'center' },
+        layout: { type: 'row', gap: 'md', align: 'center' },
         children: {
             body: {
                 component: 'panel',
                 padding: 'none',
                 placement: { grow: 1 },
-                layout: { type: 'column', gap: 'none' },
+                layout: { type: 'column', gap: 'sm' },
                 children: {
-                    kind: { component: 'text', textRole: 'caption', tone: 'accent', caps: true, '<-_text': '$row.kind', '<-hidden': '$row.noKind' },
-                    label: { component: 'text', textRole: 'label', '<-_text': '$row.label', '<-muted': '$row.muted' },
+                    head: {
+                        component: 'panel',
+                        padding: 'none',
+                        layout: { type: 'column', gap: 'none' },
+                        children: {
+                            kind: { component: 'text', textRole: 'caption', tone: 'accent', caps: true, '<-_text': '$row.kind', '<-hidden': '$row.noKind' },
+                            label: { component: 'text', textRole: 'label', '<-_text': '$row.label', '<-muted': '$row.muted' }
+                        }
+                    },
                     note: { component: 'text', textRole: 'caption', muted: true, '<-_text': '$row.note', '<-hidden': '$row.noNote' }
                 }
             },
@@ -74,11 +80,11 @@ export const STATENET: PageSpec = {
     sample: {
         [N]: {
             nodes: [
-                { id: '$', parent: '', label: '$', kind: '', note: '', noKind: true, noNote: true, noAdd: true, addLabel: '', corners: 'pill', elevation: 'flat', current: false, muted: false, wrap: false },
-                { id: '$.apps', parent: '$', label: 'apps', kind: '', note: '', noKind: true, noNote: true, noAdd: false, addLabel: 'Add to $.apps', corners: 'pill', elevation: 'flat', current: false, muted: false, wrap: false },
-                { id: '$.apps.shop', parent: '$.apps', label: 'Shop', kind: 'App', note: 'The authority', noKind: false, noNote: false, noAdd: true, addLabel: '', corners: 'rounded', elevation: 'raised', current: true, muted: false, wrap: false },
-                { id: '$.data', parent: '$', label: 'data', kind: '', note: '', noKind: true, noNote: true, noAdd: false, corners: 'pill', elevation: 'flat', current: false, muted: false, wrap: false },
-                { id: '$.data.orders', parent: '$.data', label: 'orders', kind: 'Dataset', note: 'Unused', noKind: false, noNote: false, noAdd: true, addLabel: '', corners: 'rounded', elevation: 'flat', current: false, muted: true, wrap: false }
+                { id: '$', parent: '', label: '$', kind: '', note: '', noKind: true, noNote: true, noAdd: true, addLabel: '', padding: 'sm', corners: 'pill', elevation: 'flat', current: false, muted: false, wrap: false },
+                { id: '$.apps', parent: '$', label: 'apps', kind: '', note: '', noKind: true, noNote: true, noAdd: false, addLabel: 'Add to $.apps', padding: 'sm', corners: 'pill', elevation: 'flat', current: false, muted: false, wrap: false },
+                { id: '$.apps.shop', parent: '$.apps', label: 'Shop', kind: 'App', note: 'The authority', noKind: false, noNote: false, noAdd: true, addLabel: '', padding: 'md', corners: 'rounded', elevation: 'raised', current: true, muted: false, wrap: false },
+                { id: '$.data', parent: '$', label: 'data', kind: '', note: '', noKind: true, noNote: true, noAdd: false, padding: 'sm', corners: 'pill', elevation: 'flat', current: false, muted: false, wrap: false },
+                { id: '$.data.orders', parent: '$.data', label: 'orders', kind: 'Dataset', note: 'Unused', noKind: false, noNote: false, noAdd: true, addLabel: '', padding: 'md', corners: 'rounded', elevation: 'flat', current: false, muted: true, wrap: false }
             ],
             links: [{ from: '$.apps.shop', to: '$.data.orders', kind: 'binding', label: 'Shop binds orders' }]
         }
@@ -105,7 +111,7 @@ export const STATENET: PageSpec = {
                     [STATENET_KEYS.canvas]: {
                         component: 'viewport',
                         grid: true,
-                        placement: { height: 'calc(100vh - 0px)' },
+                        placement: { height: 'calc(100vh - 2px)' },
                         _label: t['statenet.canvas'],
                         '<-x': `${N}.view.x`,
                         '<-y': `${N}.view.y`,

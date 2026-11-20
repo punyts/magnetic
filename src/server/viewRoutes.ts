@@ -126,70 +126,74 @@ export function viewRoutes(context: ViewRouteContext) {
         return found === undefined ? {} : (found.body as unknown as JsonRecord);
     }
 
-    /** The owner's tree: every part of the workspace by kind, with the app being edited and what it holds */
+    /** The owner's tree: every part of the workspace by kind, with the app being edited and what it holds. The reads do not depend on each other, so they run together */
     async function graph(place: ViewPlace): Promise<JsonRecord> {
-        const app = await appNow(place);
-        const uses = usesOf(app);
-        const document = await documentOf(place);
         const names = async (kind: string): Promise<string[]> => (await place.services.parts.list(kind as never)).map((summary) => summary.name);
-        const apps = await Promise.all(
-            (await place.services.parts.list('apps')).map(async (summary) => {
-                const title = (await bodyOf(place, 'apps', summary.name))['title'];
-                return { id: summary.id, name: summary.name, title: typeof title === 'string' ? title : summary.name };
-            })
-        );
-        const datasets = await Promise.all(
-            (await names('data')).map(async (name) => {
+        const each = async <T>(kind: string, read: (name: string, id: string) => Promise<T>): Promise<T[]> =>
+            Promise.all((await place.services.parts.list(kind as never)).map((summary) => read(summary.name, summary.id)));
+        const appNamesOf = async (uses: JsonRecord): Promise<Record<string, string>> => {
+            const external = isRecord(uses['external']) ? uses['external'] : {};
+            const ids = [...new Set(Object.values(external).flatMap((use) => (isRecord(use) && typeof use['app'] === 'string' ? [use['app']] : [])))];
+            const found = await Promise.all(ids.map(async (id) => [id, (await place.services.parts.findById('apps', id).catch(() => undefined))?.name] as const));
+            return Object.fromEntries(found.filter((entry): entry is readonly [string, string] => entry[1] !== undefined));
+        };
+        const appRead = appNow(place);
+        const [app, document, apps, datasets, models, modules, themes, components, patterns, shared, listed, sharedWith, personaApps, appNames] = await Promise.all([
+            appRead,
+            documentOf(place),
+            each('apps', async (name, id) => {
+                const title = (await bodyOf(place, 'apps', name))['title'];
+                return { id, name, title: typeof title === 'string' ? title : name };
+            }),
+            each('data', async (name) => {
                 const body = await bodyOf(place, 'data', name);
                 return { name, ...(typeof body['model'] === 'string' && { model: body['model'] }), keys: isRecord(body['records']) ? Object.keys(body['records']) : [] };
-            })
-        );
-        const models = await Promise.all(
-            (await names('models')).map(async (name) => {
+            }),
+            each('models', async (name) => {
                 const fields = (await bodyOf(place, 'models', name))['fields'];
                 const types = isRecord(fields) ? Object.entries(fields).map(([field, value]) => [field, isRecord(value) && typeof value['type'] === 'string' ? value['type'] : '']) : [];
                 return { name, fields: Object.fromEntries(types) as Record<string, string> };
-            })
-        );
-        const modules = await Promise.all(
-            (await names('logic')).map(async (name) => {
+            }),
+            each('logic', async (name) => {
                 const body = await bodyOf(place, 'logic', name);
                 const units = UNIT_GROUPS.flatMap((group) => (isRecord(body[group]) ? Object.keys(body[group] as JsonRecord).map((unit) => ({ group, name: unit })) : []));
                 return { name, units, needs: isRecord(body['needs']) ? Object.keys(body['needs']) : [] };
-            })
-        );
-        const appNames: Record<string, string> = {};
-        const external = isRecord(uses['external']) ? uses['external'] : {};
-        for (const use of Object.values(external)) {
-            if (!isRecord(use) || typeof use['app'] !== 'string') continue;
-            const part = await place.services.parts.findById('apps', use['app']).catch(() => undefined);
-            if (part !== undefined) appNames[use['app']] = part.name;
-        }
+            }),
+            names('themes'),
+            names('components'),
+            names('patterns'),
+            context.sharedDatasets(place.workspaceId),
+            context.connections.list(place.workspaceId),
+            appRead.then((found) => context.sharedCount(place.workspaceId, found.id)),
+            context.personaApps(place.workspaceId, place.user.id),
+            appRead.then((found) => appNamesOf(usesOf(found)))
+        ]);
+        const uses = usesOf(app);
         const ownerNames: Record<string, string> = {};
-        for (const shared of await context.sharedDatasets(place.workspaceId)) ownerNames[shared.owner] = shared.ownerName;
+        for (const each of shared) ownerNames[each.owner] = each.ownerName;
         // Hosts and endpoint paths only: never a key, a token or a query secret
-        const connections: GraphConnection[] = (await context.connections.list(place.workspaceId)).map((connection) => ({
+        const connections: GraphConnection[] = listed.map((connection) => ({
             name: connection.name,
             host: new URL(connection.baseUrl).host,
             endpoints: connection.endpoints.map((endpoint) => ({ name: endpoint.name, method: endpoint.method, path: endpoint.path }))
         }));
         const title = (app.body as unknown as JsonRecord)['title'];
         const built = ownerTreeOf({
-            app: { id: app.id, name: app.name, title: typeof title === 'string' ? title : app.name, uses, document, sharedWith: await context.sharedCount(place.workspaceId, app.id) },
+            app: { id: app.id, name: app.name, title: typeof title === 'string' ? title : app.name, uses, document, sharedWith },
             apps,
-            themes: await names('themes'),
+            themes,
             datasets,
             models,
             modules,
-            components: await names('components'),
-            patterns: await names('patterns'),
+            components,
+            patterns,
             connections,
             ownerNames,
             appNames,
             manages: place.manages,
             // Their own persona only, never another person's. Magnetic gives each person the default persona, whose state
             // it keeps under their id
-            persona: { name: DEFAULT_PERSONA, owner: place.workspaceId, apps: await context.personaApps(place.workspaceId, place.user.id) },
+            persona: { name: DEFAULT_PERSONA, owner: place.workspaceId, apps: personaApps },
             // The functions this server runs: the host's and the component library's, shown as hard IP
             functions: place.services.functions
         });
