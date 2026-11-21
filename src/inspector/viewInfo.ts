@@ -447,7 +447,8 @@ function places(node: unknown, component: string): boolean {
  * app being edited does not use is drawn dimmed (`used: false`). One level is drawn below a part: the app's screens,
  * bindings (`uses.data`), own state (`data`) and outside reads (`uses.external`); a dataset's records (the first
  * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints; the person's own persona with the apps
- * they have state in (`$.personas.<persona>.apps.<owner>.<app id>`); the server's functions by group
+ * they have state in (`$.personas.<persona>.apps.<owner>.<app id>`: the app being edited and the most recent others,
+ * `TREE_RECORDS` in all); the server's functions by group
  * (`$.functions.<group>.<name>`), and a library component's under it (`$.components.<component>.functions.<name>`). A branch the person can add to has
  * `add`. The edges are what the tree does not show: what the app uses, a binding's dataset, a dataset's model, an
  * endpoint the app calls, the function a unit runs
@@ -650,8 +651,12 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
     const persona = `$.personas.${input.persona.name}`;
     const mine = input.persona.apps.filter((each) => titles.has(each.id.toLowerCase()));
     branch('$.personas', '$', '$.personas', mine.some((each) => each.id.toLowerCase() === input.app.id.toLowerCase()));
-    add({ id: persona, parent: '$.personas', kind: 'persona', label: input.persona.name, note: '', used: true });
-    for (const each of mine) {
+    // The app being edited and the most recent others, `TREE_RECORDS` in all, as a dataset shows its first records
+    const isCurrent = (each: { id: string }): boolean => each.id.toLowerCase() === input.app.id.toLowerCase();
+    const others = mine.filter((each) => !isCurrent(each)).slice(0, TREE_RECORDS - (mine.some(isCurrent) ? 1 : 0));
+    const shownApps = mine.filter((each) => isCurrent(each) || others.includes(each));
+    add({ id: persona, parent: '$.personas', kind: 'persona', label: input.persona.name, note: '', used: true, ...(mine.length > shownApps.length && { more: mine.length - shownApps.length }) });
+    for (const each of shownApps) {
         const of = titles.get(each.id.toLowerCase()) as { id: string; name: string; title: string };
         const current = of.id.toLowerCase() === input.app.id.toLowerCase();
         const id = `${persona}.apps.${input.persona.owner}.${of.id.toLowerCase()}`;

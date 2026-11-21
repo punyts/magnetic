@@ -156,6 +156,36 @@ describe("The editor's views of an app", () => {
         expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.logic.billing', kind: 'uses' });
         expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.connections.weather.endpoints.today', kind: 'call', label: 'forecast' });
     });
+    it("should show the persona's app being edited and its most recent others, TREE_RECORDS in all, and count the rest", () => {
+        // Arrange: state in the app being edited, the oldest, and in TREE_RECORDS + 3 others before it
+        const count = TREE_RECORDS + 3;
+        const apps = Array.from({ length: count }, (_, index) => ({ id: `b${index}`, name: `app${index}`, title: `App ${index}` }));
+        const recent = apps.map((each, index) => ({ id: each.id, updatedAt: new Date(Date.UTC(2026, 10, 18) - index * 60_000).toISOString() }));
+
+        // Act
+        const tree = ownerTreeOf({
+            app: { id: 'a1', name: 'tasks', title: 'Tasks', uses: {}, document: {}, sharedWith: 0 },
+            apps: [{ id: 'a1', name: 'tasks', title: 'Tasks' }, ...apps],
+            themes: [],
+            datasets: [],
+            models: [],
+            modules: [],
+            components: [],
+            patterns: [],
+            connections: [],
+            ownerNames: {},
+            appNames: {},
+            manages: false,
+            persona: { name: 'default', owner: 'w1', apps: [...recent, { id: 'a1', updatedAt: '2026-11-01T10:00:00.000Z' }] },
+            functions: []
+        });
+
+        // Assert
+        const shown = tree.nodes.filter((each) => each.parent === '$.personas.default').map((each) => each.appId);
+        expect(shown).toEqual([...apps.slice(0, TREE_RECORDS - 1).map((each) => each.id), 'a1']);
+        expect(tree.nodes.find((each) => each.id === '$.personas.default')).toMatchObject({ more: count + 1 - TREE_RECORDS });
+        expect(tree.edges.filter((each) => each.kind === 'instance')).toHaveLength(TREE_RECORDS);
+    });
     it('should show the functions as hard IP: the host\'s and others\' under $.functions, a component\'s under it, each linked from the units that run it', () => {
         // Arrange: a module's compute runs the tree layout, the app's own effect runs the host's http, and a splitPane slot places the diagram
         const entry = (path: string, kind: 'compute' | 'effect', runs: ('server' | 'browser')[]) => ({ id: `id-${path}`, path, kind, runs, summary: `Does ${path}`, inputs: { type: 'object' as const }, outputs: { type: 'object' as const } });
