@@ -41,6 +41,12 @@ export async function seedModule(seed: { user: string; app: string; module: stri
     expect(response.status, await response.text()).toBe(204);
 }
 
+/** A dev user changes a node of their own copy of the editor (path below its home screen), as they would in the editor */
+export async function changeEditor(change: { user: string; path: string; value: unknown }): Promise<void> {
+    const response = await fetch(`${CONTROL}/editor-node`, { method: 'POST', body: JSON.stringify(change) });
+    expect(response.status, await response.text()).toBe(204);
+}
+
 /** The stand-in Stripe refunds a checkout session's payment, so far `cents` in all */
 export async function refundCheckout(session: string, cents: number): Promise<void> {
     const answer = await fetch(`${CONTROL}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session, cents }) });
@@ -145,7 +151,7 @@ export class EditorPage {
     readonly app: Locator;
     constructor(readonly page: Page) {
         this.editor = page.locator('#editor');
-        this.app = page.locator('ui-embedded-app[live]');
+        this.app = page.locator('#screens ui-embedded-app[live]');
     }
     get appId(): string {
         return new URL(this.page.url()).pathname.split('/').pop() as string;

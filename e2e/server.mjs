@@ -110,6 +110,19 @@ async function seedModule({ user, app, module, dataset }) {
 }
 
 /**
+ * POST /editor-node: a dev user changes a node of their own copy of the editor, as they would in the editor: { user,
+ * path, value } with the node path below the editor's home screen. They must have opened the editor once, which made
+ * the copy
+ */
+async function changeEditor({ user, path, value }) {
+    const id = await devUserId(user);
+    if (id === undefined) throw new Error(`${user} has not signed in`);
+    const run = await toolsOf(id);
+    const read = await run('ui_get', { kind: 'apps', name: 'magnetic-editor', depth: 1 });
+    await run('ui_nodes_write', { app: 'magnetic-editor', screen: 'home', expectedRevision: read.revision, operations: [{ op: 'set', path, value }] });
+}
+
+/**
  * The stand-in Stripe's news to Magnetic: an event signed with the webhook secret, as Stripe sends it
  */
 async function stripeSends(type, object) {
@@ -122,7 +135,8 @@ async function stripeSends(type, object) {
 const checkouts = new Map();
 
 // For the tests only, on loopback: who the mock provider signs in next (POST /person with the person's claims), the
-// invites emailed so far (GET /mail), and a dev user's dataset (POST /dataset) and logic module (POST /module)
+// invites emailed so far (GET /mail), a dev user's dataset (POST /dataset) and logic module (POST /module), and a node of
+// their copy of the editor (POST /editor-node)
 const control = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => (body += chunk));
@@ -169,6 +183,11 @@ const control = createServer((request, response) => {
                 );
         } else if (request.method === 'POST' && request.url === '/dataset') {
             seedDataset(JSON.parse(body)).then(
+                () => response.writeHead(204).end(),
+                (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+            );
+        } else if (request.method === 'POST' && request.url === '/editor-node') {
+            changeEditor(JSON.parse(body)).then(
                 () => response.writeHead(204).end(),
                 (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
             );

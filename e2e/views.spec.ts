@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { EditorPage, expect, seedDataset, seedModule, signIn, test, uniqueName } from './fixtures.js';
+import { EditorPage, changeEditor, expect, seedDataset, seedModule, signIn, test, uniqueName } from './fixtures.js';
 
 const isPhone = (page: Page): boolean => (page.viewportSize()?.width ?? 1440) < 760;
 
@@ -11,11 +11,44 @@ async function pickView(editor: EditorPage, page: Page, name: 'Screens' | 'State
 }
 
 const sheet = (page: Page) => page.locator('#view-sheet');
+/** The side panel: Magnetic's page magnetic-side, which the editor places */
+const sidePanel = (page: Page) => page.getByRole('region', { name: 'Details' });
 /** The Theme or Logic view's page on the board */
 const viewPage = (page: Page) => page.locator('#view-page');
 /** The theme the Theme view shows */
 const chosenTheme = (page: Page) => viewPage(page).getByRole('combobox', { name: 'Theme', exact: true });
 /** Makes a theme of the app's own from the Theme view's page, named as the prompt is answered */
+/**
+ * A token's value cell in the Theme view's table. The table draws only the rows in view, so its scroller (in the shadow
+ * roots of the table and its list) is moved down until the row is drawn, and the row is brought into the window before
+ * it is used: a scroll while a cell has focus draws other rows in the table's slots, the focused one too
+ */
+async function tokenCell(page: Page, label: string): Promise<Locator> {
+    const cell = viewPage(page).getByRole('textbox', { name: label, exact: true });
+    for (let step = 0; step < 60 && (await cell.count()) === 0; step += 1) {
+        await viewPage(page).locator('ui-table').evaluate((table) => {
+            const scrollers: Element[] = [];
+            const walk = (root: Element | ShadowRoot): void => {
+                for (const each of Array.from(root.querySelectorAll('*'))) {
+                    if (each.scrollHeight > each.clientHeight + 1 && getComputedStyle(each).overflowY !== 'hidden' && getComputedStyle(each).overflowY !== 'visible') scrollers.push(each);
+                    if (each.shadowRoot) walk(each.shadowRoot);
+                }
+            };
+            walk(table.shadowRoot ?? table);
+            for (const scroller of scrollers) scroller.scrollTop += scroller.clientHeight;
+        });
+        await page.waitForTimeout(50);
+    }
+    for (let step = 0; step < 5; step += 1) {
+        await cell.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(100);
+        const box = await cell.boundingBox();
+        const window = page.viewportSize();
+        if (box && window && box.y >= 0 && box.y + box.height <= window.height) break;
+    }
+    return cell;
+}
+
 async function newTheme(page: Page, name: string): Promise<void> {
     page.once('dialog', (dialog) => void dialog.accept(name));
     await viewPage(page).getByRole('button', { name: 'New theme' }).click();
@@ -168,7 +201,7 @@ test.describe("The editor's views", () => {
         await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset, records: { bolt: { name: 'Bolt' } } });
         await pickView(editor, page, 'Statenet');
         const appPath = `$.apps.${appName}`;
-        const side = sheet(page).locator('.view-side');
+        const side = sidePanel(page);
 
         // Act: a screen
         await add(graph(page).getByRole('button', { name: `Add to ${appPath}.screens` }));
@@ -210,7 +243,7 @@ test.describe("The editor's views", () => {
         const dataset = uniqueName(info, 'bins');
         await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset: seeded, records: { bolt: { name: 'Bolt' } } });
         await pickView(editor, page, 'Statenet');
-        const side = sheet(page).locator('.view-side');
+        const side = sidePanel(page);
 
         // Act: the dataset, of that model, with its first record
         await add(graph(page).getByRole('button', { name: 'Add to $.data', exact: true }));
@@ -245,7 +278,7 @@ test.describe("The editor's views", () => {
         await pickView(editor, page, 'Theme');
         await newTheme(page, name);
         await pickView(editor, page, 'Statenet');
-        const side = sheet(page).locator('.view-side');
+        const side = sidePanel(page);
 
         // Act and Assert: the app's card lists its screens, and one shows that screen
         await press(appCard(page));
@@ -273,7 +306,7 @@ test.describe("The editor's views", () => {
     test("a function is hard IP: the host's under $.functions and a component's under its component, each with a panel of what it does and nothing to edit", async ({ page }) => {
         // Arrange
         await pickView(editor, page, 'Statenet');
-        const side = sheet(page).locator('.view-side');
+        const side = sidePanel(page);
         const http = node(page, '$.functions.host.http');
 
         // Act
@@ -301,7 +334,7 @@ test.describe("The editor's views", () => {
     test("a chosen card is let go by the panel's ×, by pressing it again, and by a press on the empty canvas, not by a drag", async ({ page }) => {
         // Arrange
         await pickView(editor, page, 'Statenet');
-        const side = sheet(page).locator('.view-side');
+        const side = sidePanel(page);
         const card = appCard(page);
         await expect(card).toBeVisible();
         /** A point of the page over the canvas, or the diagram between its cards, with no head or panel of the editor over it */
@@ -373,7 +406,7 @@ test.describe("The editor's views", () => {
         await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset, records: { bolt: { name: 'Bolt' } } });
         await seedModule({ user: 'alice', app: appName, module, dataset });
         await press(node(page, `$.logic.${module}`));
-        await sheet(page).locator('.view-side').getByRole('button', { name: 'Open in the Logic view' }).click();
+        await sidePanel(page).getByRole('button', { name: 'Open in the Logic view' }).click();
 
         // Assert
         await expect(page.locator('body')).toHaveAttribute('data-view', 'logic');
@@ -400,19 +433,22 @@ test.describe("The editor's views", () => {
         const name = uniqueName(info, 'theme');
         await pickView(editor, page, 'Theme');
         await newTheme(page, name);
-        const cell = (label: string) => viewPage(page).getByRole('textbox', { name: `palette.neutral.50 ${label}`, exact: true });
+        const cell = (label: string) => tokenCell(page, `color.accent.base ${label}`);
         // A specimen of the theme for each mode above the tokens
         await expect(viewPage(page).locator('ui-drawing')).toHaveCount(3);
+        // A token no mode may set has one value, for all modes
+        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 Dark', exact: true })).toBeDisabled();
+        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 All modes', exact: true })).toBeEnabled();
 
         // Act
-        await cell('Dark').fill('#ff6600');
-        await cell('Dark').blur();
+        await (await cell('Dark')).fill('#ff6600');
+        await (await cell('Dark')).blur();
 
         // Assert: saved in that mode alone, and shown so once the theme is read again
         await expect(viewPage(page)).toContainText('Saved');
-        await expect(cell('Dark')).toHaveValue('#ff6600');
-        await expect(cell('Light')).not.toHaveValue('#ff6600');
-        await expect(cell('High contrast')).not.toHaveValue('#ff6600');
+        await expect(await cell('Dark')).toHaveValue('#ff6600');
+        await expect(await cell('Light')).not.toHaveValue('#ff6600');
+        await expect(await cell('High contrast')).not.toHaveValue('#ff6600');
     });
 
     test('the Theme view clones a theme another app uses into one of the app\'s own', async ({ page, home }, info) => {
@@ -429,7 +465,7 @@ test.describe("The editor's views", () => {
         await viewPage(page).getByRole('combobox', { name: 'Add a theme…' }).selectOption(name);
         await expect(chosenTheme(page)).toHaveValue(name);
         await expect(viewPage(page)).toContainText('Other apps use this theme too');
-        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 Dark', exact: true })).toBeDisabled();
+        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 All modes', exact: true })).toBeDisabled();
 
         // Act
         page.once('dialog', (dialog) => void dialog.accept(copy));
@@ -438,7 +474,7 @@ test.describe("The editor's views", () => {
         // Assert: the copy is the app's, shown and editable; no other app uses it
         await expect(chosenTheme(page)).toHaveValue(copy);
         await expect(viewPage(page)).not.toContainText('Other apps use this theme too');
-        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 Dark', exact: true })).toBeEnabled();
+        await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 All modes', exact: true })).toBeEnabled();
     });
 
     test('the Logic view makes a rule on the server, moves it to the browser and deletes it', async ({ page }) => {
@@ -452,8 +488,8 @@ test.describe("The editor's views", () => {
         await logic.getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Rule' });
         page.once('dialog', (dialog) => void dialog.accept('remember'));
         await logic.getByRole('button', { name: 'New', exact: true }).click();
-        await sheet(page).getByRole('textbox', { name: 'rules.remember' }).fill(JSON.stringify({ when: { path: '$.data.picked' }, do: [{ command: 'set', target: '$.data.seen', value: true }] }));
-        await sheet(page).getByRole('button', { name: 'Save', exact: true }).click();
+        await sidePanel(page).getByRole('textbox', { name: 'rules.remember' }).fill(JSON.stringify({ when: { path: '$.data.picked' }, do: [{ command: 'set', target: '$.data.seen', value: true }] }));
+        await sidePanel(page).getByRole('button', { name: 'Save', exact: true }).click();
 
         // Assert: its card in the Server lane
         await expect(card('Server')).toBeVisible();
@@ -495,5 +531,37 @@ test.describe("The editor's views", () => {
         await editor.button('Data').click();
         await editor.button('Layout').click();
         await expect(page.locator('.tile-layer .lbox')).toHaveCount(0);
+    });
+});
+
+test.describe("A person's copy of the editor", () => {
+    test('keeps the side panel working where the copy moves it, at the left', async ({ context, home, page }, info) => {
+        test.skip(isPhone(page), "One copy of dan's editor, and a wide window's placement");
+        // Arrange: dan's editor, made when they first open it, with the side panel moved from the right to the left
+        await signIn(context, 'dan');
+        await home.goto();
+        const appName = uniqueName(info, 'left');
+        const editor = await home.makeApp(appName);
+        await editor.ask('Home words');
+        await editor.button('Close the chat').click();
+        await changeEditor({ user: 'dan', path: 'root.children.stage.children.side.placement', value: { x: '12px', y: '64px', bottom: '96px', width: '360px' } });
+        await page.reload();
+        await pickView(editor, page, 'Statenet');
+        const side = sidePanel(page);
+
+        // Act
+        await press(node(page, `$.apps.${appName}`));
+
+        // Assert: the app's part at the side, which is now at the left
+        await expect(side.getByRole('heading', { name: 'Screens' })).toBeVisible();
+        const box = await side.boundingBox();
+        expect(box?.x).toBeLessThan(40);
+
+        // Act: a link of the panel still does what it does
+        await side.getByRole('button', { name: 'home', exact: true }).click();
+
+        // Assert
+        await expect(page.locator('body')).toHaveAttribute('data-view', 'screens');
+        await expect(side).toBeHidden();
     });
 });

@@ -268,7 +268,8 @@ workspace, and stops when you sign out of that browser.
       the card clear of it: records, model fields, running state and connections (for managers); the app's and a
       component's screens; a theme's default and removal; the way to the Theme or Logic view and back. Removing
       anything asks first. The side panel is a page of Magnetic's too (`magnetic-side`): one panel of sections, each
-      shown when the part has it.
+      shown when the part has it. The editor places it, in a float of its own (`side`) holding an `embeddedApp` the
+      page's app host opens by name, so a person's copy of the editor can move or restyle it.
       Functions are hard IP: `$.functions.<group>.<name>` and a library component's `$.components.<component>.functions.<name>`,
       each a card with its kind and where it runs, no + and no editor; its panel shows its summary and schemas, and a
       unit links to the function it runs.
