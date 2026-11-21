@@ -168,8 +168,12 @@ test.describe('Screens', () => {
 
         // Assert: the order is home, three, one, two, four, five, on the board and in the panel
         await expect.poll(() => order(page)).toEqual(['home', 'three', 'one', 'two', 'four', 'five']);
+        // In the order the panel shows them: a record keeps its slot when it moves, and slots are placed by position
         const titles = editor.editor.getByText(/^(Home|One|Two|Three|Four|Five)$/);
-        await expect(titles).toHaveText(['Home', 'Three', 'One', 'Two', 'Four', 'Five']);
+        await expect.poll(() => titles.evaluateAll((all) => all
+            .map((title) => ({ text: title.textContent, top: title.getBoundingClientRect().top }))
+            .sort((a, b) => a.top - b.top)
+            .map((title) => title.text))).toEqual(['Home', 'Three', 'One', 'Two', 'Four', 'Five']);
     });
 
     test('a card\'s menu retitles its screen and moves it earlier', async ({ page }) => {
