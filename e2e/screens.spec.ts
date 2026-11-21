@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { EditorPage, expect, signIn, test, uniqueName } from './fixtures.js';
+import { BOARD, EditorPage, expect, signIn, test, uniqueName } from './fixtures.js';
 
 /** Adds a screen from the Screens panel by its name */
 async function addScreen(editor: EditorPage, name: string): Promise<void> {
@@ -7,16 +7,21 @@ async function addScreen(editor: EditorPage, name: string): Promise<void> {
     await field.fill(name);
     await field.press('Tab');
     await editor.button('Add').click();
-    await expect(editor.editor.getByText(name, { exact: true }).first()).toBeVisible();
+    await expect(panel(editor).getByText(name, { exact: true })).toBeVisible();
 }
 
-const board = (page: Page): Locator => page.locator('#screens');
-/** A card that is not the live one: its app's frame, a button named by the screen's title */
+const board = (page: Page): Locator => page.locator(BOARD);
+/** The Screens panel: the innermost element of the editor that holds both its close button and its hint (the board, also in the editor, names the screens too) */
+const panel = (editor: EditorPage): Locator => editor.editor.locator('*')
+    .filter({ has: editor.page.getByRole('button', { name: 'Close the screens', exact: true }) })
+    .filter({ has: editor.page.getByText('Press a screen, here or on the canvas, to work on it.') })
+    .last();
+/** A card that is not the live one: its frame, a button named by the screen's title, which shows that title */
 const preview = (page: Page, title: string): Locator => board(page).getByRole('button', { name: title, exact: true });
 /** The live app's frame, a group named by its screen's title */
 const liveFrame = (page: Page, title: string): Locator => board(page).getByRole('group', { name: title, exact: true });
-const live = (page: Page): Locator => page.locator('#screens ui-embedded-app[live]');
-const runningPreviews = (page: Page): Locator => page.locator('#screens ui-embedded-app[mounted]:not([live])');
+const live = (page: Page): Locator => board(page).locator('ui-embedded-app[live]');
+const runningPreviews = (page: Page): Locator => board(page).locator('ui-embedded-app[mounted]:not([live])');
 const near = (a: number, b: number): void => expect(Math.abs(a - b)).toBeLessThan(4);
 
 test.describe('Screens', () => {
@@ -34,15 +39,16 @@ test.describe('Screens', () => {
     });
 
     test('the panel lists the screens and adds one; each screen is a card of its own, in order', async ({ page }) => {
-        await expect(editor.editor.getByText('Home', { exact: true })).toBeVisible();
+        await expect(panel(editor).getByText('Home', { exact: true })).toBeVisible();
         await addScreen(editor, 'about');
-        // The new screen is the one worked on; the home screen is a preview to its left
+        // The new screen is the one worked on; the home screen is a card to its left
         await expect(liveFrame(page, 'About')).toBeVisible();
         await expect(preview(page, 'Home')).toHaveCount(1);
         const at = await boxes(page);
         expect(at['home']!.x).toBeLessThan(at['about']!.x);
-        // The preview shows the home screen as the app draws it
-        await expect(preview(page, 'Home').getByText('Home words')).toBeVisible();
+        // One app runs at a time: the home screen's card shows its name
+        await expect(preview(page, 'Home')).toHaveText('Home');
+        await expect(board(page).locator('ui-embedded-app[mounted]')).toHaveCount(1);
     });
 
     test('pressing a preview makes its screen the live one, in its place', async ({ page }) => {
@@ -65,7 +71,7 @@ test.describe('Screens', () => {
 
     test('a screen is copied with its parts, renamed, opened on, and the other deleted', async ({ page }) => {
         await editor.button('Copy').click();
-        await expect(editor.editor.getByText('Home copy', { exact: true })).toBeVisible();
+        await expect(panel(editor).getByText('Home copy', { exact: true })).toBeVisible();
         await expect(editor.app.getByText('Home words')).toBeVisible();
         const rename = editor.editor.getByRole('textbox', { name: 'Rename', exact: true });
         await expect(rename).toHaveValue('home-copy');
@@ -77,10 +83,10 @@ test.describe('Screens', () => {
         await reloaded;
         await editor.button('Rename').click();
         // The server's answer: the list names the screen anew (the field alone shows what was typed)
-        await expect(editor.editor.getByText('welcome', { exact: true })).toBeVisible();
+        await expect(panel(editor).getByText('welcome', { exact: true })).toBeVisible();
         await expect(rename).toHaveValue('welcome');
         await editor.button('Open on it').click();
-        await expect(editor.editor.getByText('The app opens on it', { exact: true })).toBeVisible();
+        await expect(panel(editor).getByText('The app opens on it', { exact: true })).toBeVisible();
         // The old home screen goes
         await preview(page, 'Home').click();
         await expect(liveFrame(page, 'Home')).toBeVisible();
@@ -88,7 +94,7 @@ test.describe('Screens', () => {
         await page.getByRole('dialog', { name: 'Screen Home' }).getByRole('button', { name: 'Delete' }).click();
         await expect(preview(page, 'Home')).toHaveCount(0);
         await expect(liveFrame(page, 'Home')).toHaveCount(0);
-        await expect(editor.editor.getByText('Home', { exact: true })).toBeHidden();
+        await expect(panel(editor).getByText('Home', { exact: true })).toBeHidden();
         await expect(rename).toHaveValue('welcome');
     });
 
@@ -125,30 +131,49 @@ test.describe('Screens', () => {
         await expect(editor.editor.getByRole('combobox', { name: 'Screens in a row', exact: true })).toHaveValue('n2');
     });
 
-    test('only the previews in view run; one out of view shows its name', async ({ page }) => {
-        for (const name of ['one', 'two', 'three']) await addScreen(editor, name);
+    test('a pan that leaves another card with the most in view works on its screen', async ({ page }) => {
+        // Arrange: home and one side by side, home fitted and live, the panel closed so the canvas beside it is free
+        await addScreen(editor, 'one');
         await preview(page, 'Home').click();
-        await editor.zoomButton.click();
-        await expect(board(page).getByRole('button', { name: /^(One|Two|Three)$/ })).toHaveCount(3);
-        await expect.poll(() => runningPreviews(page).count()).toBeLessThan(3);
-        await expect(page.locator('#screens ui-embedded-app:not([mounted])').getByText('Three', { exact: true })).toBeVisible();
+        await expect(liveFrame(page, 'Home')).toBeVisible();
+        await editor.button('Close the screens').click();
+        await editor.button('Fit the app (1)').click();
+        await page.waitForTimeout(600);
+        const at = await boxes(page);
+        const x = (at['home']!.x + at['home']!.width + at['one']!.x) / 2;
+        const y = at['home']!.y + at['home']!.height / 2;
+
+        // Act: drag the canvas between the cards left, by the step from one card to the next
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x - (at['one']!.x - at['home']!.x) / 2, y, { steps: 5 });
+        await page.mouse.move(x - (at['one']!.x - at['home']!.x), y, { steps: 5 });
+        await page.mouse.up();
+
+        // Assert: one is the screen worked on, the only app running; home shows its name
+        await expect(liveFrame(page, 'One')).toBeVisible();
+        await expect(board(page).locator('ui-embedded-app[mounted]')).toHaveCount(1);
+        await expect(preview(page, 'Home')).toHaveText('Home');
     });
 
-    test('with more than four screens in view, the cards show only their names', async ({ page }) => {
-        // Arrange: six screens two to a row, the home screen live, and the board fitted to it, then out until a preview runs
+    test('zoomed out until every screen is in view, the cards show only their names', async ({ page }) => {
+        // Arrange: six screens two to a row, the home screen live, and the board fitted to it
         await zoomedOutOnSix(page);
-        await fitThenOutToAPreview(page);
+        await editor.button('Fit the app (1)').click();
+        await expect(live(page)).toHaveCount(1);
 
         // Act: zoomed out until every screen is in view
         await zoomOut(page);
 
         // Assert: no app runs, the live one included: each screen is a card with its name; fitting the live app again
-        // shows it, and the previews that come into view run
-        await expect(page.locator('#screens ui-embedded-app[mounted]')).toHaveCount(0);
+        // shows it
+        await expect(board(page).locator('ui-embedded-app[mounted]')).toHaveCount(0);
         await expect(live(page)).toHaveCount(0);
         await expect(preview(page, 'Home')).toHaveText('Home');
         await expect(preview(page, 'Five')).toHaveText('Five');
-        await fitThenOutToAPreview(page);
+        // A card in names shows its name once: it has no head, only its app's name and a corner with its ⋯
+        await expect(board(page).getByText('Five', { exact: true }).filter({ visible: true })).toHaveCount(1);
+        await editor.button('Fit the app (1)').click();
         await expect(liveFrame(page, 'Home')).toBeVisible();
         await expect(preview(page, 'Home')).toHaveCount(0);
     });
@@ -168,8 +193,11 @@ test.describe('Screens', () => {
 
         // Assert: the order is home, three, one, two, four, five, on the board and in the panel
         await expect.poll(() => order(page)).toEqual(['home', 'three', 'one', 'two', 'four', 'five']);
-        const titles = editor.editor.getByText(/^(Home|One|Two|Three|Four|Five)$/);
-        await expect(titles).toHaveText(['Home', 'Three', 'One', 'Two', 'Four', 'Five']);
+        // The panel's names top to bottom as drawn: its list places each record's element by slot, not by where it is in the
+        // page's DOM
+        const titles = panel(editor).getByText(/^(Home|One|Two|Three|Four|Five)$/);
+        const drawn = () => titles.evaluateAll((all) => all.sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y).map((each) => each.textContent));
+        await expect.poll(drawn).toEqual(['Home', 'Three', 'One', 'Two', 'Four', 'Five']);
     });
 
     test('a card\'s menu retitles its screen and moves it earlier', async ({ page }) => {
@@ -227,8 +255,8 @@ test.describe('Screens', () => {
         }
 
         // Assert: both gone, and the app opens on the next screen
-        await expect(editor.editor.getByText('Two', { exact: true })).toBeHidden();
-        await expect(editor.editor.getByText('Home', { exact: true })).toBeHidden();
+        await expect(panel(editor).getByText('Two', { exact: true })).toBeHidden();
+        await expect(panel(editor).getByText('Home', { exact: true })).toBeHidden();
         const answer = await page.evaluate(async () => (await fetch(location.pathname + '/screens')).json());
         expect(answer.start).toBe('one');
     });
@@ -260,23 +288,11 @@ async function zoomedOutOnSix(page: Page): Promise<void> {
     await zoomOut(page);
 }
 
-/** Fits the live app, which then fills the view, and zooms out a step at a time until a preview comes into view and runs */
-async function fitThenOutToAPreview(page: Page): Promise<void> {
-    const editor = new EditorPage(page);
-    await editor.button('Fit the app (1)').click();
-    await expect(live(page)).toHaveCount(1);
-    for (let step = 0; step < 4 && (await runningPreviews(page).count()) === 0; step += 1) {
-        await editor.button('Zoom out (-)').click();
-        await page.waitForTimeout(600);
-    }
-    await expect.poll(() => runningPreviews(page).count()).toBeGreaterThan(0);
-}
-
 async function zoomOut(page: Page): Promise<void> {
     const editor = new EditorPage(page);
     for (let step = 0; step < 6; step += 1) await editor.button('Zoom out (-)').click();
     // The zoom glides: wait for it to settle on names, where no app runs
-    await expect(page.locator('#screens ui-embedded-app[mounted]')).toHaveCount(0);
+    await expect(board(page).locator('ui-embedded-app[mounted]')).toHaveCount(0);
     await page.waitForTimeout(400);
 }
 

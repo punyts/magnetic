@@ -4,11 +4,17 @@ import type { BrowserContext, FrameLocator, Locator, Page, TestInfo } from '@pla
 /**
  * Page objects for the suite. Magnetic's pages are StateUI apps run in the page itself:
  * - the sign-in and link pages: `#page-app`; Your apps: `.home-app` in `body.home`, with its notices in `#notice`;
- * - the editor: `#editor` (Magnetic's editor, an app of its own) over the screens board, `#screens`, where the
- *   person's app runs too: the live screen is `ui-embedded-app[live]`, the others previews of it.
+ * - the editor: `#editor` (Magnetic's editor, an app of its own). Its canvas pages lie under its panels: the screens
+ *   board (`BOARD`), where the person's app runs too (the live screen is `ui-embedded-app[live]`, the one app
+ *   mounted; the other cards show their screens' names), and Statenet, Theme and Logic (`canvasPage`).
  * An app another person shared is the one page left in a frame from the runtime origin (`AppPage`).
  * The org settings, shared links and privacy pages are plain HTML.
  */
+
+/** One of the editor's canvas pages, by its title: the page's region inside its embeddedApp on the editor's stage */
+export const canvasPage = (page: Page, title: string): Locator => page.locator(`#editor .stateui-panel[role="region"][aria-label="${title}"]`);
+/** The screens board: the editor's canvas page that holds a card for each screen of the app */
+export const BOARD = '#editor .stateui-panel[role="region"][aria-label="The screens of the app"]';
 
 const CONTROL = `http://127.0.0.1:${Number(process.env['MAGNETIC_E2E_PORT'] ?? 4390) + 2}`;
 
@@ -139,13 +145,13 @@ export class HomePage {
 
 /** The editor at /edit/<id>, and the app at /apps/<id> under it */
 export class EditorPage {
-    /** Magnetic's editor: the panels, the rail, the chat bar */
+    /** Magnetic's editor: the panels, the rail, the chat bar, and the canvas pages under them (the board names the screens too) */
     readonly editor: Locator;
     /** The person's app on the board: the live screen's card, the app mounted in the page */
     readonly app: Locator;
     constructor(readonly page: Page) {
         this.editor = page.locator('#editor');
-        this.app = page.locator('#screens ui-embedded-app[live]');
+        this.app = page.locator(`${BOARD} ui-embedded-app[live]`);
     }
     get appId(): string {
         return new URL(this.page.url()).pathname.split('/').pop() as string;
@@ -180,7 +186,7 @@ export class EditorPage {
     }
     /** The live screen's size, "W × H", in its card's head */
     get artboardSize(): Locator {
-        return this.page.locator('#screens').getByText(/^\s*\d+\s*×\s*\d+\s*$/);
+        return this.page.locator(BOARD).getByText(/^\s*\d+\s*×\s*\d+\s*$/);
     }
     get zoomButton(): Locator {
         return this.button(/^\d+%$/);

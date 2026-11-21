@@ -18,14 +18,14 @@ import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
 import { privacyPage } from '../http/privacy.js';
 import type { PrivacyContact } from '../http/privacy.js';
 import { databaseExclusive } from '../storage/exclusive.js';
-import { SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
+import { LAYERS_CSS, SHELL_CSS, SHELL_JS, shellPage } from '../http/shell.js';
 import { HOME, HOME_APP, HomeApps } from '../home/HomeApp.js';
 import { isLanguage, isMode, languageOf, PreferenceStore } from '../prefs/Preferences.js';
 import type { Preferences } from '../prefs/Preferences.js';
 import { fill, textsOf } from '../http/text.js';
 import { INSPECT_JS } from '../http/inspect.js';
 import { SCREENS_JS } from '../http/screens.js';
-import { VIEWS_CSS, VIEWS_JS } from '../http/views.js';
+import { VIEWS_JS, VIEWS_LAYERS_CSS } from '../http/views.js';
 import type { Mailer } from '../mail/Mailer.js';
 import { Connections } from '../connections/Connections.js';
 import { connectionFacts, paramsOf } from '../connections/facts.js';
@@ -1237,8 +1237,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/css', SHELL_CSS);
             return true;
         }
-        if (method === 'GET' && path === '/assets/views.css') {
-            sendAsset(response, 'text/css', VIEWS_CSS);
+        // The layers over the board, linked into the board page's shadow root
+        if (method === 'GET' && path === '/assets/layers.css') {
+            sendAsset(response, 'text/css', LAYERS_CSS + '\n' + VIEWS_LAYERS_CSS);
             return true;
         }
         if (method === 'GET' && path === '/assets/app-page.css') {

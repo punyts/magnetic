@@ -16,58 +16,84 @@ const emit = (target: string, from?: string): Record<string, unknown> => ({ comm
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
 /**
- * One card of the board, drawn for each record of `tiles`: the screen's title, its size and its menu above the app on
- * that screen, the live one or a preview. In names the head goes and the app shows only its name (it is not active),
- * and a tile has its ⋯ (`noMore`); the screen chosen in names has a × that lets it go (`noClose`). The one tile of an
- * app with no screens is Add a screen (`add`)
+ * One card of the board, drawn for each record of `tiles`: the screen's title, its size and its ⋯ above the app on
+ * that screen, the live one or a preview. In names the head goes (`noHead`) and the app shows only its name (it is not
+ * active), and a corner over the screen's top right holds its ⋯ (`noMore`) and, for the screen chosen in names, a ×
+ * that lets it go (`noClose`). The one tile of an app with no screens is Add a screen (`add`). The card fills its
+ * row, gap included; it passes a press through and paints nothing, and holds the tile, which is as tall as its head
+ * and screen, so the gap shows the canvas
  */
 function tile(addFirst: string): Record<string, unknown> {
-    const tool = (icon: string, label: string, hidden: string, on: Record<string, unknown>): Record<string, unknown> => ({
+    const tool = (icon: string, label: string, size: string, hidden: string | undefined, on: Record<string, unknown>): Record<string, unknown> => ({
         component: 'button',
         icon,
         iconPosition: 'only',
-        size: 'sm',
-        variant: 'ghost',
+        size,
+        variant: size === 'lg' ? 'soft' : 'ghost',
+        tone: 'neutral',
         '<-_title': label,
-        '<-hidden': hidden,
+        ...(hidden !== undefined && { '<-hidden': hidden }),
         on: { press: on }
     });
     return {
         component: 'panel',
         padding: 'none',
-        layout: { type: 'column', gap: 'sm' },
+        passThrough: true,
+        layout: { type: 'adhoc' },
         children: {
-            head: {
+            tile: {
                 component: 'panel',
                 padding: 'none',
-                '<-hidden': '$row.add',
-                layout: { type: 'row', gap: 'sm', align: 'center' },
+                placement: { x: '0px', y: '0px', width: '100%' },
+                layout: { type: 'column', gap: 'sm' },
                 children: {
-                    title: { component: 'text', textRole: 'label', '<-_text': '$row.title', '<-hidden': '$row.noHead' },
-                    note: { component: 'text', textRole: 'caption', muted: true, '<-_text': '$row.note', '<-hidden': '$row.noHead' },
-                    more: tool('dots', '$row.moreLabel', '$row.noMore', emit('menu', '$row.id')),
-                    close: tool('x', '$row.closeLabel', '$row.noClose', emit('deselect', '$row.id'))
+                    // Its title and ⋯ stand in from the screen's edges by the board's panel padding (EDGE in screens.ts), which has no height
+                    head: {
+                        component: 'panel',
+                        padding: 'md',
+                        '<-hidden': '$row.noHead',
+                        layout: { type: 'row', gap: 'sm', align: 'center' },
+                        children: {
+                            title: { component: 'text', textRole: 'title', '<-_text': '$row.title' },
+                            note: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, '<-_text': '$row.note' },
+                            more: tool('dots', '$row.moreLabel', 'md', undefined, emit('menu', '$row.id'))
+                        }
+                    },
+                    app: {
+                        component: 'embeddedApp',
+                        '<-app': '$row.app',
+                        '<-appScreen': '$row.id',
+                        '<-live': '$row.live',
+                        '<-active': '$row.active',
+                        '<-width': '$row.width',
+                        '<-height': '$row.height',
+                        '<-_label': '$row.title',
+                        '<-hidden': '$row.add',
+                        on: { press: emit('press'), menu: emit('menu'), navigated: emit('navigated') }
+                    },
+                    add: {
+                        component: 'button',
+                        icon: 'plus',
+                        variant: 'outline',
+                        _title: addFirst,
+                        '<-hidden': '$row.noAdd',
+                        on: { press: emit('add') }
+                    }
                 }
             },
-            app: {
-                component: 'embeddedApp',
-                '<-app': '$row.app',
-                '<-appScreen': '$row.id',
-                '<-live': '$row.live',
-                '<-active': '$row.active',
-                '<-width': '$row.width',
-                '<-height': '$row.height',
-                '<-_label': '$row.title',
-                '<-hidden': '$row.add',
-                on: { press: emit('press'), menu: emit('menu'), navigated: emit('navigated') }
-            },
-            add: {
-                component: 'button',
-                icon: 'plus',
-                variant: 'outline',
-                _title: addFirst,
-                '<-hidden': '$row.noAdd',
-                on: { press: emit('add') }
+            // Over the screen's top right, in names, where the head is gone: its buttons are a size of the board's and it
+            // stands in from the screen's edges by EDGE, so they shrink with the card as the board zooms out
+            corner: {
+                component: 'panel',
+                padding: 'none',
+                passThrough: true,
+                '<-hidden': '$row.noMore',
+                placement: { right: '24px', y: '24px' },
+                layout: { type: 'row', gap: 'sm', align: 'center' },
+                children: {
+                    more: tool('dots', '$row.moreLabel', 'lg', '$row.noMore', emit('menu', '$row.id')),
+                    close: tool('x', '$row.closeLabel', 'lg', '$row.noClose', emit('deselect', '$row.id'))
+                }
             }
         }
     };
@@ -125,7 +151,8 @@ export const SCREENS: PageSpec = {
                     [SCREENS_KEYS.canvas]: {
                         component: 'viewport',
                         grid: true,
-                        placement: { height: 'calc(100vh - 2px)' },
+                        // The window less the borders around it: the editor's stage, the page's frame and its own panel
+                        placement: { height: 'calc(100vh - 7px)' },
                         _label: t['screens.canvas'],
                         '<-x': `${S}.view.x`,
                         '<-y': `${S}.view.y`,

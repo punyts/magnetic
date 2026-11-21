@@ -6,8 +6,12 @@ import { COMPONENT_CATEGORIES } from '../inspector/constants.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
 import type { PageSource } from '../pages/PersonPages.js';
+import { LOGIC_APP } from '../logic/LogicPage.js';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
+import { SCREENS_APP } from '../screens/ScreensPage.js';
 import { SIDE_APP } from '../side/SidePage.js';
+import { STATENET_APP } from '../statenet/StatenetPage.js';
+import { THEME_APP } from '../theme/ThemePage.js';
 import type { Stamps } from '../storage/Stamps.js';
 import { alone } from '../storage/exclusive.js';
 import type { Exclusive } from '../storage/exclusive.js';
@@ -50,7 +54,8 @@ const E = '$.data.editor';
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget', 'sideHidden'
+    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget', 'sideHidden',
+    'statenetHidden', 'themeHidden', 'logicHidden'
 ];
 
 /** The models of the editor's data */
@@ -76,7 +81,7 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', 'boardHidden', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
         // The view the canvas shows (Screens, Statenet, Theme, Logic), and the layers on the screen tiles
         { op: 'set', field: 'view', type: 'string', default: 'screens' },
         { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
@@ -206,6 +211,39 @@ const SIDE_PLACEMENT = {
     y: 'clamp(64px, (760px - 100vw) * 1000, 50vh)',
     width: 'clamp(min(360px, 45%), (760px - 100vw) * 1000, calc(100% - 24px))'
 };
+/** The whole window, under every panel: where the board and Statenet are placed */
+const WHOLE = { x: '0px', y: '0px', width: '100%', height: '100%' };
+/**
+ * Where Theme and Logic show: right of the rail, below the corners, down to above the chat bar; below 760px under the
+ * rail along the top, down to above the chat bar and the zoom
+ */
+const VIEW_PLACEMENT = {
+    x: 'clamp(12px, (100vw - 760px) * 1000, 96px)',
+    y: 'clamp(76px, (760px - 100vw) * 1000, 116px)',
+    right: '12px',
+    bottom: 'clamp(96px, (760px - 100vw) * 1000, 132px)'
+};
+/** A canvas page has no frame of its own: no border, no corners, nothing behind it but its page */
+const CANVAS_FRAME = { embed: { border: 'transparent', radius: '0px', fill: 'transparent' } };
+/**
+ * The canvas: Magnetic's pages the view selector shows (`$.data.editor.view`), each a live embeddedApp the page's app
+ * host opens by name, first on the stage so every panel lies over it. The screens board and Statenet take the whole
+ * window, Theme and Logic the area the panels leave. Each stays mounted while hidden, so it keeps where the person left
+ * it; the page script shows one at a time (`boardHidden`, `statenetHidden`, `themeHidden`, `logicHidden`). Each is
+ * a stack of its own (`z: 0`), so what is drawn over a page's app, such as the inspector's layer, stays under the panels
+ */
+function canvasPages(t: Texts): Record<string, unknown> {
+    const page = (app: string, label: string, placement: Record<string, string>, hidden: string): Record<string, unknown> => ({
+        component: 'embeddedApp', app, live: true, fill: true, _label: label, placement: { ...placement, z: 0 }, theme: CANVAS_FRAME, '<-hidden': `${E}.${hidden}`
+    });
+    return {
+        board: page(SCREENS_APP, t['screens.board'], WHOLE, 'boardHidden'),
+        statenet: page(STATENET_APP, t['shell.view.statenet'], WHOLE, 'statenetHidden'),
+        theme: page(THEME_APP, t['shell.view.theme'], VIEW_PLACEMENT, 'themeHidden'),
+        logic: page(LOGIC_APP, t['shell.view.logic'], VIEW_PLACEMENT, 'logicHidden')
+    };
+}
+
 /**
  * The side panel: Magnetic's page magnetic-side in a live embeddedApp that fills the float. The app host opens it by
  * name and hands views.ts its panel; it stays mounted while hidden, so what it shows is kept
@@ -811,8 +849,8 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
 }
 
 /**
- * The editor's screen: a stage as big as the window, whose children float over the canvas at their places (the adhoc
- * layout holds each to its edges): the name corner, the Share corner, the rail, the zoom, the chat bar and the chat,
+ * The editor's screen: a stage as big as the window, whose children float at their places (the adhoc layout holds each
+ * to its edges): first the canvas's pages, then over them the name corner, the Share corner, the rail, the zoom, the chat bar and the chat,
  * the inspector, the two sheets, the blank app's hint and the notice. The stage and the screen let a press anywhere
  * else through to the canvas (`passThrough`)
  */
@@ -827,9 +865,10 @@ function editorScreen(t: Texts): Record<string, unknown> {
                 component: 'panel',
                 padding: 'none',
                 passThrough: true,
-                placement: { height: 'calc(100vh - 0px)' },
+                placement: { height: 'calc(100vh - 2px)' },
                 layout: { type: 'adhoc' },
                 children: {
+                    ...canvasPages(t),
                     nameCorner: nameCorner(t),
                     shareCorner: shareCorner(t),
                     rail: rail(t),

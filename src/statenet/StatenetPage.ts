@@ -9,6 +9,8 @@ export const STATENET_KEYS = { canvas: 'canvas' } as const;
 
 const N = '$.data.statenet';
 
+/** The status and a refusal: across the top of the window, below the editor's name corner and its rail */
+const STATUS_PLACEMENT = { x: 'calc(50% - 180px)', y: '76px', width: '360px' };
 const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
@@ -66,7 +68,9 @@ function card(): Record<string, unknown> {
  * zooms. The page script (`views.ts`) drives it through `$.data.statenet` and its emits only:
  *
  * - It writes `nodes` (one record per card: `id`, `parent`, `wrap`, the texts and the look), `links` (the edges across
- *   the tree), `selected`, `view` ({ x, y, zoom }, linked to the viewport) and `inset` (what its panels cover).
+ *   the tree), `selected`, `view` ({ x, y, zoom }, linked to the viewport), `inset` (what its panels cover), `status`
+ *   with `noStatus` (what the page script is doing) and `refusal` with `noRefusal` (why a change was refused). Both
+ *   show over the canvas, at the top of the area the panels leave.
  * - The page emits `select` and `open` ({ id, box }) for a card, `add` with a record's id for its +, `press` for a press
  *   on the empty canvas, `view` with the view once a pan or zoom ends, and `layout` once the cards are placed.
  * - The editor's zoom runs the commands of the node keyed `canvas` (`STATENET_KEYS`), wherever it is.
@@ -95,7 +99,11 @@ export const STATENET: PageSpec = {
             field('links', 'array', []),
             field('selected', 'string', ''),
             field('view', 'object', { x: 0, y: 0, zoom: 1 }),
-            field('inset', 'object', { top: 0, right: 0, bottom: 0, left: 0 })
+            field('inset', 'object', { top: 0, right: 0, bottom: 0, left: 0 }),
+            field('status', 'string', ''),
+            field('noStatus', 'boolean', true),
+            field('refusal', 'string', ''),
+            field('noRefusal', 'boolean', true)
         ]
     },
     definition: () => {
@@ -106,12 +114,13 @@ export const STATENET: PageSpec = {
             home: {
                 component: 'panel',
                 padding: 'none',
-                layout: { type: 'column', gap: 'none' },
+                layout: { type: 'adhoc' },
                 children: {
                     [STATENET_KEYS.canvas]: {
                         component: 'viewport',
                         grid: true,
-                        placement: { height: 'calc(100vh - 2px)' },
+                        // The window less the borders around it: the editor's stage, the page's frame and its own panel
+                        placement: { x: '0px', y: '0px', width: '100%', height: 'calc(100vh - 7px)' },
                         _label: t['statenet.canvas'],
                         '<-x': `${N}.view.x`,
                         '<-y': `${N}.view.y`,
@@ -130,7 +139,17 @@ export const STATENET: PageSpec = {
                             card: card(),
                             on: { select: emit('select'), open: emit('open'), layout: emit('layout') }
                         }
-                    }
+                    },
+                    status: {
+                        component: 'card',
+                        padding: 'sm',
+                        corners: 'pill',
+                        elevation: 'raised',
+                        placement: STATUS_PLACEMENT,
+                        '<-hidden': `${N}.noStatus`,
+                        children: { text: { component: 'text', textRole: 'caption', muted: true, '<-_text': `${N}.status` } }
+                    },
+                    refused: { component: 'alert', tone: 'danger', placement: STATUS_PLACEMENT, '<-_text': `${N}.refusal`, '<-hidden': `${N}.noRefusal` }
                 }
             }
         };

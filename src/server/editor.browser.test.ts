@@ -468,8 +468,18 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
 
     it('should let clicks beside the panels through to the canvas, and draw no surface of its own there', async () => {
         // Act
-        const below = await page.evaluate('document.elementFromPoint(700, 450) && document.elementFromPoint(700, 450).closest("#board") !== null');
-        const onPanel = await page.evaluate('document.elementFromPoint(20, 20) && document.elementFromPoint(20, 20).closest("#editor") !== null');
+        // Whether the press at a point reaches the board's page, which lies under the editor's panels in the same DOM
+        const onBoard = (x: number, y: number): Promise<boolean> => page.evaluate(`(() => {
+            let element = document.elementFromPoint(${x}, ${y});
+            for (;;) {
+                if (element.tagName === 'UI-EMBEDDED-APP' && element.getAttribute('state').endsWith('children.board')) return true;
+                const inner = element.shadowRoot && element.shadowRoot.elementFromPoint(${x}, ${y});
+                if (!inner || inner === element) return false;
+                element = inner;
+            }
+        })()`);
+        const below = await onBoard(700, 450);
+        const onPanel = !(await onBoard(20, 20));
         // The app and each passThrough panel down to the stage
         const surfaces = (await page.evaluate(`(() => {
             const app = document.querySelector('#editor ui-app-root').shadowRoot.querySelector('ui-app');
