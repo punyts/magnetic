@@ -1,4 +1,6 @@
+import { report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
+import { msSince } from '../server/reporting.js';
 
 /**
  * Runs `work` while no other holder of the same key runs it, on any server of the database: for the check-then-make of
@@ -25,14 +27,19 @@ export const alone: Exclusive = (_key, work) => work();
 export function databaseExclusive(db: Database): Exclusive {
     const queues = new Map<string, Promise<unknown>>();
     return (key, work) => {
+        const asked = performance.now();
         const before = queues.get(key) ?? Promise.resolve();
         const run = before.then(async () => {
             const client = await db.pool.connect();
+            let taken: number | undefined;
             try {
                 await client.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [`magnetic:${key}`]);
+                taken = performance.now();
+                report('magnetic.storage', 'Lock taken', { key, waitedMs: msSince(asked) });
                 return await work();
             } finally {
                 client.release(true);
+                if (taken !== undefined) report('magnetic.storage', 'Lock released', { key, heldMs: msSince(taken) });
             }
         });
         const tail = run.catch(() => undefined);

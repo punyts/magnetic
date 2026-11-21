@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { parseCategories } from './reporting.js';
 
 export interface CliOptions {
     /** The command: run the server (default), apply the migrations, or import a file data folder */
@@ -73,6 +74,8 @@ export interface CliOptions {
     /** For relay-certificate: the relay's node id, and the folder its key and certificate are written to */
     nodeId: string | undefined;
     out: string;
+    /** The reporter categories written to stderr beside warnings and errors, such as magnetic.http or stateui-app.* */
+    report: string[];
     help: boolean;
 }
 
@@ -201,6 +204,11 @@ Several servers on one database (each a node of the statenet; all with one MAGNE
                          (env MAGNETIC_APP_ROLE)
   --aggregate-role <role> For migrate: grant this role (made beforehand, like the app role) the writing of
                          people's state, and leave the app role only reading it (env MAGNETIC_AGGREGATE_ROLE)
+
+  --report <categories>  Reporter categories to write to stderr beside warnings and errors, comma-separated: Magnetic's
+                         (magnetic.http, magnetic.signin, magnetic.agent, magnetic.budget, magnetic.pages,
+                         magnetic.statenet, magnetic.storage, magnetic.billing, magnetic.scim) and the libraries'
+                         (stateui-app.*, state-sync.*); a family as <prefix>.* (env PUNYTS_REPORT)
 
   -h, --help             Show this help
 `;
@@ -374,6 +382,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let group = env['MAGNETIC_GROUP'] || undefined;
     let relays = parseRelays(env['MAGNETIC_RELAYS']);
     let out = '.';
+    let report = parseCategories(env['PUNYTS_REPORT'] ?? '');
 
     let first = 0;
     if (argv[0] === 'serve' || argv[0] === 'migrate' || argv[0] === 'import' || argv[0] === 'reindex' || argv[0] === 'relay-certificate' || argv[0] === 'feedback' || argv[0] === 'aggregate') {
@@ -506,6 +515,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--out':
                 out = value();
                 break;
+            case '--report':
+                report = parseCategories(value());
+                break;
             case '-h':
             case '--help':
                 help = true;
@@ -514,6 +526,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
                 throw new UsageError(`Unknown option: ${argument}`);
         }
     }
+    for (const category of report) if (!/^(all|[a-z][a-z0-9-]*(\.[a-z0-9-]+)*(\.\*)?)$/.test(category)) throw new UsageError(`Invalid report category: ${category} (such as magnetic.http or stateui-app.*)`);
     if (databaseUrl !== undefined && !/^postgres(ql)?:\/\//.test(databaseUrl)) throw new UsageError('Invalid database URL: it starts with postgres://');
     if (meshUrl !== undefined && !/^wss?:\/\/[^/]+/.test(meshUrl)) throw new UsageError(`Invalid mesh URL: ${meshUrl} (ws:// or wss://, such as ws://magnetic-2:4310)`);
     if (nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(nodeId)) throw new UsageError(`Invalid node id: ${nodeId} (letters, digits, '.', '_' and '-')`);
@@ -533,5 +546,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     }
     const network = networkHost === undefined ? undefined : { host: networkHost, ...(tlsCert !== undefined && { tlsCert }), ...(tlsKey !== undefined && { tlsKey }) };
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(relays !== undefined && { relays }) };
-    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, help };
+    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, report, help };
 }

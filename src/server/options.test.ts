@@ -157,6 +157,21 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--network-host', '192.168.1.20', '--public-origin', 'https://magnetic.example'], {})).toThrow('--public-origin alone');
     });
 
+    it('should take the report categories from --report over PUNYTS_REPORT, and refuse a category that is not one', () => {
+        // Act
+        const none = parseOptions([], {});
+        const fromEnv = parseOptions([], { PUNYTS_REPORT: 'magnetic.http, stateui-app.*,,' });
+        const fromFlag = parseOptions(['--report', 'magnetic.agent'], { PUNYTS_REPORT: 'magnetic.http' });
+
+        // Assert
+        expect(none.report).toEqual([]);
+        expect(fromEnv.report).toEqual(['magnetic.http', 'stateui-app.*']);
+        expect(fromFlag.report).toEqual(['magnetic.agent']);
+        expect(parseOptions(['--report=all'], {}).report).toEqual(['all']);
+        expect(() => parseOptions(['--report', 'Magnetic HTTP'], {})).toThrow('Invalid report category');
+        expect(() => parseOptions([], { PUNYTS_REPORT: 'magnetic.*.x' })).toThrow('Invalid report category');
+    });
+
     it.each([['--effort', 'extreme'], ['--daily-budget', '-1'], ['--monthly-budget', 'lots'], ['--model', 'two words']])('should refuse %s %s', (flag, value) => {
         expect(() => parseOptions([flag, value], {})).toThrow(UsageError);
     });

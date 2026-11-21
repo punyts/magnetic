@@ -10,6 +10,7 @@ import { StatenetAuthority } from './statenet/StatenetNode.js';
 import { startMagneticAggregate } from './statenet/MagneticAggregate.js';
 import { createReporter } from '@punyts/core';
 import { HELP_TEXT, parseOptions, UsageError } from './server/options.js';
+import { listenToLibraries } from './server/reporting.js';
 import { linkedInProvider } from './auth/OidcSignIn.js';
 import { startMagnetic } from './server/startMagnetic.js';
 import { assertMigrated, createDatabase, EmbeddingIndex, grantAggregateRole, grantAppRole, hashEmbedder, localEmbedder, migrate, PART_SOURCE, queueAllRecords } from '@punyts/stateui-pg';
@@ -158,6 +159,8 @@ async function main(): Promise<void> {
         reporter.addListener((_timestamp, category, message, details) => {
             process.stderr.write(`[magnetic-aggregate] ${category} ${message}${details === undefined ? '' : ` ${JSON.stringify(details)}`}\n`);
         });
+        // The libraries' and Magnetic's own areas report to @punyts/core's reporter
+        listenToLibraries('magnetic-aggregate', options.report, (line) => process.stderr.write(line));
         const aggregate = await startMagneticAggregate(database, new SecretBox(await secretKey()), {
             nodeId: statenet.nodeId ?? 'aggregate-1',
             ...(statenet.meshHost === undefined ? {} : { host: statenet.meshHost }),
@@ -204,6 +207,8 @@ async function main(): Promise<void> {
     reporter.addListener((_timestamp, category, message, details) => {
         process.stderr.write(`[magnetic] ${category} ${message}${details === undefined ? '' : ` ${JSON.stringify(details)}`}\n`);
     });
+    // The libraries' and Magnetic's own areas report to @punyts/core's reporter
+    listenToLibraries('magnetic', options.report, (line) => process.stderr.write(line));
     if (options.mockAgent && !['127.0.0.1', '::1', 'localhost'].includes(options.host.toLowerCase())) {
         process.stderr.write('magnetic: --mock-agent is only allowed on a loopback host\n');
         process.exitCode = 2;

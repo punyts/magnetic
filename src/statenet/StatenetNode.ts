@@ -164,8 +164,7 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         policy: new ClaimPolicy(),
         ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
         ...(options.meshHost === undefined ? {} : { listenHost: options.meshHost }),
-        port: options.meshPort,
-        report: (message) => report(message, { node: nodeId })
+        port: options.meshPort
     });
     const running = mesh;
     await directory.register({ id: nodeId, role: 'owner', region, group, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
@@ -242,8 +241,7 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         {
             onResync: () => {
                 for (const open of workspaces.open()) void open.then((services) => services.resyncParts()).catch(() => undefined);
-            },
-            report: (message) => report(message, { node: nodeId })
+            }
         }
     );
 

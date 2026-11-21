@@ -1,3 +1,4 @@
+import { report } from '@punyts/core';
 import type { Database } from '@punyts/stateui-pg';
 import { betaPlaceOf, betaTaken } from '../beta/Beta.js';
 
@@ -126,23 +127,29 @@ export class Budgets {
         return before !== undefined && before < first ? allowance : 0;
     }
 
-    /** Whether the user may start a turn now */
+    /** Whether the user may start a turn now; the decision is reported under `magnetic.budget` (never the amounts) */
     async check(userId: string): Promise<BudgetRefusal> {
+        const { decision, refusal } = await this.decide(userId);
+        report('magnetic.budget', 'Budget checked', { userId, decision });
+        return refusal;
+    }
+
+    private async decide(userId: string): Promise<{ decision: 'allowed' | 'monthly' | 'bought-used' | 'no-allowance' | 'allowance-used' | 'daily'; refusal: BudgetRefusal }> {
         const spent = await this.spent(userId);
         const allowance = await this.allowanceOf(userId);
         // Spending what they bought: the daily limit and the server's month limit what the operator gives away, so
         // they do not stop paid use
         const paying = allowance !== undefined && spent.bought > 0 && spent.total >= allowance;
         const buy = this.limits.canBuy === true ? ' Add more under Agent use on Your apps.' : '';
-        if (!paying && spent.month >= this.limits.monthly) return `Magnetic has used its agent budget for this month. Everything else still works, and the agent will be back next month.${buy}`;
+        if (!paying && spent.month >= this.limits.monthly) return { decision: 'monthly', refusal: `Magnetic has used its agent budget for this month. Everything else still works, and the agent will be back next month.${buy}` };
         if (allowance !== undefined && spent.total >= allowance + spent.bought)
             return spent.bought > 0
-                ? `You have used the agent use you added.${buy} Everything else still works: your apps, editing by hand and sharing.`
+                ? { decision: 'bought-used', refusal: `You have used the agent use you added.${buy} Everything else still works: your apps, editing by hand and sharing.` }
                 : allowance === 0
-                  ? `${await this.noAllowance()}${buy} Everything else still works: your apps, editing by hand and sharing.`
-                  : `You have used your $${allowance} of agent use.${buy} Everything else still works: your apps, editing by hand and sharing.`;
-        if (!paying && this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC).";
-        return undefined;
+                  ? { decision: 'no-allowance', refusal: `${await this.noAllowance()}${buy} Everything else still works: your apps, editing by hand and sharing.` }
+                  : { decision: 'allowance-used', refusal: `You have used your $${allowance} of agent use.${buy} Everything else still works: your apps, editing by hand and sharing.` };
+        if (!paying && this.limits.dailyPerUser !== undefined && spent.today >= this.limits.dailyPerUser) return { decision: 'daily', refusal: "You have used today's agent budget. Everything else still works, and the agent will be back tomorrow (UTC)." };
+        return { decision: 'allowed', refusal: undefined };
     }
 
     /** Whether every place that comes with the allowance is taken (without a beta org: someone has none, so they are) */
@@ -181,6 +188,7 @@ export class Budgets {
     /** Adds what a request cost */
     async charge(userId: string, dollars: number, detail: ChargeDetail = {}): Promise<void> {
         const usage = detail.usage;
+        report('magnetic.budget', 'Budget charged', { userId, ...(detail.model !== undefined && { model: detail.model }) });
         await this.db.query(
             `INSERT INTO agent_request (user_id, workspace_id, app_id, model, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, dollars, at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,

@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { report } from '@punyts/core';
+import { msSince } from './reporting.js';
 import type { OrgScim, ScimDirectory, ScimOutcome } from '../orgs/Scim.js';
 import type { Orgs } from '../orgs/Orgs.js';
 import { parseFilter } from '../scim/filter.js';
@@ -23,6 +25,13 @@ export const MAX_SCIM_BYTES = 1024 * 1024;
 const UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const ROUTE = new RegExp(`^/scim/v2/${UUID}(/.*)?$`);
 const RESOURCE = /^\/(Users|Groups)(?:\/([^/]+))?$/;
+
+/** A SCIM request as an operation for a report, such as `PATCH Users/:id`: never the id, a filter or an email */
+function operationOf(method: string, rest: string): string {
+    const [, kind = '', id] = /^\/([^/]*)(\/.+)?$/.exec(rest) ?? [];
+    const known = ['Users', 'Groups', 'ServiceProviderConfig', 'ResourceTypes', 'Schemas'].includes(kind) ? kind : kind === '' ? '' : 'other';
+    return `${method} ${known}${id === undefined ? '' : '/:id'}`;
+}
 
 function send(response: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
     response.writeHead(status, { 'Content-Type': 'application/scim+json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers });
@@ -199,12 +208,18 @@ export function scimRoutes(context: ScimRouteContext): (request: IncomingMessage
     return async (request, response, method, path, query) => {
         const match = ROUTE.exec(path);
         if (match === null) return false;
+        const started = performance.now();
+        const operation = operationOf(method, match[2] ?? '');
         try {
             await handle(request, response, method, match[1] as string, match[2] ?? '', query);
         } catch (error) {
-            if (!(error instanceof ScimError)) throw error;
+            if (!(error instanceof ScimError)) {
+                report('magnetic.scim', 'SCIM request', { org: match[1], operation, outcome: 'failed', ms: msSince(started) });
+                throw error;
+            }
             send(response, error.status, error.body, error.status === 401 ? { 'WWW-Authenticate': 'Bearer' } : {});
         }
+        report('magnetic.scim', 'SCIM request', { org: match[1], operation, status: response.statusCode, ms: msSince(started) });
         return true;
     };
 }

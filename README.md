@@ -144,6 +144,7 @@ The commands are:
 | `--node-id <id>` | `MAGNETIC_NODE_ID` | its host name and a random suffix | This server's node id; for `relay-certificate`, the relay's; for `aggregate`, its own (`aggregate-1`) |
 | `--region <name>` | `MAGNETIC_REGION` | none | Where it runs |
 | `--out <dir>` | | `.` | For `relay-certificate`: the folder to write the relay's files to |
+| `--report <categories>` | `PUNYTS_REPORT` | none | Reporter categories written to stderr beside warnings and errors, comma-separated, a family as `<prefix>.*`: Magnetic's (see Reporting) and the libraries' (`stateui-app.*`, `state-sync.*`) |
 | | `ANTHROPIC_API_KEY` | none | The Claude API key of the agent |
 | | `MAGNETIC_LINKEDIN_CLIENT_ID`, `MAGNETIC_LINKEDIN_CLIENT_SECRET` | none | LinkedIn's client. Environment only, so the secret stays out of the process list |
 | | `MAGNETIC_LINKEDIN_PKCE` | `false` | `true` sends a PKCE challenge to LinkedIn, which takes it only from apps it enabled as native; a web app's sign-in then fails with `invalid_client` |
@@ -154,6 +155,26 @@ The commands are:
 | | `MAGNETIC_ADMIN_EMAILS` (comma-separated) | none | People whose verified email is listed are admins (`/admin`) |
 | | `MAGNETIC_STRIPE_SECRET_KEY`, `MAGNETIC_STRIPE_WEBHOOK_SECRET` | none | Stripe's secret key and the signing secret of the webhook `<origin>/billing/stripe`; both, or no buying of agent use |
 
+
+### Reporting
+The server and the aggregate write their own operational lines (`[magnetic] info …`) to stderr, and listen to
+`@punyts/core`'s reporter, where the libraries report: its warnings and errors always, and the categories
+`--report`/`PUNYTS_REPORT` names, each a line `[magnetic] <category> <message> <details>` (`[magnetic-aggregate]`
+from the aggregate). Magnetic's own categories, all off by default:
+
+| Category | What it reports |
+|---|---|
+| `magnetic.http` | Each request: method, route (the path with ids, codes and tokens as `:id`, no query string), status, duration |
+| `magnetic.signin` | A sign-in: the provider's name and the outcome (started, signed-in, refused, unreachable, no-org, link-used, signed-out) |
+| `magnetic.agent` | A turn starting and ending (app id, model, tool calls by name, outcome, duration), each model request (model, stop reason, duration), each tool call (name, ok, duration), a retry of broken tool JSON |
+| `magnetic.budget` | Each check of a person's budget (user id, decision: allowed, daily, monthly, allowance-used, bought-used, no-allowance) and each charge (user id, model) |
+| `magnetic.pages` | A page's code version remade (page, duration) and a person's copy made (page, user id, duration) |
+| `magnetic.statenet` | Each load, save and removal of a person's state through the aggregate (namespace, revision, changes in the log, duration), and each move between workspaces |
+| `magnetic.storage` | An advisory lock waited for and held (key, wait and hold durations) |
+| `magnetic.billing` | Each Stripe webhook event (its kind, the outcome) |
+| `magnetic.scim` | Each SCIM request (operation, status, duration) |
+
+They never hold cookies, bodies, query strings, prompts, the agent's words, emails, codes, tokens or payloads.
 
 ### On the local network
 `npm run magnetic -- --network-host 192.168.1.20` (this machine's address on the network) serves the same server at

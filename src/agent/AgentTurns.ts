@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { report as reportCategory } from '@punyts/core';
 import type { ToolOutcome, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { AgentModel, ModelMessage, ModelRequest } from './AgentModel.js';
+import { msSince } from '../server/reporting.js';
 import { costOf } from './Budgets.js';
 import type { Budgets } from './Budgets.js';
 import type { ChatEntry, Chats, ToolLine, TurnOutcome } from './Chats.js';
@@ -281,6 +283,8 @@ export class AgentTurns {
             message = 'The turn took too long and was stopped.';
             stopTurn();
         }, this.limits.ms);
+        const turnStarted = performance.now();
+        reportCategory('magnetic.agent', 'Turn started', { appId: app.id, model });
         const at = new Date().toISOString();
         const history = await chats.read(userId, app.id, app.workspaceId ?? userId);
         await chats.append(userId, app.id, { role: 'person', text, at }, app.workspaceId ?? userId);
@@ -302,6 +306,7 @@ export class AgentTurns {
                 if (turnAbort.signal.aborted) break;
                 let response: ModelMessage;
                 let spoken = '';
+                const requestStarted = performance.now();
                 try {
                     response = await this.options.model.request(
                         this.request(model, workspace.system, tools, messages),
@@ -315,11 +320,13 @@ export class AgentTurns {
                         turnAbort.signal
                     );
                     jsonRetries = 0;
+                    reportCategory('magnetic.agent', 'Model answered', { appId: app.id, model: response.model, stop: response.stop_reason, ms: msSince(requestStarted) });
                 } catch (error) {
                     if (turnAbort.signal.aborted) break;
                     // With eager input streaming a tool input that is not JSON rejects the stream; that alone is retried,
                     // with a note asking for smaller inputs, as a large node tree is where a model breaks its JSON
                     if (isBadToolJson(error) && jsonRetries++ < 2) {
+                        reportCategory('magnetic.agent', 'Asked again after a tool input that was not JSON', { appId: app.id, retry: jsonRetries });
                         askForSmallerInputs(messages);
                         continue;
                     }
@@ -363,7 +370,9 @@ export class AgentTurns {
                     toolCalls++;
                     const summary = describeCall(use.input);
                     this.emit(userId, app.id, { type: 'tool', id: use.id, name: use.name, summary });
+                    const toolStarted = performance.now();
                     const result = await runTool(byName.get(use.name), use.name, use.input);
+                    reportCategory('magnetic.agent', 'Tool called', { appId: app.id, tool: use.name, ok: !result.isError, ms: msSince(toolStarted) });
                     const line: ToolLine = { name: use.name, summary, ok: !result.isError, result: describeOutcome(result) };
                     lines.push(line);
                     this.emit(userId, app.id, { type: 'toolDone', id: use.id, ok: line.ok, result: line.result });
@@ -393,6 +402,8 @@ export class AgentTurns {
         const entry: ChatEntry = { role: 'agent', text: said.join('\n\n'), at: new Date().toISOString(), tools: lines, outcome, ...(message !== undefined && { message }) };
         await chats.append(userId, app.id, entry, app.workspaceId ?? userId);
         this.emit(userId, app.id, { type: 'done', outcome, ...(message !== undefined && { message }), cost });
+        // Tool calls by name only: never the request, the inputs or what the agent said
+        reportCategory('magnetic.agent', 'Turn ended', { appId: app.id, model, outcome, toolCalls: lines.map((line) => line.name), ms: msSince(turnStarted) });
         report.info('Agent turn', { userId, appId: app.id, model, outcome, toolCalls: lines.length, cost: Number(cost.toFixed(4)) });
     }
 

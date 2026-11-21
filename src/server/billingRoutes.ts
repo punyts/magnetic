@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { report } from '@punyts/core';
 import type { User } from '../accounts/Accounts.js';
 import type { Budgets } from '../agent/Budgets.js';
 import type { Credits } from '../billing/Credits.js';
@@ -76,14 +77,20 @@ export function billingRoutes(context: BillingRouteContext) {
             if (event.kind === 'paid') {
                 const added = await credits.paid({ userId: event.userId, dollars: event.dollars, provider: 'stripe', session: event.session, ...(event.paymentIntent !== undefined && { paymentIntent: event.paymentIntent }) });
                 context.report(added ? 'Agent use paid' : 'Agent use payment seen before or for no one', { user: event.userId, dollars: event.dollars });
+                report('magnetic.billing', 'Stripe event', { kind: event.kind, outcome: added ? 'credited' : 'seen-before' });
             } else if (event.kind === 'refunded') {
                 const found = await credits.refunded({ provider: 'stripe', paymentIntent: event.paymentIntent, dollars: event.dollars });
                 context.report(found ? 'Agent use refunded' : 'A refund of no payment here', { dollars: event.dollars });
+                report('magnetic.billing', 'Stripe event', { kind: event.kind, outcome: found ? 'refunded' : 'no-payment' });
+            } else {
+                report('magnetic.billing', 'Stripe event', { kind: event.kind, type: event.type, outcome: 'ignored' });
             }
             context.sendJson(response, 200, { received: true });
         } catch (error) {
             if (!(error instanceof PaymentError)) throw error;
             context.report('Payment event refused', { reason: error.message });
+            // Never the payload: only that it was refused, and the status
+            report('magnetic.billing', 'Stripe event', { outcome: 'refused', status: error.status });
             context.sendJson(response, error.status, { message: error.message });
         }
     }

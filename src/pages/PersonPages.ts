@@ -1,4 +1,6 @@
+import { report } from '@punyts/core';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
+import { msSince } from '../server/reporting.js';
 import { run } from '../stateui/run.js';
 import type { Stamps } from '../storage/Stamps.js';
 import { alone, userAppsLock } from '../storage/exclusive.js';
@@ -90,11 +92,13 @@ export class PersonPages {
     }
 
     private async make(services: Services, userId: string, stamp: string): Promise<string> {
+        const started = performance.now();
         const tools = this.toolsOf(services);
         const existing = await this.existing(services);
         if (existing !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: this.spec.name, expectedRevision: existing.revision });
         const made = await this.source().make(this.spec, tools, services);
         await this.stamps.set(userId, this.stampName, { stamp, revision: made.revision });
+        report('magnetic.pages', "Person's copy made", { page: this.spec.name, userId, replaced: existing !== undefined, ms: msSince(started) });
         return made.id;
     }
 }

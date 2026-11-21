@@ -56,8 +56,7 @@ export async function startMagneticAggregate(db: Database, box: SecretBox, optio
         // a relay's next certificate, signed here: only for a relay, whose first one Magnetic made
         certify: async (presented, claims) => (claims.role === 'relay' ? authority.renew(presented) : undefined),
         ...(options.host === undefined ? {} : { host: options.host }),
-        port: options.port,
-        report: (message) => options.report(message, { node: options.nodeId })
+        port: options.port
     });
     const rereadMs = options.rereadMs ?? 2_000;
     const beat = setInterval(() => {

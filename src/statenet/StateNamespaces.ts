@@ -1,8 +1,15 @@
+import { isReported, report } from '@punyts/core';
 import { createAggregateStorage } from '@punyts/statenet';
 import type { AggregateLink } from '@punyts/statenet';
 import type { InstanceNamespaceStore } from '@punyts/stateui-mcp';
 import { pgInstanceNamespaces } from '@punyts/stateui-pg';
 import type { Database, Queryable } from '@punyts/stateui-pg';
+import { msSince } from '../server/reporting.js';
+
+/** A load, save or removal of a namespace under `magnetic.statenet`: its address, revision and counts, never its state */
+function reportNamespace(action: 'loaded' | 'saved' | 'removed', address: string, started: number, stored?: { readonly revision: number; readonly log: readonly unknown[] }, epoch?: number): void {
+    report('magnetic.statenet', `State ${action}`, { namespace: address, ...(stored !== undefined && { revision: stored.revision, changes: stored.log.length }), ...(epoch !== undefined && { epoch }), ms: msSince(started) });
+}
 
 /** The workspace an address is in, as recorded in `statenet_namespace`; read fresh, for the aggregate */
 async function recordedWorkspace(db: Queryable, address: string): Promise<string | undefined> {
@@ -90,16 +97,23 @@ export class StateWriter {
     forWorkspace(workspaceId: string): InstanceNamespaceStore {
         return {
             load: async (address) => {
+                const started = performance.now();
                 await this.workspaces.record(address, workspaceId);
-                return this.through.load(address);
+                const stored = await this.through.load(address);
+                if (isReported('magnetic.statenet')) reportNamespace('loaded', address, started, stored);
+                return stored;
             },
             save: async (address, stored, epoch) => {
+                const started = performance.now();
                 await this.workspaces.record(address, workspaceId);
-                return this.through.save(address, stored, epoch);
+                await this.through.save(address, stored, epoch);
+                if (isReported('magnetic.statenet')) reportNamespace('saved', address, started, stored, epoch);
             },
             remove: async (address, epoch) => {
+                const started = performance.now();
                 await this.workspaces.record(address, workspaceId);
-                return this.through.remove(address, epoch);
+                await this.through.remove(address, epoch);
+                if (isReported('magnetic.statenet')) reportNamespace('removed', address, started, undefined, epoch);
             }
         };
     }
@@ -112,8 +126,11 @@ export class StateWriter {
     /** Removes these namespaces of a workspace whole, each at the epoch its head holds */
     async remove(workspaceId: string, addresses: readonly string[]): Promise<void> {
         for (const address of addresses) {
+            const started = performance.now();
             await this.workspaces.record(address, workspaceId);
-            await this.through.remove(address, await this.epochOf(address, workspaceId));
+            const epoch = await this.epochOf(address, workspaceId);
+            await this.through.remove(address, epoch);
+            if (isReported('magnetic.statenet')) reportNamespace('removed', address, started, undefined, epoch);
         }
     }
 
@@ -123,12 +140,14 @@ export class StateWriter {
      */
     async move(address: string, from: string, to: string): Promise<void> {
         if (from === to) return;
+        const started = performance.now();
         await this.workspaces.place(address, from);
         const epoch = await this.epochOf(address, from);
         const stored = await this.through.load(address);
         if (stored !== undefined) await this.through.remove(address, epoch);
         await this.workspaces.place(address, to);
         if (stored !== undefined) await this.through.save(address, stored, epoch);
+        report('magnetic.statenet', 'State moved to another workspace', { namespace: address, from, to, ...(stored !== undefined && { revision: stored.revision }), ms: msSince(started) });
     }
 }
 

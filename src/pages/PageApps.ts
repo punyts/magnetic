@@ -1,4 +1,6 @@
+import { report } from '@punyts/core';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
+import { msSince } from '../server/reporting.js';
 import { LOGO_SVG } from '../http/logo.js';
 import { textsOf } from '../http/text.js';
 import { SYSTEM_USER_ID } from '../inspector/constants.js';
@@ -228,9 +230,11 @@ export class PageApps {
                     services.resyncParts();
                     ({ kept, listed } = await current());
                     if (listed !== undefined && kept === stamp) return listed;
+                    const started = performance.now();
                     if (listed !== undefined) await run(tools, 'ui_delete', { kind: 'apps', name: spec.name, expectedRevision: listed.revision });
                     await makePage(tools, spec);
                     await this.stamps.set(SYSTEM_USER_ID, `page:${spec.name}`, { stamp });
+                    report('magnetic.pages', 'Page version remade', { page: spec.name, replaced: listed !== undefined, ms: msSince(started) });
                     return (await services.instanceViews.list()).find((app) => app.name === spec.name);
                 });
             }
