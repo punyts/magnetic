@@ -6,7 +6,9 @@ export default defineConfig({
         globals: true,
         include: ['src/**/*.test.ts'],
         testTimeout: 30000,
-        // A beforeAll that starts a server and makes its database waits on the CPU when every file runs at once
+        // Most files start a server and make a database schema in beforeAll; with a worker per core they starve each other
+        // of CPU and time out, so a few run at once
+        maxWorkers: 4,
         hookTimeout: 60000
     }
 });
