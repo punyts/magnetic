@@ -52,8 +52,24 @@ async function tool(tools: readonly UiToolDefinition[], name: string, args: Reco
     return outcome.body as Record<string, unknown>;
 }
 
-/** Where a node of the app is on the page: a point inside its box, at fractions of its width and height */
+/**
+ * Where a node of the app is on the page once it holds still: a point inside its box, at fractions of its width and
+ * height. The canvas fits again when the editor's panels move (the inspector opening with the select tool), so a point
+ * read while it moves would miss the node
+ */
 async function pointOf(page: Page, path: string, across = 0.5, down = 0.5): Promise<{ x: number; y: number }> {
+    let last = await pointNow(page, path, across, down);
+    for (let read = 0; read < 40; read++) {
+        await page.waitForTimeout(50);
+        const next = await pointNow(page, path, across, down);
+        if (next.x === last.x && next.y === last.y) return next;
+        last = next;
+    }
+    throw new Error(`${path} did not hold still`);
+}
+
+/** Where a node of the app is on the page now */
+async function pointNow(page: Page, path: string, across: number, down: number): Promise<{ x: number; y: number }> {
     // Runs in the page (this package has no DOM types): the node's box in the frame, through the canvas zoom
     const script = `(async () => {
         const answer = await window.stateuiHost.inspect({ paths: [${JSON.stringify(path)}] });

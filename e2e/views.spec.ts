@@ -127,11 +127,19 @@ test.describe("The editor's views", () => {
         const paths = ['$', '$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath];
         // Until a card is placed it stands on the right; wait for the layout
         await expect.poll(() => graph(page).locator('[role="treeitem"][data-placed]').evaluateAll((cards, wanted) => wanted.filter((path) => cards.some((each) => (each as HTMLElement).dataset['id'] === path)).length, paths)).toBe(paths.length);
-        const places = await graph(page).locator('[role="treeitem"]').evaluateAll((cards, wanted) => wanted.map((path) => {
+        // A layout drawn while the tree still changes is followed by another: read once two reads 200 ms apart agree
+        const placesNow = () => graph(page).locator('[role="treeitem"]').evaluateAll((cards, wanted) => wanted.map((path) => {
             const card = cards.find((each) => (each as HTMLElement).dataset['id'] === path) as HTMLElement;
             const box = card.getBoundingClientRect();
             return [box.left + box.width / 2, card.hasAttribute('data-left') ? -1 : 1] as const;
         }), paths);
+        let places = await placesNow();
+        for (let read = 0; read < 25; read++) {
+            await page.waitForTimeout(200);
+            const next = await placesNow();
+            if (JSON.stringify(next) === JSON.stringify(places)) break;
+            places = next;
+        }
         const root = places[0]![0];
         const rest = places.slice(1);
         const ways = rest.slice(0, 6).map(([x, way]) => { expect(Math.sign(x - root)).toBe(way); return way; });
