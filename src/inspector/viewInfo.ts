@@ -1,4 +1,4 @@
-import { buildOverlayCatalog, composeOverlays, DEFAULT_TOKENS, flattenTokens, functionPaths, mergeOverDefaults, mergeTokenTrees, OVERLAY_KINDS, SHIPPED_OVERLAYS, tokenTypeOf } from '@punyts/stateui-app/core';
+import { buildOverlayCatalog, composeOverlays, DEFAULT_TOKENS, flattenTokens, functionPaths, KIND_GROUPS, mergeOverDefaults, mergeTokenTrees, OVERLAY_KINDS, SHIPPED_OVERLAYS, tokenTypeOf } from '@punyts/stateui-app/core';
 import type { FunctionEntry, JsonObject, ThemeSource } from '@punyts/stateui-app/core';
 import { logicRunOrder } from '@punyts/stateui-mcp';
 import type { LogicDocument } from '@punyts/stateui-mcp';
@@ -693,6 +693,8 @@ export interface ThemeToken {
     readonly path: string;
     readonly type: string;
     readonly group: string;
+    /** Whether a mode overlay may set it (its group is one KIND_GROUPS allows a mode); otherwise it is one value in all modes */
+    readonly moded: boolean;
     /** The value as written in the base tokens, when the theme sets it */
     readonly own?: unknown;
     /** The value as written in each mode overlay of the theme that sets it, by mode */
@@ -733,6 +735,7 @@ export function themeTokensOf(theme: ThemeBody, active: { brand?: string; motion
             path,
             type: tokenTypeOf(path) ?? 'unknown',
             group: path.split('.')[0] as string,
+            moded: KIND_GROUPS.mode.some((group) => path === group || path.startsWith(group + '.')),
             ...(own.has(path) && { own: own.get(path) }),
             modes: modesSet,
             values

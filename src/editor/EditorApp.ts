@@ -7,6 +7,7 @@ import type { PageSpec } from '../pages/PageSpec.js';
 import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
 import type { PageSource } from '../pages/PersonPages.js';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
+import { SIDE_APP } from '../side/SidePage.js';
 import type { Stamps } from '../storage/Stamps.js';
 import { alone } from '../storage/exclusive.js';
 import type { Exclusive } from '../storage/exclusive.js';
@@ -49,7 +50,7 @@ const E = '$.data.editor';
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget'
+    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget', 'sideHidden'
 ];
 
 /** The models of the editor's data */
@@ -195,6 +196,24 @@ const INSPECTOR = {
     y: 'clamp(64px, (760px - 100vw) * 1000, calc(55vh - 100px))',
     width: `clamp(${fit('320px')}, (760px - 100vw) * 1000, calc(100% - 24px))`
 };
+/**
+ * The side panel of the views (Statenet, Theme, Logic): at the right, below the corners, down to above the chat bar,
+ * 360px wide but never more than 45% of the window; below 760px a sheet across the bottom half, as the old sheet's was
+ */
+const SIDE_PLACEMENT = {
+    right: '12px',
+    bottom: 'clamp(96px, (760px - 100vw) * 1000, 132px)',
+    y: 'clamp(64px, (760px - 100vw) * 1000, 50vh)',
+    width: 'clamp(min(360px, 45%), (760px - 100vw) * 1000, calc(100% - 24px))'
+};
+/**
+ * The side panel: Magnetic's page magnetic-side in a live embeddedApp that fills the float. The app host opens it by
+ * name and hands views.ts its panel; it stays mounted while hidden, so what it shows is kept
+ */
+function sidePanel(t: Texts): Record<string, unknown> {
+    return float(SIDE_PLACEMENT, { page: { component: 'embeddedApp', app: SIDE_APP, live: true, fill: true, _label: t['views.side'] } }, { padding: 'none', '<-hidden': `${E}.sideHidden` });
+}
+
 /**
  * The component library: right of the rail, below the corners, 288px wide and down to the bottom of the window less its
  * margin; while the centred chat bar (640px) would reach under it, below 1432px, it stops above the chat bar. Below 760px
@@ -823,6 +842,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     screens: screensPanel(t),
                     connections: connectionsPanel(t),
                     shared: sharedPanel(t),
+                    side: sidePanel(t),
                     inspector: inspector(t),
                     share: shareSheet(t),
                     prefs: prefsSheet(t),

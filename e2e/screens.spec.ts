@@ -15,8 +15,8 @@ const board = (page: Page): Locator => page.locator('#screens');
 const preview = (page: Page, title: string): Locator => board(page).getByRole('button', { name: title, exact: true });
 /** The live app's frame, a group named by its screen's title */
 const liveFrame = (page: Page, title: string): Locator => board(page).getByRole('group', { name: title, exact: true });
-const live = (page: Page): Locator => page.locator('ui-embedded-app[live]');
-const runningPreviews = (page: Page): Locator => page.locator('ui-embedded-app[mounted]:not([live])');
+const live = (page: Page): Locator => page.locator('#screens ui-embedded-app[live]');
+const runningPreviews = (page: Page): Locator => page.locator('#screens ui-embedded-app[mounted]:not([live])');
 const near = (a: number, b: number): void => expect(Math.abs(a - b)).toBeLessThan(4);
 
 test.describe('Screens', () => {
@@ -131,7 +131,7 @@ test.describe('Screens', () => {
         await editor.zoomButton.click();
         await expect(board(page).getByRole('button', { name: /^(One|Two|Three)$/ })).toHaveCount(3);
         await expect.poll(() => runningPreviews(page).count()).toBeLessThan(3);
-        await expect(page.locator('ui-embedded-app:not([mounted])').getByText('Three', { exact: true })).toBeVisible();
+        await expect(page.locator('#screens ui-embedded-app:not([mounted])').getByText('Three', { exact: true })).toBeVisible();
     });
 
     test('with more than four screens in view, the cards show only their names', async ({ page }) => {
@@ -144,7 +144,7 @@ test.describe('Screens', () => {
 
         // Assert: no app runs, the live one included: each screen is a card with its name; fitting the live app again
         // shows it, and the previews that come into view run
-        await expect(page.locator('ui-embedded-app[mounted]')).toHaveCount(0);
+        await expect(page.locator('#screens ui-embedded-app[mounted]')).toHaveCount(0);
         await expect(live(page)).toHaveCount(0);
         await expect(preview(page, 'Home')).toHaveText('Home');
         await expect(preview(page, 'Five')).toHaveText('Five');
@@ -276,7 +276,7 @@ async function zoomOut(page: Page): Promise<void> {
     const editor = new EditorPage(page);
     for (let step = 0; step < 6; step += 1) await editor.button('Zoom out (-)').click();
     // The zoom glides: wait for it to settle on names, where no app runs
-    await expect(page.locator('ui-embedded-app[mounted]')).toHaveCount(0);
+    await expect(page.locator('#screens ui-embedded-app[mounted]')).toHaveCount(0);
     await page.waitForTimeout(400);
 }
 

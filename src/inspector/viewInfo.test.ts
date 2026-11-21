@@ -218,4 +218,19 @@ describe("The editor's views of an app", () => {
         // A reference is followed to its value
         expect(String(tokens.find((token) => token.path === 'color.surface.base')?.values['light'])).not.toMatch(/^\{/);
     });
+
+    it('should mark the tokens a mode may set, the color and elevation groups, and no others', () => {
+        // Arrange
+        const theme = { tokens: {} };
+
+        // Act
+        const { tokens } = themeTokensOf(theme);
+
+        // Assert
+        const moded = (path: string) => tokens.find((token) => token.path === path)?.moded;
+        expect(moded('color.accent.base')).toBe(true);
+        expect(tokens.filter((token) => token.group === 'elevation').every((token) => token.moded)).toBe(true);
+        expect(moded('palette.neutral.50')).toBe(false);
+        expect(tokens.filter((token) => token.group !== 'color' && token.group !== 'elevation').some((token) => token.moded)).toBe(false);
+    });
 });

@@ -17,7 +17,8 @@ const field = (name: string, type: string, value: unknown): Record<string, unkno
 
 /**
  * One token's value for all modes (`all`) or in one mode, edited in place: the value the theme sets there, or empty with
- * the value it shows as the placeholder. A change sends the whole record, its new value in the field of the column
+ * the value it shows as the placeholder. A change sends the whole record, its new value in the field of the column. A
+ * mode's cell is disabled for a token no mode may set (`modesLocked`), the value for all modes by `locked`
  */
 function valueCell(column: string): Record<string, unknown> {
     return {
@@ -25,7 +26,7 @@ function valueCell(column: string): Record<string, unknown> {
         '<-value': `$row.${column}`,
         '<-_placeholder': `$row.${column}Shown`,
         '<-_label': `$row.${column}Label`,
-        '<-disabled': '$row.locked',
+        '<-disabled': column === 'all' ? '$row.locked' : '$row.modesLocked',
         on: { change: emit('token', '$row') }
     };
 }
@@ -68,7 +69,7 @@ const tool = (title: string, on: Record<string, unknown>, hidden?: string, extra
  * - It writes `themes` (the app's themes as options, keyed by name), `chosen`, `others` (the workspace's themes the app
  *   does not use, as options), `specimens` (per mode: `surface`, `border`, `text`, `accent`, `accentOn`),
  *   `tokens` (one record per token: `id` its path, `group`, `name`, `all` and each mode's value set by the theme, with
- *   `<column>Shown` and `<column>Label`, and `locked`), `sharedText` (other apps use the theme), what is
+ *   `<column>Shown` and `<column>Label`, `locked` and `modesLocked`: shared, or a token no mode may set), `sharedText` (other apps use the theme), what is
  *   hidden (`noTheme` and `hasTheme`, `notShared`, `noDefault`, `noClone`, `noRemove`, `noOthers`, `noBack`), `status`
  *   (saving, saved) and `refusal` with `noRefusal` (why a change was refused).
  * - The page emits `choose` with a theme's name, `token` with a token's record once a value is changed, `editAll` (edit
@@ -88,7 +89,7 @@ export const THEME: PageSpec = {
             noOthers: true,
             specimens: Object.fromEntries(THEME_MODES.map((mode) => [mode, mode === 'light' ? { surface: '#ffffff', border: '#d0d0d0', text: '#111111', accent: '#3d5afe', accentOn: '#ffffff' } : { surface: '#15171c', border: '#3a3d45', text: '#f2f2f2', accent: '#8c9eff', accentOn: '#111111' }])),
             tokens: [
-                { id: 'color.accent.base', group: 'color', name: 'accent.base', all: '#3d5afe', allShown: '', allLabel: 'color.accent.base', light: '', lightShown: '#3d5afe', lightLabel: 'color.accent.base light', dark: '#8c9eff', darkShown: '', darkLabel: 'color.accent.base dark', contrast: '', contrastShown: '#0000ee', contrastLabel: 'color.accent.base contrast', locked: false }
+                { id: 'color.accent.base', group: 'color', name: 'accent.base', all: '#3d5afe', allShown: '', allLabel: 'color.accent.base', light: '', lightShown: '#3d5afe', lightLabel: 'color.accent.base light', dark: '#8c9eff', darkShown: '', darkLabel: 'color.accent.base dark', contrast: '', contrastShown: '#0000ee', contrastLabel: 'color.accent.base contrast', locked: false, modesLocked: false }
             ]
         }
     },

@@ -1,4 +1,4 @@
-import { FIELD_TYPES, METHODS, SIDE_BLANK } from '../side/SidePage.js';
+import { FIELD_TYPES, METHODS, SIDE_APP, SIDE_BLANK } from '../side/SidePage.js';
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
@@ -42,20 +42,13 @@ export const VIEWS_CSS = [
     '.view-page { position: absolute; z-index: 2; overflow: auto; } .view-page[hidden] { display: none; }',
     '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
     '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
-    '.view-sheet.on-canvas .view-body { margin-top: 12px; }',
     '.view-sheet.on-canvas .view-head:not(:has(.view-status:not(:empty))) { display: none; }',
-    '@media (min-width: 760px) { .view-sheet.on-canvas .view-side { align-self: flex-start; max-height: 100%; margin-left: auto; } }',
-    '.view-sheet.on-canvas .view-side { pointer-events: auto; border-left: 0; border-top: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
     '.view-sheet { position: fixed; z-index: 0; left: 12px; right: 12px; top: 64px; bottom: 96px; display: flex; flex-direction: column; background: var(--paper, #fff); color: var(--ink, #111); border-radius: 12px; box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }',
     '@media (max-width: 759.98px) { .view-sheet { top: 112px; left: 8px; right: 8px; bottom: 132px; } }',
     '.view-sheet[hidden] { display: none; }',
     '.view-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line, #e3e3e3); }',
     '.view-status { margin-left: auto; color: var(--muted, #666); font-size: 13px; }',
     '.view-status.refused { color: #b3261e; }',
-    '.view-body { flex: 1; display: flex; min-height: 0; }',
-    '.view-side { width: min(360px, 45%); overflow-x: hidden; overflow-y: auto; border-left: 1px solid var(--line, #e3e3e3); }',
-    '.view-side[hidden] { display: none; }',
-    '@media (max-width: 759.98px) { .view-body { flex-direction: column; } .view-side { width: auto; border-left: 0; border-top: 1px solid var(--line, #e3e3e3); max-height: 50%; } .view-sheet.on-canvas .view-side { margin-top: auto; } }',
     // Statenet
     '.statenet { position: absolute; inset: 0; z-index: 2; } .statenet[hidden] { display: none; }',
     '.statenet > .stateui-panel { position: absolute; inset: 0; }',
@@ -100,6 +93,7 @@ const UNIT_TEMPLATES = {
 };
 /** The side panel's fields with every section hidden, and the choices its forms offer (src/side/SidePage.ts) */
 const SIDE_BLANK = ${JSON.stringify(SIDE_BLANK)};
+const SIDE_APP = ${JSON.stringify(SIDE_APP)};
 const FIELD_TYPES = ${JSON.stringify(FIELD_TYPES)};
 const METHODS = ${JSON.stringify(METHODS)};
 
@@ -126,8 +120,7 @@ function element(tag, attributes, children) {
 }
 const sheet = element('section', { className: 'view-sheet', id: 'view-sheet', hidden: true, 'aria-live': 'polite' });
 const status = element('p', { className: 'view-status', role: 'status' });
-const side = element('aside', { className: 'view-side', hidden: true });
-sheet.append(element('header', { className: 'view-head' }, [status]), element('div', { className: 'view-body' }, [side]));
+sheet.append(element('header', { className: 'view-head' }, [status]));
 document.body.append(sheet);
 
 /** What the view says last: a change saved, or why it was refused. Theme and Logic show it in their page */
@@ -140,7 +133,8 @@ function says(text, refused) {
 }
 function unchoose() { if (chosenUnit !== null) { chosenUnit = null; drawLogic(); } }
 function closeSide() {
-    side.hidden = true;
+    sideOpen = false;
+    editor.set({ sideHidden: true });
     sideActs = {};
     unchoose();
     chosenBox = null;
@@ -211,6 +205,7 @@ function setView(name, led) {
     shell.appView(view !== 'screens');
     if (view === 'screens') {
         sheet.hidden = true;
+        closeSide();
         void drawLayers();
         return;
     }
@@ -244,7 +239,7 @@ editor.onEmit((name, payload) => {
         void drawLayers();
     }
 });
-shell.onEscape(() => { if (view !== 'screens' && !side.hidden) { closeSide(); return true; } return false; });
+shell.onEscape(() => { if (view !== 'screens' && sideOpen) { closeSide(); return true; } return false; });
 
 // ---- Statenet ------------------------------------------------------------------------------------------------------
 
@@ -299,11 +294,13 @@ function netCommand(command, value) {
 function insetOf() {
     const free = shell.canvas.freeArea();
     const inset = { top: free.top, left: free.left, right: Math.max(0, innerWidth - free.left - free.width), bottom: Math.max(0, innerHeight - free.top - free.height) };
-    if (!side.hidden) {
-        const over = side.getBoundingClientRect();
-        // At 760px and wider the panel is at the right, below that along the bottom (as the sheet's CSS lays it out)
-        if (matchMedia('(min-width: 760px)').matches) inset.right = Math.max(inset.right, innerWidth - over.left);
-        else inset.bottom = Math.max(inset.bottom, innerHeight - over.top);
+    const over = sideOpen && sideElement ? sideElement.getBoundingClientRect() : undefined;
+    if (over && over.width > 0) {
+        // Where the editor places it: across the window (a sheet along the bottom), or at one side. A person's copy of
+        // the editor may place it at the left
+        if (over.width >= innerWidth * 0.9) inset.bottom = Math.max(inset.bottom, innerHeight - over.top);
+        else if (over.left + over.width / 2 > innerWidth / 2) inset.right = Math.max(inset.right, innerWidth - over.left);
+        else inset.left = Math.max(inset.left, over.right);
     }
     return inset;
 }
@@ -523,19 +520,28 @@ function drawGraph() {
     // A new revision that left the tree as it was (a screen's layout, a token) writes nothing
     if (drawn === netDrawn) return;
     netDrawn = drawn;
-    netWrite({ nodes: [...nodes, ...pills], links, selected: side.hidden ? '' : side.dataset.node || '' });
+    netWrite({ nodes: [...nodes, ...pills], links, selected: sideOpen ? sideNode : '' });
 }
 
 // ---- The side panel: a page of Magnetic's --------------------------------------------------------------------------
 
 /*
- * The side panel is Magnetic's page magnetic-side (src/side/SidePage.ts), mounted once in the sheet's side and kept.
+ * The side panel is Magnetic's page magnetic-side (src/side/SidePage.ts). The editor places it, in an embeddedApp of
+ * its stage that stays mounted while hidden (sideHidden); the page's app host opens it by name (shell.js) and the
+ * shell hands this script its panel.
  * Opening a part writes the blank (every section hidden) and then the part's own fields to its $.data.side, and keeps
  * what each of its emits does for that part (sideActs). Its code is kept here as it changes, so a form's Create reads it
  */
 const SIDE = '$.data.side';
 let sidePanel = null;
-let sideMounting = null;
+/** The element the side panel is mounted in, for what it covers of the canvas */
+let sideElement = null;
+/** Whether it is open, and the node it shows */
+let sideOpen = false;
+let sideNode = '';
+/** Resolves once the editor's embeddedApp has the side panel mounted */
+let sideArrived = () => undefined;
+let sideReady = new Promise((resolve) => { sideArrived = resolve; });
 /** What the panel's emits do for the part it shows, by emit */
 let sideActs = {};
 /** The code the panel shows, as last typed */
@@ -544,32 +550,36 @@ let sideCode = '';
 function sideWrite(fields) {
     if (sidePanel) sidePanel.write(Object.entries(fields).map(([name, value]) => ({ path: SIDE + '.' + name, value })));
 }
-function mountSide() {
-    if (sidePanel) return Promise.resolve(true);
-    if (sideMounting) return sideMounting;
-    sideMounting = (async () => {
-        try {
-            const response = await fetch('/assets/side.json', { headers: { Accept: 'application/json' } });
-            if (!response.ok) throw new Error(T['views.refused']);
-            const served = await response.json();
-            sidePanel = host.mount(side, { document: served.document, icons: served.icons, inPage: true }, T['views.close']);
-            return true;
-        } catch (error) {
-            says(error.message, true);
-            return false;
-        } finally {
-            sideMounting = null;
-        }
-    })();
-    return sideMounting;
-}
-side.addEventListener('stateui:emit', (event) => {
+/** The side panel's emits: close, the code as it changes, and what the part shown does with the rest */
+function sideEmit(event) {
     const { name, payload } = event.detail || {};
     if (name === 'close') { closeSide(); return; }
     if (name === 'code') { sideCode = typeof payload === 'string' ? payload : sideCode; return; }
     const run = sideActs[name];
     if (run) void Promise.resolve(run(payload)).catch((error) => says(error.message, true));
+}
+// The editor places the side panel; the shell hands it over once it is mounted
+shell.page(SIDE_APP, {
+    mounted: (panel, element) => {
+        sidePanel = panel;
+        sideElement = element;
+        element.addEventListener('stateui:emit', sideEmit);
+        sideArrived();
+    },
+    disposed: () => {
+        sidePanel = null;
+        sideElement = null;
+        sideReady = new Promise((resolve) => { sideArrived = resolve; });
+    }
 });
+/** True once the side panel is mounted; false, after saying so, when the editor has not mounted it in time */
+function mountSide() {
+    if (sidePanel) return Promise.resolve(true);
+    return Promise.race([sideReady.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 10000))]).then((ready) => {
+        if (!ready) says(T['views.refused'], true);
+        return ready;
+    });
+}
 
 /**
  * Shows a part at the side: its fields over the blank, and what its emits do. The chosen card is lit, and brought into
@@ -577,8 +587,9 @@ side.addEventListener('stateui:emit', (event) => {
  */
 async function sideShow(id, fields, acts) {
     unchoose();
-    side.dataset.node = id || '';
-    side.hidden = false;
+    sideNode = id || '';
+    sideOpen = true;
+    editor.set({ sideHidden: false });
     if (!(await mountSide())) return;
     sideActs = acts || {};
     sideCode = typeof fields.code === 'string' ? fields.code : '';
@@ -1123,7 +1134,7 @@ async function loadTheme(name) {
     const tokens = theme.tokens.map((token) => {
         const first = token.group !== group;
         group = token.group;
-        const row = { id: token.path, group: first ? group : '', name: token.path.slice(group.length + 1) || token.path, locked };
+        const row = { id: token.path, group: first ? group : '', name: token.path.slice(group.length + 1) || token.path, locked, modesLocked: locked || !token.moded };
         const own = 'own' in token;
         row.all = own ? shown(token.own) : '';
         row.allShown = '';

@@ -2,6 +2,7 @@ import { escapeHtml } from '@punyts/stateui-mcp';
 import { FAVICON_LINK } from './logo.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
+import { SIDE_APP } from '../side/SidePage.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
 export interface ShellPageOptions {
@@ -163,6 +164,36 @@ const holder = document.getElementById('editor');
 const MODELS = JSON.parse(document.getElementById('magnetic-models').textContent || '[]');
 const OUTCOMES = { stopped: T['chat.stopped'], limit: T['chat.limit'], refused: T['chat.refused'], failed: T['chat.failed'], budget: T['chat.budget'] };
 const READY_MS = 10000;
+
+/*
+ * Magnetic's pages the editor places by name, as an embeddedApp's app: the page's app host opens each from its asset,
+ * and the script that drives it takes its panel with magneticShell.page(name, { mounted, disposed }). Registered before
+ * the editor mounts, so its embeddedApps find them
+ */
+const PLACED_PAGES = { [${JSON.stringify(SIDE_APP)}]: { url: '/assets/side.json', title: T['views.side'] } };
+/** The placed pages mounted now, by name: { panel, element } */
+const placed = {};
+/** What each placed page's script does when it is mounted and let go, by name */
+const placedScripts = {};
+host.pages({
+    open(name) {
+        const page = PLACED_PAGES[name];
+        if (!page) return undefined;
+        return fetch(page.url, { headers: { Accept: 'application/json' } })
+            .then((response) => { if (!response.ok) throw new Error(T['views.refused']); return response.json(); })
+            .then((served) => ({ document: served.document, icons: served.icons, title: page.title }));
+    },
+    mounted(name, panel, element) {
+        placed[name] = { panel, element };
+        if (placedScripts[name]) placedScripts[name].mounted(panel, element);
+    },
+    // An editor mounted again may mount the page again before the old one is let go: only the page mounted now counts
+    disposed(name, panel) {
+        if (!placed[name] || placed[name].panel !== panel) return;
+        delete placed[name];
+        if (placedScripts[name] && placedScripts[name].disposed) placedScripts[name].disposed();
+    }
+});
 
 // The editor: a StateUI app the page drives through its data and its emits
 let panel = null;
@@ -887,6 +918,11 @@ function editorChanged() {
 
 // What /assets/inspect.js uses of the editor: the tools, the editor and the paths the next turn is about
 const magneticShell = {
+    /** A placed page's script: mounted(panel, element) now if it is mounted, and each time it is; disposed() when it goes */
+    page(name, script) {
+        placedScripts[name] = script;
+        if (placed[name]) script.mounted(placed[name].panel, placed[name].element);
+    },
     tool: () => tool,
     setTool,
     onTool: (listener) => toolListeners.push(listener),
