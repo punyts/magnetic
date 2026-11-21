@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 import { SCIM_GROUP, SCIM_MEMBER } from '../orgs/Orgs.js';
 import { SCIM_NEEDS_DOMAIN } from '../orgs/Scim.js';
 import { startMockOidcProvider } from '../testing/mockOidcProvider.js';
@@ -107,6 +109,17 @@ describe('SCIM provisioning per org', () => {
         dns.set(added.recordName, [[added.recordValue]]);
         await json(`/orgs/${org}/domains/${domain}/verify`, cookie, 'POST');
     }
+
+    /** Opens a view socket of an app; the socket once open, or the refusal's status */
+    const openView = (appId: string, cookie: string): Promise<WebSocket | number> =>
+        new Promise((resolve, reject) => {
+            const ws = new WebSocket(`${magnetic.origin.replace('http', 'ws')}/apps/${appId}/sync?view=${randomUUID()}`, { headers: { Origin: magnetic.origin, Cookie: cookie } });
+            ws.once('open', () => resolve(ws));
+            ws.once('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0));
+            ws.once('error', reject);
+        });
+    /** The close code of an open view socket, once it closes */
+    const closeOf = (socket: WebSocket | number): Promise<number> => (typeof socket === 'number' ? Promise.resolve(socket) : new Promise((resolve) => socket.once('close', (code) => resolve(code))));
 
     /** The token on the settings page just after it was made */
     const tokenOf = (page: string): string | undefined => /role="status">[^<]*<br><code class="link">([A-Za-z0-9_-]{43})<\/code>/.exec(page)?.[1];
@@ -356,6 +369,52 @@ describe('SCIM provisioning per org', () => {
         expect(handGroup.status).toBe(404);
         expect(deleted.status).toBe(204);
         expect(access).toBe(0);
+    });
+
+    it('should close the views of a person SCIM takes out of a group that gave the app, or out of the org', async () => {
+        // Arrange: Pat, pushed and signed in, uses an org app through a pushed group
+        const patId = ((await (await scim('POST', '/Users', entraUser('pat@acme.test', 'Pat'))).json()) as { id: string }).id;
+        const pat = await signIn('pat@acme.test');
+        const group = ((await (await scim('POST', '/Groups', { schemas: [GROUP], displayName: 'Board users', members: [{ value: patId }] })).json()) as { id: string }).id;
+        const appId = ((await (await json(`/orgs/${orgId}/apps`, alice, 'POST', { name: 'Board' })).json()) as { id: string }).id;
+        await json(`/orgs/${orgId}/apps/${appId}/access`, alice, 'POST', { principalKind: 'group', principalId: group, permission: 'use' });
+        const opened = await openView(appId, pat.cookie);
+        const ungrouped = closeOf(opened);
+
+        // Act
+        await patch(`/Groups/${group}`, [{ op: 'remove', path: `members[value eq "${patId}"]` }]);
+        const afterUngroup = await get(`/apps/${appId}`, pat.cookie);
+        await patch(`/Groups/${group}`, [{ op: 'add', path: 'members', value: [{ value: patId }] }]);
+        const reopened = await openView(appId, pat.cookie);
+        const removed = closeOf(reopened);
+        await patch(`/Users/${patId}`, [{ op: 'replace', path: 'active', value: false }]);
+
+        // Assert
+        expect(typeof opened).not.toBe('number');
+        expect(await ungrouped).toBe(1008);
+        expect(afterUngroup.status).toBe(404);
+        expect(typeof reopened).not.toBe('number');
+        expect(await removed).toBe(1008);
+        expect(await magnetic.orgs.role(orgId, pat.userId)).toBeUndefined();
+    });
+
+    it('should still take invites while SCIM is on, but not to a pushed group', async () => {
+        // Arrange
+        const pushed = ((await (await scim('POST', '/Groups', { schemas: [GROUP], displayName: 'Pushed only', members: [] })).json()) as { id: string }).id;
+
+        // Act
+        const toPushed = await json(`/orgs/${orgId}/invites`, alice, 'POST', { email: 'ivy@acme.test', role: 'member', groups: [pushed] });
+        const invite = await json(`/orgs/${orgId}/invites`, alice, 'POST', { email: 'ivy@acme.test', role: 'member' });
+        const link = ((await invite.json()) as { link: string }).link;
+        const ivy = await signIn('ivy@acme.test');
+        const accepted = await json(`/invites/${link.split('/invites/')[1]}/accept`, ivy.cookie, 'POST');
+
+        // Assert
+        expect(toPushed.status).toBe(409);
+        expect(((await toPushed.json()) as { message: string }).message).toBe(SCIM_GROUP);
+        expect(invite.ok).toBe(true);
+        expect(accepted.status).toBe(200);
+        expect(await magnetic.orgs.role(orgId, ivy.userId)).toBe('member');
     });
 
     it('should join nobody unpushed by autoJoin while SCIM is on', async () => {
