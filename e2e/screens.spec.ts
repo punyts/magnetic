@@ -52,10 +52,11 @@ test.describe('Screens', () => {
     });
 
     test('pressing a preview makes its screen the live one, in its place', async ({ page }) => {
+        // Arrange: about is the screen worked on, home a card beside it (a zoom would make the screen most in view the one
+        // worked on by itself)
         await addScreen(editor, 'about');
-        await editor.button('Zoom out (-)').click();
-        await editor.button('Zoom out (-)').click();
-        // The zoom glides: measure once it has settled
+        await expect(liveFrame(page, 'About')).toBeVisible();
+        // The board glides to the new screen: measure once it has settled
         await page.waitForTimeout(600);
         const was = await preview(page, 'Home').boundingBox();
         await preview(page, 'Home').click();
