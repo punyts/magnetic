@@ -6,6 +6,8 @@
 //                          runtime; +2 the test control; +3 a stand-in outside API with an OAuth provider, and a
 //                          stand-in Stripe Checkout)
 import { createServer } from 'node:http';
+import { report, setCategories } from '@punyts/core';
+import { configureFileLogger, startFileLogger, stopFileLogger } from '@punyts/core/logging/FileLogger.js';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import { generateKeyPair, startRelayNode } from '@punyts/statenet';
@@ -18,11 +20,20 @@ import { StatenetAuthority } from '../dist/statenet/StatenetNode.js';
 import { roleDatabases } from '../dist/testing/testDb.js';
 
 const port = Number(process.env.MAGNETIC_E2E_PORT ?? 4390);
+// Every report of the server and the libraries in it goes to e2e-logs/server.log: MAGNETIC_E2E_REPORT names the
+// categories (all by default). The suite marks where each test starts and ends there (POST /mark)
+const reportCategories = (process.env.MAGNETIC_E2E_REPORT ?? 'all').split(',').map((each) => each.trim()).filter(Boolean);
+configureFileLogger({ filePath: `${process.env.MAGNETIC_E2E_LOGS ?? 'e2e-logs'}/server.log` });
+setCategories(reportCategories);
+startFileLogger(reportCategories);
 const test = await createTestDatabase(ALL_MIGRATIONS);
 const mock = await startMockOidcProvider();
 const SECRET_KEY = 'e2e-secret-key-of-enough-length';
-// Quiet unless MAGNETIC_E2E_VERBOSE is set
-const quiet = (message, fields) => (process.env.MAGNETIC_E2E_VERBOSE ? process.stderr.write(`[magnetic] ${message} ${JSON.stringify(fields ?? {})}\n`) : undefined);
+// Magnetic's own lines go to the log as info, and to stderr too when MAGNETIC_E2E_VERBOSE is set
+const quiet = (message, fields) => {
+    report.info(message, fields);
+    if (process.env.MAGNETIC_E2E_VERBOSE) process.stderr.write(`[magnetic] ${message} ${JSON.stringify(fields ?? {})}\n`);
+};
 // The roles, the aggregate and the relay the hosted stack runs; the statenet's authority is made first, as the
 // aggregate's role may not
 const roles = await roleDatabases(test);
@@ -141,7 +152,11 @@ const control = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => (body += chunk));
     request.on('end', () => {
-        if (request.method === 'GET' && request.url === '/mail') {
+        if (request.method === 'POST' && request.url === '/mark') {
+            const { phase, title } = JSON.parse(body);
+            report('e2e.test', `${phase} ${title}`);
+            response.writeHead(204).end();
+        } else if (request.method === 'GET' && request.url === '/mail') {
             response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(mailer.sent));
         } else if (request.method === 'GET' && request.url === '/feedback-mail') {
             response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(mailer.feedbackSent));
@@ -276,6 +291,7 @@ const stop = () => {
         .then(() => aggregate.close())
         .then(() => roles.close())
         .then(() => test.drop())
+        .then(() => stopFileLogger())
         .finally(() => process.exit(0));
 };
 process.on('SIGINT', stop);

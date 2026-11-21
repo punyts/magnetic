@@ -17,7 +17,6 @@ const sidePanel = (page: Page) => page.getByRole('region', { name: 'Details' });
 const viewPage = (page: Page) => page.locator('#editor .stateui-panel[role="region"]:is([aria-label="Theme"], [aria-label="Logic"]):visible');
 /** The theme the Theme view shows */
 const chosenTheme = (page: Page) => viewPage(page).getByRole('combobox', { name: 'Theme', exact: true });
-/** Makes a theme of the app's own from the Theme view's page, named as the prompt is answered */
 /**
  * A token's value cell in the Theme view's table. The table draws only the rows in view, so its scroller (in the shadow
  * roots of the table and its list) is moved down until the row is drawn, and the row is brought into the window before
@@ -49,9 +48,19 @@ async function tokenCell(page: Page, label: string): Promise<Locator> {
     return cell;
 }
 
+/**
+ * Makes a theme of the app's own from the Theme view's page, named as the prompt is answered. A press that brings no
+ * prompt (on a phone after a long run the page could take the press before it handled it) is made again; a press that
+ * did is never repeated, so no second theme is made
+ */
 async function newTheme(page: Page, name: string): Promise<void> {
-    page.once('dialog', (dialog) => void dialog.accept(name));
-    await viewPage(page).getByRole('button', { name: 'New theme' }).click();
+    let prompted = false;
+    page.once('dialog', (dialog) => { prompted = true; void dialog.accept(name); });
+    const button = viewPage(page).getByRole('button', { name: 'New theme' });
+    await expect(async () => {
+        if (!prompted) await button.click();
+        expect(prompted).toBe(true);
+    }).toPass({ intervals: [500, 1000, 2000] });
     await expect(chosenTheme(page)).toHaveValue(name);
 }
 /** Statenet's page, a frame on the board */

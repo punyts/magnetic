@@ -1,3 +1,4 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { expect, test as base } from '@playwright/test';
 import type { BrowserContext, FrameLocator, Locator, Page, TestInfo } from '@playwright/test';
 
@@ -33,6 +34,19 @@ export async function signIn(context: BrowserContext, user: string): Promise<voi
 export async function mockPerson(person: { sub: string; name: string; email: string; email_verified?: boolean }): Promise<void> {
     const response = await fetch(`${CONTROL}/person`, { method: 'POST', body: JSON.stringify({ email_verified: true, ...person }) });
     expect(response.status).toBe(204);
+}
+
+/**
+ * Signs a person of their own in on the page through the mock provider, with a verified email: someone no other test
+ * knows, whose choices (language, appearance, editor) no other test sees. Answers their name and email
+ */
+export async function signInNew(page: Page, info: TestInfo, stem: string): Promise<{ name: string; email: string }> {
+    const id = uniqueName(info, stem);
+    const person = { name: `${stem[0]!.toUpperCase()}${stem.slice(1)} ${id.slice(id.lastIndexOf('-') + 1)}`, email: `${id}@example.test` };
+    await mockPerson({ sub: id, ...person });
+    await page.goto('/auth/mock');
+    await page.waitForURL((url) => url.pathname === '/');
+    return person;
 }
 
 /** Gives a dev user who signed in a verified email and a dataset of their own, as the agent would make it */
@@ -227,7 +241,42 @@ export class AppPage {
     }
 }
 
-export const test = base.extend<{ home: HomePage; signInPage: SignInPage }>({
+const LOGS = process.env['MAGNETIC_E2E_LOGS'] ?? 'e2e-logs';
+/** The categories the pages report to their console (localStorage['punyts.report']): MAGNETIC_E2E_REPORT, all by default */
+const PAGE_REPORT = process.env['MAGNETIC_E2E_REPORT'] ?? 'all';
+
+/** Marks a test's start or end in the server's log */
+async function mark(phase: 'start' | 'end', title: string): Promise<void> {
+    await fetch(`${CONTROL}/mark`, { method: 'POST', body: JSON.stringify({ phase, title }) }).catch(() => undefined);
+}
+
+export const test = base.extend<{ home: HomePage; signInPage: SignInPage; reportLogs: void }>({
+    /**
+     * Every test: the pages report every category to their console, which goes to e2e-logs/browser.log under the test's
+     * title, and the server's log marks where the test starts and ends
+     */
+    reportLogs: [async ({ context }, use, info) => {
+        const title = `[${info.project.name}] ${info.titlePath.slice(1).join(' > ')}`;
+        const lines: string[] = [];
+        await context.addInitScript((categories) => {
+            try {
+                localStorage.setItem('punyts.report', categories);
+            } catch {
+                // a page whose storage is closed (an opaque origin) reports nothing
+            }
+        }, PAGE_REPORT);
+        const listen = (page: Page): void => {
+            page.on('console', (message) => lines.push(`${message.type()}\t${page.url().replace(/\?.*$/, '')}\t${message.text()}`));
+        };
+        context.pages().forEach(listen);
+        context.on('page', listen);
+        await mark('start', title);
+        const started = Date.now();
+        await use();
+        await mark('end', title);
+        mkdirSync(LOGS, { recursive: true });
+        appendFileSync(`${LOGS}/browser.log`, `=== ${title} (${Date.now() - started} ms, ${info.status})\n${lines.join('\n')}${lines.length ? '\n' : ''}`);
+    }, { auto: true }],
     home: async ({ page }, use) => use(new HomePage(page)),
     signInPage: async ({ page }, use) => use(new SignInPage(page))
 });

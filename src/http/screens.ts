@@ -172,8 +172,8 @@ function pageCommand(command, value) {
     if (page && page.canvas) page.panel.command(page.canvas, command, value);
 }
 
-/** A card shows the live app: the screen worked on, outside names or selected in them */
-function isLive(name) { return name === current && (!names || selected === name); }
+/** A card shows the live app: the screen worked on, outside names or selected in them, and only while the editor shows (without it the app is in #alone) */
+function isLive(name) { return shell.editing() && name === current && (!names || selected === name); }
 
 /** How much of a card's box is in the area the editor's panels leave free, at the view as it is, in the window's pixels */
 function areaInView(box) {
