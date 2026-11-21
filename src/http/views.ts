@@ -1,4 +1,8 @@
+import { LOGIC_APP } from '../logic/LogicPage.js';
+import { SCREENS_APP } from '../screens/ScreensPage.js';
 import { FIELD_TYPES, METHODS, SIDE_APP, SIDE_BLANK } from '../side/SidePage.js';
+import { STATENET_APP } from '../statenet/StatenetPage.js';
+import { THEME_APP } from '../theme/ThemePage.js';
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
@@ -15,7 +19,7 @@ import { SCRIPT_TEXTS } from './text.js';
  *   outside; Logic marks the nodes with handlers, lists the app's units that touch the screen down its left edge,
  *   each marked Server or Browser, and draws an arrow to each screen it leads to.
  * - **Statenet**: the owner's tree by state path from `GET /edit/<id>/views/graph`, shown by Magnetic's page
- *   `magnetic-statenet` (`src/statenet/StatenetPage.ts`) mounted on the board: a canvas that pans and zooms, with its
+ *   `magnetic-statenet` (`src/statenet/StatenetPage.ts`), which the editor places on its stage: a canvas that pans and zooms, with its
  *   branches on its right and left sides, every part with what the app does not use lying flat, and one level below a
  *   part. The editor's zoom runs the canvas's commands while it shows. Pressing a node opens its editor at the side:
  *   a dataset's records, a model's fields, a path of the state, a module's unit, a connection and its endpoints (for
@@ -33,26 +37,11 @@ import { SCRIPT_TEXTS } from './text.js';
  * a refusal shows the tool's message. The views' text is `T` (the page's texts), and the agent's next request is told
  * about the view shown (`magneticShell.contextOf`).
  */
-/** `/assets/views.css`: the views' sheet, Statenet's frame, token table, lanes and tile layers (a file: the page's policy allows no inline style) */
-export const VIEWS_CSS = [
-    // The views are the editor's: with it hidden the app fills the window, whatever view was last shown
-    'body:not(.editing) .view-sheet, body:not(.editing) .statenet, body:not(.editing) .view-page { display: none !important; }',
-    // Statenet, Theme and Logic are pages of their own on the board, over the screens; the side panel floats over them
-    'body.editing[data-view="statenet"] #screens, body.editing[data-view="theme"] #screens, body.editing[data-view="logic"] #screens { visibility: hidden; }',
-    '.view-page { position: absolute; z-index: 2; overflow: auto; } .view-page[hidden] { display: none; }',
-    '.view-sheet.on-canvas { z-index: 1; background: transparent; box-shadow: none; pointer-events: none; overflow: visible; }',
-    '.view-sheet.on-canvas .view-head { pointer-events: auto; align-self: flex-start; max-width: 100%; box-sizing: border-box; border-bottom: 0; border-radius: 12px; background: var(--paper, #fff); box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); }',
-    '.view-sheet.on-canvas .view-head:not(:has(.view-status:not(:empty))) { display: none; }',
-    '.view-sheet { position: fixed; z-index: 0; left: 12px; right: 12px; top: 64px; bottom: 96px; display: flex; flex-direction: column; background: var(--paper, #fff); color: var(--ink, #111); border-radius: 12px; box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,.2)); font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }',
-    '@media (max-width: 759.98px) { .view-sheet { top: 112px; left: 8px; right: 8px; bottom: 132px; } }',
-    '.view-sheet[hidden] { display: none; }',
-    '.view-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line, #e3e3e3); }',
-    '.view-status { margin-left: auto; color: var(--muted, #666); font-size: 13px; }',
-    '.view-status.refused { color: #b3261e; }',
-    // Statenet
-    '.statenet { position: absolute; inset: 0; z-index: 2; } .statenet[hidden] { display: none; }',
-    '.statenet > .stateui-panel { position: absolute; inset: 0; }',
-    // The layers on the screen cards: each in its app's own pixels, following the card and scaled as the canvas scales it
+/**
+ * The views' layers on the screen cards, each in its app's own pixels, following the card and scaled as the canvas
+ * scales it: part of `/assets/layers.css`, which the shell links into the board page's shadow root, where they are drawn
+ */
+export const VIEWS_LAYERS_CSS = [
     '.views-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }',
     '.views-layer[hidden] { display: none; }',
     '.tile-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; font: calc(12px / var(--zoom, 1)) system-ui, sans-serif; }',
@@ -94,6 +83,9 @@ const UNIT_TEMPLATES = {
 /** The side panel's fields with every section hidden, and the choices its forms offer (src/side/SidePage.ts) */
 const SIDE_BLANK = ${JSON.stringify(SIDE_BLANK)};
 const SIDE_APP = ${JSON.stringify(SIDE_APP)};
+/** The editor's canvas pages, by view: each a live embeddedApp first on its stage, shown by its hidden flag */
+const PAGE_APPS = { screens: ${JSON.stringify(SCREENS_APP)}, statenet: ${JSON.stringify(STATENET_APP)}, theme: ${JSON.stringify(THEME_APP)}, logic: ${JSON.stringify(LOGIC_APP)} };
+const PAGE_HIDDEN = { screens: 'boardHidden', statenet: 'statenetHidden', theme: 'themeHidden', logic: 'logicHidden' };
 const FIELD_TYPES = ${JSON.stringify(FIELD_TYPES)};
 const METHODS = ${JSON.stringify(METHODS)};
 
@@ -118,18 +110,13 @@ function element(tag, attributes, children) {
     for (const child of children || []) if (child) made.append(child);
     return made;
 }
-const sheet = element('section', { className: 'view-sheet', id: 'view-sheet', hidden: true, 'aria-live': 'polite' });
-const status = element('p', { className: 'view-status', role: 'status' });
-sheet.append(element('header', { className: 'view-head' }, [status]));
-document.body.append(sheet);
-
-/** What the view says last: a change saved, or why it was refused. Theme and Logic show it in their page */
+/** What the view says last: a change saved, or why it was refused. The page of the view shown shows it */
 let said = '';
 function says(text, refused) {
     said = text || '';
-    if (page) { pageWrite({ status: refused ? '' : said, refusal: refused ? said : '', noRefusal: !refused || !said }); return; }
-    status.textContent = said;
-    status.classList.toggle('refused', Boolean(refused));
+    const fields = { status: refused ? '' : said, refusal: refused ? said : '', noRefusal: !refused || !said };
+    if (page) { pageWrite(fields); return; }
+    netWrite({ ...fields, noStatus: refused || !said });
 }
 function unchoose() { if (chosenUnit !== null) { chosenUnit = null; drawLogic(); } }
 function closeSide() {
@@ -201,18 +188,16 @@ function setView(name, led) {
     view = name;
     store(VIEW_KEY, view);
     document.body.dataset.view = view;
+    editor.set(Object.fromEntries(VIEWS.map((each) => [PAGE_HIDDEN[each], each !== view])));
     showSelector();
     shell.appView(view !== 'screens');
     if (view === 'screens') {
-        sheet.hidden = true;
         closeSide();
         void drawLayers();
         return;
     }
     shell.setTool('use');
     shell.showInspector(false);
-    sheet.hidden = false;
-    sheet.classList.add('on-canvas');
     closeSide();
     says('');
     pageWrite({ noBack: !fromGraph });
@@ -244,8 +229,8 @@ shell.onEscape(() => { if (view !== 'screens' && sideOpen) { closeSide(); return
 // ---- Statenet ------------------------------------------------------------------------------------------------------
 
 /*
- * Statenet is Magnetic's page magnetic-statenet (src/statenet/StatenetPage.ts), mounted on the board while the view
- * shows: a canvas that pans and zooms around the owner's tree. This script writes its $.data.statenet (the cards, the
+ * Statenet is Magnetic's page magnetic-statenet (src/statenet/StatenetPage.ts), which the editor places on its stage
+ * and shows while the view does: a canvas that pans and zooms around the owner's tree. This script writes its $.data.statenet (the cards, the
  * links, the chosen card, the view and what the panels cover), acts on its emits, and runs the commands of its canvas
  * (the node keyed canvas) for the editor's zoom
  */
@@ -253,11 +238,14 @@ const NET = '$.data.statenet';
 /** Keeping where the person left the view waits this long after a pan or a zoom ends, so a run of them keeps one */
 const NET_KEEP_MS = 500;
 let netKeeping = 0;
-const netHolder = element('div', { className: 'statenet', id: 'statenet', hidden: true });
-document.getElementById('board').append(netHolder);
 let graph = null;
-/** The mounted page: its panel and the path of its canvas; null while Statenet does not show */
+/** The mounted page: its panel, its element and the path of its canvas; null until the editor has it mounted */
 let net = null;
+/** Resolves once the editor has Statenet's page mounted */
+let netArrived = () => undefined;
+let netReady = new Promise((resolve) => { netArrived = resolve; });
+/** Where the view is, written again to a page mounted again; null until the kept one is read */
+let netLook = null;
 /** The mount under way, so a second load waits for it */
 let netMounting = null;
 /** The view is fitted to the tree once its cards are placed, when the person kept no view of the app's Statenet */
@@ -306,33 +294,54 @@ function insetOf() {
 }
 addEventListener('resize', () => { if (net) netWrite({ inset: insetOf() }); });
 
-/** Mounts Statenet's page on the board and gives it the editor's zoom */
+// The editor places Statenet's page; the shell hands it over once it is mounted, and each time it is mounted again
+// (taken at the end of this script, once everything its script uses is there)
+const takeNetPage = () => shell.page(PAGE_APPS.statenet, {
+    mounted: (panel, element, doc) => {
+        net = { panel, element, canvas: doc ? keyPath(doc, 'canvas') : null };
+        element.addEventListener('stateui:emit', netEmit);
+        element.addEventListener('focusout', reloadLeft);
+        netDrawn = '';
+        if (netLook) netWrite({ view: netLook, inset: insetOf(), selected: '' });
+        netArrived();
+        if (netLook && view === 'statenet') void loadGraph();
+    },
+    disposed: () => {
+        if (net) { net.element.removeEventListener('stateui:emit', netEmit); net.element.removeEventListener('focusout', reloadLeft); }
+        net = null;
+        netReady = new Promise((resolve) => { netArrived = resolve; });
+    }
+});
+/** True once a page is mounted; false, after saying so, when the editor has not mounted it in time */
+function arrived(ready) {
+    return Promise.race([ready.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 10000))]).then((done) => {
+        if (!done) says(T['views.refused'], true);
+        return done;
+    });
+}
+
+/** Statenet's page, mounted, with the editor's zoom: the first time on the view the person left */
 function enterGraph() {
-    netHolder.hidden = false;
     shell.canvas.drive({ zoomIn: () => netCommand('zoomIn'), zoomOut: () => netCommand('zoomOut'), zoomReset: () => netCommand('zoomReset'), fit: () => netCommand('fit') });
-    if (net) return Promise.resolve(true);
+    if (netLook) {
+        shell.canvas.showZoom(netLook.zoom);
+        return net ? Promise.resolve(true) : arrived(netReady);
+    }
     if (netMounting) return netMounting;
     netMounting = (async () => {
         try {
             // Where the person left the view is theirs on the server (GET kept), so it follows them to any browser
-            const [response, kept] = await Promise.all([
-                fetch('/assets/statenet.json', { headers: { Accept: 'application/json' } }),
+            const [ready, kept] = await Promise.all([
+                net ? Promise.resolve(true) : arrived(netReady),
                 getJson('/kept?view=statenet').then((answer) => answer.place, () => null)
             ]);
-            if (!response.ok) throw new Error(T['views.refused']);
-            const page = await response.json();
-            if (view !== 'statenet') return false;
-            netHolder.replaceChildren();
-            net = { panel: host.mount(netHolder, { document: page.document, icons: page.icons, inPage: true }, T['shell.view.statenet']), canvas: keyPath(page.document, 'canvas') };
-            netDrawn = '';
+            if (!ready || view !== 'statenet') return false;
             const look = kept && typeof kept.x === 'number' && typeof kept.y === 'number' && typeof kept.zoom === 'number' ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
             netFitted = look !== null;
-            netWrite({ view: look || { x: 0, y: 0, zoom: 1 }, inset: insetOf(), selected: '' });
-            shell.canvas.showZoom(look ? look.zoom : 1);
+            netLook = look || { x: 0, y: 0, zoom: 1 };
+            netWrite({ view: netLook, inset: insetOf(), selected: '' });
+            shell.canvas.showZoom(netLook.zoom);
             return true;
-        } catch (error) {
-            says(error.message, true);
-            return false;
         } finally {
             netMounting = null;
         }
@@ -340,15 +349,11 @@ function enterGraph() {
     return netMounting;
 }
 function leaveGraph() {
-    if (net) net.panel.dispose();
-    net = null;
     chosenBox = null;
-    netHolder.replaceChildren();
-    netHolder.hidden = true;
     shell.canvas.drive(null);
 }
 
-netHolder.addEventListener('stateui:emit', (event) => {
+function netEmit(event) {
     const { name, payload } = event.detail || {};
     const id = payload && typeof payload === 'object' && typeof payload.id === 'string' ? payload.id : typeof payload === 'string' ? payload : '';
     const box = payload && typeof payload === 'object' ? payload.box : undefined;
@@ -363,12 +368,16 @@ netHolder.addEventListener('stateui:emit', (event) => {
             return;
         }
         case 'view':
-            if (payload && typeof payload.zoom === 'number') { keepNetView({ x: payload.x, y: payload.y, zoom: payload.zoom }); shell.canvas.showZoom(payload.zoom); }
+            if (payload && typeof payload.zoom === 'number') {
+                netLook = { x: payload.x, y: payload.y, zoom: payload.zoom };
+                keepNetView({ ...netLook });
+                shell.canvas.showZoom(payload.zoom);
+            }
             return;
         case 'layout': if (!netFitted) { netFitted = true; netCommand('fit'); } return;
         default:
     }
-});
+}
 
 /** Keeps where the person left the view, once a run of pans and zooms ends; a refusal only loses the place */
 function keepNetView(place) {
@@ -1016,18 +1025,21 @@ function authFields(auth) {
     return fields;
 }
 
-// ---- Theme and Logic: pages of Magnetic's on the board ---------------------------------------------------------------
+// ---- Theme and Logic: pages of Magnetic's on the editor's stage -----------------------------------------------------
 
 /*
  * Theme and Logic are Magnetic's pages magnetic-theme (src/theme/ThemePage.ts) and magnetic-logic
- * (src/logic/LogicPage.ts), mounted on the board while their view shows, in the area the editor's panels leave free.
- * This script writes their $.data.theme or $.data.logic and acts on their emits; the side panel opens beside them
+ * (src/logic/LogicPage.ts), which the editor places on its stage, in the area its panels leave, and shows while their
+ * view does. This script writes their $.data.theme or $.data.logic and acts on their emits; the side panel opens beside
+ * them
  */
-const pageHolder = element('div', { className: 'view-page', id: 'view-page', hidden: true });
-document.getElementById('board').append(pageHolder);
-/** The mounted page: its view and its panel; null while neither Theme nor Logic shows */
+/** The pages mounted, by view: { panel, element } */
+const viewPages = {};
+/** Resolves once the editor has a view's page mounted, by view */
+const viewArrived = {};
+const viewReady = {};
+/** The page of the view shown: its view, its panel and its element; null while neither Theme nor Logic shows */
 let page = null;
-let pageMounting = null;
 /** Whether a card of Statenet led to the view shown, so the page offers the way back */
 let fromGraph = false;
 
@@ -1035,54 +1047,52 @@ let fromGraph = false;
 function pageWrite(fields) {
     if (page) page.panel.write(Object.entries(fields).map(([name, value]) => ({ path: '$.data.' + page.view + '.' + name, value })));
 }
-/** Places the page in the area the editor's panels leave free */
-function placePage() {
-    const free = shell.canvas.freeArea();
-    Object.assign(pageHolder.style, { left: free.left + 'px', top: free.top + 'px', width: Math.max(0, free.width) + 'px', height: Math.max(0, free.height) + 'px' });
-}
-addEventListener('resize', () => { if (page) placePage(); });
-
-/** Mounts the view's page on the board; true once it is there */
-function enterPage(name) {
-    pageHolder.hidden = false;
-    placePage();
-    if (page && page.view === name) return Promise.resolve(true);
-    if (pageMounting) return pageMounting.then(() => enterPage(name));
-    leavePage();
-    pageHolder.hidden = false;
-    pageMounting = (async () => {
-        try {
-            const response = await fetch('/assets/' + name + '.json', { headers: { Accept: 'application/json' } });
-            if (!response.ok) throw new Error(T['views.refused']);
-            const served = await response.json();
-            if (view !== name) return false;
-            pageHolder.replaceChildren();
-            page = { view: name, panel: host.mount(pageHolder, { document: served.document, icons: served.icons, inPage: true }, T['shell.view.' + name]) };
-            pageWrite({ noBack: !fromGraph });
-            return true;
-        } catch (error) {
-            says(error.message, true);
-            return false;
-        } finally {
-            pageMounting = null;
-        }
-    })();
-    return pageMounting;
-}
-function leavePage() {
-    if (page) page.panel.dispose();
-    page = null;
-    pageHolder.replaceChildren();
-    pageHolder.hidden = true;
-}
-
-pageHolder.addEventListener('stateui:emit', (event) => {
+function viewEmit(event) {
     const { name, payload } = event.detail || {};
     if (!page) return;
     if (name === 'back') { setView('statenet'); return; }
     if (page.view === 'theme') void themeEmit(name, payload);
     else if (page.view === 'logic') void logicEmit(name, payload);
+}
+// The editor places both pages; the shell hands each over once it is mounted, and each time it is mounted again. A page
+// mounted again while its view shows has nothing in it: the view is read and drawn again
+for (const name of ['theme', 'logic']) viewReady[name] = new Promise((resolve) => { viewArrived[name] = resolve; });
+const takeViewPages = () => ['theme', 'logic'].forEach((name) => {
+    shell.page(PAGE_APPS[name], {
+        mounted: (panel, element) => {
+            viewPages[name] = { panel, element };
+            element.addEventListener('stateui:emit', viewEmit);
+            element.addEventListener('focusout', reloadLeft);
+            viewArrived[name]();
+            if (view !== name) return;
+            page = { view: name, panel, element };
+            if (name === 'theme') themeRows = new Map();
+            pageWrite({ noBack: !fromGraph });
+            void load();
+        },
+        disposed: () => {
+            const gone = viewPages[name];
+            if (gone) { gone.element.removeEventListener('stateui:emit', viewEmit); gone.element.removeEventListener('focusout', reloadLeft); }
+            delete viewPages[name];
+            if (page && page.view === name) page = null;
+            viewReady[name] = new Promise((resolve) => { viewArrived[name] = resolve; });
+        }
+    });
 });
+
+/** The view's page, mounted: the page script writes to it from now on; true once it is there */
+async function enterPage(name) {
+    if (!viewPages[name] && !(await arrived(viewReady[name]))) return false;
+    if (view !== name || !viewPages[name]) return false;
+    if (!page || page.view !== name) {
+        page = { view: name, ...viewPages[name] };
+        pageWrite({ noBack: !fromGraph });
+    }
+    return true;
+}
+function leavePage() {
+    page = null;
+}
 
 // ---- Theme ---------------------------------------------------------------------------------------------------------
 
@@ -1363,14 +1373,14 @@ function unitEditor(unit) {
 const infos = new Map();
 let infoRevision = null;
 let drawing = 0;
-// The layers sit in one fixed layer above the board; each follows its card (see follow below)
+// The layers sit in one layer on the board page, under the editor's panels; each follows its card (see follow below)
 const holder = document.createElement('div');
 holder.className = 'views-layer';
 holder.hidden = true;
 const leads = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 leads.setAttribute('class', 'leads');
 holder.append(leads);
-(document.getElementById('board') || document.body).append(holder);
+shell.boardLayer(holder);
 /** The layers drawn, each on the element of its card */
 let drawn = [];
 /** The leads between screens, by the names of the screens they join */
@@ -1479,14 +1489,15 @@ function drawLeads(all, run) {
 function placeLeads() {
     leads.replaceChildren();
     const boxes = new Map(drawn.map((each) => [each.tile.name, each.tile.element.getBoundingClientRect()]));
+    const origin = shell.boardOrigin();
     for (const [fromName, toName] of leadPairs) {
         const from = boxes.get(fromName);
         const to = boxes.get(toName);
         if (!from || !to) continue;
-        const x1 = from.left + from.width / 2;
-        const y1 = from.bottom;
-        const x2 = to.left + to.width / 2;
-        const y2 = to.top;
+        const x1 = from.left + from.width / 2 - origin.left;
+        const y1 = from.bottom - origin.top;
+        const x2 = to.left + to.width / 2 - origin.left;
+        const y2 = to.top - origin.top;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         const dip = Math.max(40, Math.abs(x2 - x1) / 3);
         path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + x1 + ',' + (y1 + dip) + ' ' + x2 + ',' + (y2 - dip) + ' ' + x2 + ',' + y2);
@@ -1522,15 +1533,18 @@ function signature(all) { return all.map((tile) => tile.name + (tile.inspect ? '
 /** Puts each layer on its card: its app's own size, moved and scaled as the card is; true when one moved */
 function placed() {
     let moved = false;
+    const origin = shell.boardOrigin();
     for (const each of drawn) {
         const element = each.tile.element;
         const box = element.getBoundingClientRect();
         const scale = box.width / (element.offsetWidth || 1) || 1;
-        const at = [box.left, box.top, element.offsetWidth, element.offsetHeight, scale].join(' ');
+        const left = box.left - origin.left;
+        const top = box.top - origin.top;
+        const at = [left, top, element.offsetWidth, element.offsetHeight, scale].join(' ');
         if (at === each.at) continue;
         each.at = at;
         moved = true;
-        Object.assign(each.layer.style, { width: element.offsetWidth + 'px', height: element.offsetHeight + 'px', transform: 'translate(' + box.left + 'px, ' + box.top + 'px) scale(' + scale + ')' });
+        Object.assign(each.layer.style, { width: element.offsetWidth + 'px', height: element.offsetHeight + 'px', transform: 'translate(' + left + 'px, ' + top + 'px) scale(' + scale + ')' });
         each.layer.style.setProperty('--zoom', String(scale));
     }
     return moved;
@@ -1546,14 +1560,20 @@ function follow() {
     requestAnimationFrame(follow);
 }
 requestAnimationFrame(follow);
-// A change to the app redraws the view; while a field of the sheet is being edited, once it is left
+// A change to the app redraws the view; while a field of the side panel or of the page shown is being edited, once it
+// is left
 let reloadWaiting = false;
-/** Whether the person types in a field of the side panel or of the page shown, whose shadow roots hold the field */
+/** Whether the person types in a field of the side panel or of the page shown, through the shadow roots that hold it */
 const editing = () => {
+    const within = [sideElement, page && page.element, view === 'statenet' && net && net.element].filter(Boolean);
     let active = document.activeElement;
-    if (!active || !(sheet.contains(active) || pageHolder.contains(active))) return false;
-    while (active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
-    return /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+    let inside = false;
+    while (active) {
+        if (within.some((element) => element.contains(active))) inside = true;
+        if (!active.shadowRoot || !active.shadowRoot.activeElement) break;
+        active = active.shadowRoot.activeElement;
+    }
+    return inside && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
 };
 new MutationObserver(() => {
     if (view === 'screens') { if (layersShown()) void drawLayers(); return; }
@@ -1562,14 +1582,14 @@ new MutationObserver(() => {
     if (editing()) reloadWaiting = true; else void load();
 }).observe(document.body, { attributes: true, attributeFilter: ['data-revision'] });
 const reloadLeft = () => setTimeout(() => { if (reloadWaiting && !editing()) { reloadWaiting = false; if (view !== 'screens') void load(); } }, 0);
-sheet.addEventListener('focusout', reloadLeft);
-pageHolder.addEventListener('focusout', reloadLeft);
 addEventListener('stateui:change', (event) => {
     const path = event.detail && typeof event.detail.path === 'string' ? event.detail.path : '';
     if (path.startsWith('$.route') && view === 'screens') void drawLayers();
 });
 
 editor.onReady(() => showSelector());
+takeNetPage();
+takeViewPages();
 setTimeout(() => setView(view), 0);
 window.magneticViews = { setView, view: () => view, drawLayers };
 })();

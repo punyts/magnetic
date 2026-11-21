@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { EditorPage, expect, signIn, test, uniqueName } from './fixtures.js';
+import { BOARD, EditorPage, expect, signIn, test, uniqueName } from './fixtures.js';
 
 test.describe('The editor', () => {
     let editor: EditorPage;
@@ -108,7 +108,8 @@ test.describe('The editor', () => {
 
     test('Ctrl+Shift+E leaves the editor for the app, and brings it back', async ({ page }) => {
         const appId = editor.appId;
-        await page.locator('main').click({ position: { x: 5, y: 5 } });
+        // A press on the board's corner, beside every panel, takes the focus out of the chat
+        await page.locator(BOARD).click({ position: { x: 5, y: 5 } });
         await page.keyboard.press('Control+Shift+E');
         await page.waitForURL(new RegExp(`/apps/${appId}$`));
         await expect(page.locator('body')).not.toHaveClass(/(^| )editing( |$)/);
@@ -154,7 +155,8 @@ test.describe('The component library', () => {
         await expect(editor.librarySearch).toBeVisible({ visible: wide });
         await editor.button('Components (A)').click();
         await expect(editor.librarySearch).toBeVisible({ visible: !wide });
-        await page.locator('main').click({ position: { x: 5, y: 5 } });
+        // A press on the board's corner, beside every panel, takes the focus out of the chat
+        await page.locator(BOARD).click({ position: { x: 5, y: 5 } });
         await page.keyboard.press('a');
         await expect(editor.librarySearch).toBeVisible({ visible: wide });
         await editor.openLibrary();

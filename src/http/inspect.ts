@@ -44,8 +44,8 @@ const overlay = document.createElement('div');
 overlay.className = 'overlay';
 overlay.setAttribute('aria-hidden', 'true');
 layer.append(shield, overlay);
-// On the board, which fills the window: the layer is part of the canvas, under the editor's panels
-(document.getElementById('board') || document.body).append(layer);
+// On the board page the editor places: the layer is part of the canvas, under the editor's panels
+if (shell) shell.boardLayer(layer);
 /** How many frames the live app's element is kept before it is looked for again */
 const LOOK_AGAIN_FRAMES = 20;
 /** The live app: its element and screen, or null while none is on the board */
@@ -61,11 +61,15 @@ function follow() {
     if (live) {
         const box = live.element.getBoundingClientRect();
         const scale = box.width / (live.element.offsetWidth || 1) || 1;
-        next = [box.left, box.top, live.element.offsetWidth, live.element.offsetHeight, scale].join(' ');
+        // The layer is placed from the board's own element, which it is drawn in
+        const origin = shell.boardOrigin();
+        const left = box.left - origin.left;
+        const top = box.top - origin.top;
+        next = [left, top, live.element.offsetWidth, live.element.offsetHeight, scale].join(' ');
         if (next !== placed) {
             layer.style.width = live.element.offsetWidth + 'px';
             layer.style.height = live.element.offsetHeight + 'px';
-            layer.style.transform = 'translate(' + box.left + 'px, ' + box.top + 'px) scale(' + scale + ')';
+            layer.style.transform = 'translate(' + left + 'px, ' + top + 'px) scale(' + scale + ')';
             layer.style.setProperty('--zoom', String(scale));
         }
     }

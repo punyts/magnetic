@@ -91,6 +91,27 @@ describe('databaseExclusive', () => {
         expect(order.indexOf('c in')).toBeLessThan(Math.max(order.indexOf('a out'), order.indexOf('b out')));
     });
 
+    it('should finish more callers of one key than the pool has connections, when the work itself queries', async () => {
+        // Arrange
+        const pool = createDatabase({ url: test.url, config: { ...test.config, max: 3 } });
+        const exclusive = databaseExclusive(pool);
+
+        try {
+            // Act
+            const results = await Promise.all(
+                Array.from({ length: 8 }, (_, i) => exclusive('crowded', async () => {
+                    await pool.query('SELECT 1');
+                    return i;
+                }))
+            );
+
+            // Assert
+            expect(results).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+        } finally {
+            await pool.close();
+        }
+    });
+
     it('should let the lock go when the work fails', async () => {
         // Arrange
         const exclusive = databaseExclusive(test.db);

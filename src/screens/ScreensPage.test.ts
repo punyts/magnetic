@@ -51,7 +51,7 @@ describe('The screens board page', () => {
         const board = canvas.content as Node;
         expect(board).toMatchObject({ component: 'board', key: 'id', columnField: 'column', orderField: 'row', bare: true, '<-records': '$.data.screens.tiles', '<-movable': '$.data.screens.names' });
         expect(Object.keys(board.on ?? {})).toEqual(['move']);
-        const card = board.card as Node;
+        const card = (board.card as Node).children?.['tile'] as Node;
         expect(card.children?.['app']).toMatchObject({ component: 'embeddedApp', '<-live': '$row.live', '<-active': '$row.active', '<-appScreen': '$row.id' });
         expect(Object.keys(card.children?.['app']?.on ?? {}).sort()).toEqual(['menu', 'navigated', 'press']);
     }, 60_000);

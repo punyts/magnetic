@@ -18,16 +18,28 @@ export const alone: Exclusive = (_key, work) => work();
 
 /**
  * One holder at a time per key across the servers of `db`: a session advisory lock on a connection of its own, which is
- * closed afterwards rather than returned to the pool, so the lock can never outlive the work
+ * closed afterwards rather than returned to the pool, so the lock can never outlive the work. Callers of one key on this
+ * server queue here before they take a connection: waiting in `pg_advisory_lock`, each would hold one, and enough of
+ * them would leave the holder's own work none.
  */
 export function databaseExclusive(db: Database): Exclusive {
-    return async (key, work) => {
-        const client = await db.pool.connect();
-        try {
-            await client.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [`magnetic:${key}`]);
-            return await work();
-        } finally {
-            client.release(true);
-        }
+    const queues = new Map<string, Promise<unknown>>();
+    return (key, work) => {
+        const before = queues.get(key) ?? Promise.resolve();
+        const run = before.then(async () => {
+            const client = await db.pool.connect();
+            try {
+                await client.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [`magnetic:${key}`]);
+                return await work();
+            } finally {
+                client.release(true);
+            }
+        });
+        const tail = run.catch(() => undefined);
+        queues.set(key, tail);
+        void tail.then(() => {
+            if (queues.get(key) === tail) queues.delete(key);
+        });
+        return run;
     };
 }

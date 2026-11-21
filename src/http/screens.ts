@@ -1,5 +1,5 @@
 import { SCREEN_COLUMNS } from '../editor/EditorApp.js';
-import { SCREENS_KEYS } from '../screens/ScreensPage.js';
+import { SCREENS_APP, SCREENS_KEYS } from '../screens/ScreensPage.js';
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
@@ -8,19 +8,21 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **The Screens panel** (the editor app's `screens`, beside the rail in the library's place) lists the screens from
  *   `GET /edit/<id>/screens`, marks the one worked on, and adds, renames, copies, deletes one and chooses the one the
  *   app opens on with `POST /edit/<id>/screens`, through the same tools as the agent's.
- * - **The board** is Magnetic's page `magnetic-screens` (`src/screens/ScreensPage.ts`, `/assets/screens.json`), mounted
- *   in the page on `#screens` (`stateuiHost.mount` with `inPage`). This script drives it through `$.data.screens` and
- *   acts on its emits. Its canvas pans and zooms itself, and the editor's zoom runs the canvas's commands. Every screen
+ * - **The board** is Magnetic's page `magnetic-screens` (`src/screens/ScreensPage.ts`, `/assets/screens.json`), which
+ *   the editor places first on its stage, under its panels, and the shell hands over (`magneticShell.page`). This
+ *   script drives it through `$.data.screens` and acts on its emits. Its canvas pans and zooms itself, and the editor's zoom runs the canvas's commands. Every screen
  *   is a card in rows of five (Screens in a row on the panel changes it, kept in this browser), 160px apart. The card
  *   of the screen worked on holds the live app (an `embeddedApp` with `live`, attached through `stateuiHost.apps`);
- *   every other card a preview of it on its screen, which follows the live app's store. Pressing a preview makes its
- *   screen the one worked on.
+ *   every other card shows its screen's name. Pressing a card makes its screen the one worked on.
  * - **The view** is kept per person and app on the server (`GET` and `POST /edit/<id>/views/kept` with `view`
  *   `screens`), written as the canvas reports it. With none kept the board fits the live card into the area the
  *   editor's panels leave free, and fits it again while the view is still that fit and the panels move.
- * - **Weight:** only the cards in view are active: a card out of view shows its name and mounts no app.
- * - **Names:** with more than `MOST_IN_VIEW` cards in view, or the zoom below `NAMES_BELOW_ZOOM`, every card shows only
- *   its name (`names`) and no app is mounted; the cards can then be dragged. Pressing a card selects its screen: the
+ * - **Weight:** one card at a time holds an app, the live one: every other card shows its name and mounts none. When a
+ *   pan or zoom ends out of names, or the board opens on a kept view, the screen with the most of its card in view
+ *   (`mostInView`; the screen worked on keeps a tie) becomes the one worked on, as a press on it would make it.
+ * - **Names:** zoomed out (below both `NAMES_BELOW_ZOOM` and `NAMES_BELOW_FIT` of the zoom that fits a card), however
+ *   many cards are in view, every card shows only its name (`names`), without its head's title,
+ *   and no app is mounted; the cards can then be dragged. Pressing a card selects its screen: the
  *   live app goes there and shows; Escape, its × or a press on the empty canvas deselects it. Zooming back in ends the
  *   names and the selection.
  * - **Order:** a card dragged to another place in names moves its screen there (the board's `move`). The board moves at
@@ -34,8 +36,7 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **Without the editor** the live app fills the window, attached in `#alone`; the editor showing attaches it on its
  *   card again.
  * - The live app moving to another screen itself (`navigated`) makes that screen the one worked on.
- * - A new document (the body's `data-revision`) reloads the list. Each mount of the live app raises `stateui:ready`,
- *   and the previews are opened again on its new store.
+ * - A new document (the body's `data-revision`) reloads the list.
  * - `window.magneticScreens.choose(name)` makes a screen the one worked on, for the views (`/assets/views.js`).
  *
  */
@@ -44,7 +45,9 @@ const host = window.stateuiHost;
 const editor = shell ? shell.editor : null;
 const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId);
-const holder = document.getElementById('screens');
+const SCREENS_APP = ${JSON.stringify(SCREENS_APP)};
+/** The board page's element while it is mounted: the live embeddedApp's '.app' on the editor's stage */
+let holder = null;
 const alone = document.getElementById('alone');
 const S = '$.data.screens';
 const CANVAS_KEY = ${JSON.stringify(SCREENS_KEYS.canvas)};
@@ -52,10 +55,14 @@ const CANVAS_KEY = ${JSON.stringify(SCREENS_KEYS.canvas)};
 const GAP = 160;
 /** The height of a card's head above its screen: its title, size and buttons */
 const HEAD = 40;
-/** Cards in view, the live one among them, above which every card shows only its name */
-const MOST_IN_VIEW = 4;
-/** The zoom below which every card shows only its name, however few are in view */
-const NAMES_BELOW_ZOOM = 0.15;
+/** The size of a card's ⋯ and × in names, over its screen, in the screens' pixels */
+const CORNER = 96;
+/** How far a card's head and its corner in names stand in from the screen's edges, in the screens' pixels */
+const EDGE = 24;
+/** The zoom below which every card shows only its name, however few are in view: a screen there is too small to read */
+const NAMES_BELOW_ZOOM = 0.4;
+/** The share of the zoom that fits a card below which every card shows only its name: on a small window, where the fit is under NAMES_BELOW_ZOOM, a step or two out from it still shows the apps */
+const NAMES_BELOW_FIT = 0.6;
 /** How long the view rests before it is kept on the server */
 const KEEP_MS = 600;
 const COLUMNS_KEY = 'magnetic.screenColumns';
@@ -87,13 +94,13 @@ let selected = null;
 const view = { x: 0, y: 0, zoom: 1 };
 /** The board's page: its panel, the paths of its canvas and of the board in it; null until mounted */
 let page = null;
-let mounting = null;
+/** Resolves once the editor has the board's page mounted */
+let pageArrived = () => undefined;
+let pageReady = new Promise((resolve) => { pageArrived = resolve; });
 /** The view is the board's own fit of the live card, and fits again when the free area changes */
 let fitted = false;
 /** By screen name: its card's box on the board, in the screens' pixels, as last measured */
 const places = new Map();
-/** The previews are closed for a moment, to open again on the live app's new store */
-let reopening = false;
 /** The live app in the window, without the editor */
 let aloneApp = null;
 /** Where the pointer last went down, where a menu opened from a card goes */
@@ -168,12 +175,33 @@ function pageCommand(command, value) {
 /** A card shows the live app: the screen worked on, outside names or selected in them */
 function isLive(name) { return name === current && (!names || selected === name); }
 
-/** Whether a card's box is in the area the editor's panels leave free, at the view as it is */
-function inView(box) {
+/** How much of a card's box is in the area the editor's panels leave free, at the view as it is, in the window's pixels */
+function areaInView(box) {
     const free = shell.canvas.freeArea();
     const left = view.x + box.x * view.zoom;
     const top = view.y + box.y * view.zoom;
-    return left < free.left + free.width && left + box.width * view.zoom > free.left && top < free.top + free.height && top + box.height * view.zoom > free.top;
+    const across = Math.min(left + box.width * view.zoom, free.left + free.width) - Math.max(left, free.left);
+    const down = Math.min(top + box.height * view.zoom, free.top + free.height) - Math.max(top, free.top);
+    return across > 0 && down > 0 ? across * down : 0;
+}
+
+/** Out of names, makes the screen with the most in view the one worked on */
+function followView() {
+    const most = names ? null : mostInView();
+    if (most !== null && most !== current) choose(most);
+}
+
+/** The screen whose card has the most in view, or null when none is in view; the current screen keeps a tie */
+function mostInView() {
+    const kept = current === null ? undefined : places.get(current);
+    let most = kept === undefined ? null : current;
+    let largest = kept === undefined ? 0 : areaInView(kept);
+    if (largest === 0) most = null;
+    for (const [name, box] of places) {
+        const area = areaInView(box);
+        if (area > largest) { largest = area; most = name; }
+    }
+    return most;
 }
 
 /** The cards, one per screen, or the one Add a screen card of an app with none */
@@ -184,9 +212,8 @@ function tiles() {
     }
     return screens.map((screen, index) => {
         const live = isLive(screen.name);
-        const box = places.get(screen.name);
-        // Out of names an app is mounted on each card in view (the live one always); in names only the selected one
-        const active = !reopening || live ? live || (!names && box !== undefined && inView(box)) : false;
+        // The one app mounted is the live one: out of names the screen worked on, in names the selected one
+        const active = live;
         return {
             id: screen.name,
             app: appId,
@@ -200,7 +227,7 @@ function tiles() {
             row: Math.floor(index / columns),
             add: false,
             noAdd: true,
-            noHead: false,
+            noHead: names,
             noMore: !names,
             noClose: !(names && selected === screen.name),
             moreLabel: fill(T['screens.more'], { name: screen.title }),
@@ -210,15 +237,21 @@ function tiles() {
 }
 
 /**
- * The board's own sizes: a column as wide as a screen and the gap, a card as tall as its head, its screen and the gap,
- * and every row drawn. In names a card's name stays 20px on the screen at any zoom
+ * The board's own sizes: a column as wide as a screen with the gap between columns, a card's row as tall as its head, its
+ * screen and the gap, and every row drawn. In names a card's name stays 20px on the screen at any zoom
  */
 function boardTheme() {
     const [width, height] = shell.canvas.size();
     const card = height + HEAD + GAP;
     const rows = Math.ceil(Math.max(1, screens.length) / columns);
     return {
-        board: { column: (width + GAP) + 'px', card: card + 'px', height: (rows * card) + 'px' },
+        // In names a card has no head, so its row's room under it is the head's and the gap: what a dragged card's place leaves out
+        board: { column: width + 'px', card: card + 'px', gap: (names ? HEAD + GAP : GAP) + 'px', height: (rows * card) + 'px' },
+        space: { gap: { md: GAP + 'px' } },
+        // The corner over a card in names: a button of a size of the board's, which shrinks with the card
+        size: { control: { lg: CORNER + 'px' }, icon: { lg: Math.round(CORNER / 2) + 'px' } },
+        // A head's title and ⋯ stand in from the screen's edges
+        panel: { padding: '0px ' + EDGE + 'px' },
         ...(names && { text: { title: { size: Math.round(20 / Math.max(0.01, view.zoom)) + 'px' } } })
     };
 }
@@ -274,21 +307,31 @@ function measure() {
         const at = lanes.get(lane(index % columns));
         if (at) places.set(screen.name, { x: at.x, y: at.y + Math.floor(index / columns) * card, width, height: HEAD + height });
     });
-    if (!placedOnce) { placedOnce = true; place(); }
+    if (!placedOnce) { placedOnce = true; place(); following = keptView !== null; }
     settle();
+    // The board opens where it was left: once the cards are placed, the screen with the most in view there is the one worked on
+    if (following && places.size > 0) { following = false; followView(); }
 }
 
 /** The view the board opens on: where it was left, kept on the server, or the live card fitted */
 let placedOnce = false;
 let keptView = null;
+/** True from opening on a kept view until the cards are placed and the one most in view is worked on */
+let following = false;
 function place() {
     if (keptView) {
         Object.assign(view, keptView);
         pageWrite({ view: { ...view } });
         fitted = false;
     } else fit();
-    holder.classList.remove('unplaced');
+    if (holder) holder.style.visibility = '';
     shell.canvas.showZoom(view.zoom, 'base');
+}
+
+/** The zoom that fits a card into the free area, never past 100% */
+function fitZoom(box) {
+    const free = shell.canvas.freeArea();
+    return Math.max(0.1, Math.min(1, free.width / box.width, free.height / box.height));
 }
 
 /** Fits the live card, or the first, into the free area, never past 100% */
@@ -296,7 +339,7 @@ function fit() {
     const box = places.get(current || '') || places.values().next().value;
     if (!box) { pageCommand('fit'); fitted = false; return; }
     const free = shell.canvas.freeArea();
-    const zoom = Math.max(0.1, Math.min(1, free.width / box.width, free.height / box.height));
+    const zoom = fitZoom(box);
     Object.assign(view, { x: free.left + (free.width - box.width * zoom) / 2 - box.x * zoom, y: free.top + (free.height - box.height * zoom) / 2 - box.y * zoom, zoom });
     pageWrite({ view: { ...view } });
     fitted = true;
@@ -304,12 +347,10 @@ function fit() {
     settle();
 }
 
-/** True when every card should show only its name: zoomed far out, or more than MOST_IN_VIEW cards in view */
+/** True when every card should show only its name: zoomed out, however many cards are in view */
 function namesWanted() {
-    if (view.zoom < NAMES_BELOW_ZOOM) return true;
-    let count = 0;
-    for (const box of places.values()) if (inView(box)) count += 1;
-    return count > MOST_IN_VIEW;
+    const box = places.values().next().value;
+    return view.zoom < (box ? Math.min(NAMES_BELOW_ZOOM, fitZoom(box) * NAMES_BELOW_FIT) : NAMES_BELOW_ZOOM);
 }
 
 /** Names on or off, and the cards in view active: written when they change. Names ending ends the selection */
@@ -329,36 +370,51 @@ function settle() {
     page.panel.write([{ path: S + '.tiles', value: next }, { path: S + '.names', value: names }, { path: page.board + '.theme', value: theme }]);
 }
 
-/** Mounts the board's page, once; the view it opens on comes with it */
+/** The view kept on the server, read once: the board opens on it */
+const keptLoaded = fetch(base + '/views/kept?view=screens')
+    .then((answer) => (answer.ok ? answer.json() : {}))
+    .then((answer) => {
+        const kept = answer.place;
+        keptView = kept && [kept.x, kept.y, kept.zoom].every(Number.isFinite) ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
+    }, () => undefined);
+
+function boardEmit(event) {
+    const { name, payload } = event.detail || {};
+    if (typeof name === 'string') void onBoard(name, payload);
+}
+
+/**
+ * The editor places the board's page; the shell hands it over once it is mounted, and each time it is mounted again.
+ * The first time it waits out of sight until it has its view, rather than show at the wrong place
+ */
+function boardMounted(panel, element, doc) {
+    holder = element;
+    element.addEventListener('stateui:emit', boardEmit);
+    const canvas = doc ? keyPath(doc, CANVAS_KEY) : null;
+    page = { panel, canvas, board: canvas + '.content' };
+    if (!placedOnce) element.style.visibility = 'hidden';
+    void keptLoaded.then(() => {
+        if (!page || page.panel !== panel) return;
+        lastTiles = '';
+        pageWrite({ inset: insetOf(), view: { ...(placedOnce || !keptView ? view : keptView) } });
+        draw();
+    });
+    pageArrived();
+}
+function boardDisposed() {
+    if (holder) holder.removeEventListener('stateui:emit', boardEmit);
+    holder = null;
+    page = null;
+    pageReady = new Promise((resolve) => { pageArrived = resolve; });
+}
+
+/** True once the board's page is mounted; false, after saying so, when the editor has not mounted it in time */
 function mountPage() {
     if (page) return Promise.resolve(true);
-    if (mounting) return mounting;
-    holder.classList.add('unplaced');
-    mounting = (async () => {
-        try {
-            const [response, kept] = await Promise.all([
-                fetch('/assets/screens.json', { headers: { Accept: 'application/json' } }),
-                fetch(base + '/views/kept?view=screens').then((answer) => (answer.ok ? answer.json() : {})).then((answer) => answer.place, () => null)
-            ]);
-            if (!response.ok) throw new Error(T['views.refused']);
-            const doc = await response.json();
-            keptView = kept && [kept.x, kept.y, kept.zoom].every(Number.isFinite) ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
-            holder.replaceChildren();
-            const panel = host.mount(holder, { document: doc.document, icons: doc.icons, keys: ['escape'], inPage: true }, T['screens.board']);
-            const canvas = keyPath(doc.document, CANVAS_KEY);
-            page = { panel, canvas, board: canvas + '.content' };
-            pageWrite({ inset: insetOf(), view: { ...(keptView || view) } });
-            draw();
-            return true;
-        } catch (error) {
-            says(error.message);
-            holder.classList.remove('unplaced');
-            return false;
-        } finally {
-            mounting = null;
-        }
-    })();
-    return mounting;
+    return Promise.race([pageReady.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 10000))]).then((ready) => {
+        if (!ready) says(T['views.refused']);
+        return ready;
+    });
 }
 
 /** The state path of the node a key names in a document */
@@ -648,6 +704,7 @@ async function onBoard(name, payload) {
             keepView();
             shell.canvas.showZoom(view.zoom, 'base');
             settle();
+            followView();
             return;
         }
     }
@@ -761,13 +818,10 @@ function panBy(dx, dy) {
 /** What /assets/views.js and /assets/inspect.js ask of the screens */
 window.magneticScreens = { choose: (name) => choose(name), liveApp, cards, panBy };
 
-if (shell && editor && host && holder) {
+if (shell && editor && host) {
     editor.onEmit((name, payload) => void onEmit(name, payload));
     editor.onReady(() => show());
-    holder.addEventListener('stateui:emit', (event) => {
-        const { name, payload } = event.detail || {};
-        if (typeof name === 'string') void onBoard(name, payload);
-    });
+    shell.page(SCREENS_APP, { mounted: boardMounted, disposed: boardDisposed });
     shell.canvas.base({ zoomIn: () => pageCommand('zoomIn'), zoomOut: () => pageCommand('zoomOut'), zoomReset: () => pageCommand('zoomReset'), fit: () => fit() });
     shell.canvas.onSize(() => draw());
     // The editor's panels moved: what they cover goes to the canvas, and a view that is still the board's fit fits again
@@ -778,13 +832,6 @@ if (shell && editor && host && holder) {
     addEventListener('resize', () => { pageWrite({ inset: insetOf() }); settle(); });
     shell.onEscape(() => deselect());
     shell.onEditing((on) => placeLive(on));
-    // Each mount of the live app has a new store: the previews close and open again on it
-    addEventListener('stateui:ready', () => {
-        if (!page) return;
-        reopening = true;
-        settle();
-        requestAnimationFrame(() => { reopening = false; settle(); });
-    });
     // A new document: the list again
     new MutationObserver(() => {
         const next = document.body.dataset.revision || '';

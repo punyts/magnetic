@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { EditorPage, changeEditor, expect, seedDataset, seedModule, signIn, test, uniqueName } from './fixtures.js';
+import { BOARD, EditorPage, canvasPage, changeEditor, expect, seedDataset, seedModule, signIn, test, uniqueName } from './fixtures.js';
 
 const isPhone = (page: Page): boolean => (page.viewportSize()?.width ?? 1440) < 760;
 
@@ -10,11 +10,11 @@ async function pickView(editor: EditorPage, page: Page, name: 'Screens' | 'State
     await expect(page.locator('body')).toHaveAttribute('data-view', name.toLowerCase());
 }
 
-const sheet = (page: Page) => page.locator('#view-sheet');
 /** The side panel: Magnetic's page magnetic-side, which the editor places */
 const sidePanel = (page: Page) => page.getByRole('region', { name: 'Details' });
 /** The Theme or Logic view's page on the board */
-const viewPage = (page: Page) => page.locator('#view-page');
+/** The page of the Theme or the Logic view, whichever shows */
+const viewPage = (page: Page) => page.locator('#editor .stateui-panel[role="region"]:is([aria-label="Theme"], [aria-label="Logic"]):visible');
 /** The theme the Theme view shows */
 const chosenTheme = (page: Page) => viewPage(page).getByRole('combobox', { name: 'Theme', exact: true });
 /** Makes a theme of the app's own from the Theme view's page, named as the prompt is answered */
@@ -55,7 +55,7 @@ async function newTheme(page: Page, name: string): Promise<void> {
     await expect(chosenTheme(page)).toHaveValue(name);
 }
 /** Statenet's page, a frame on the board */
-const graph = (page: Page) => page.locator('#statenet');
+const graph = (page: Page) => canvasPage(page, 'Statenet');
 /** A card or a pill of the Statenet tree by its state path */
 const node = (page: Page, path: string) => graph(page).locator(`[role="treeitem"][data-id="${path}"]`);
 /** The card chosen in the tree */
@@ -92,14 +92,12 @@ test.describe("The editor's views", () => {
     });
 
     test('the selector switches between the screens and the app views, and the view is kept for the app', async ({ page }) => {
-        await expect(sheet(page)).toBeHidden();
+        await expect(graph(page)).toBeHidden();
         await pickView(editor, page, 'Statenet');
-        // On the board the view needs no heading: the selector names it
-        await expect(sheet(page).getByRole('heading', { name: 'Statenet' })).toBeHidden();
-        // Statenet's page is on the board in place of the screens, and the editor's zoom drives its canvas: the app itself
-        // is a card under $.apps
+        // Statenet's page shows on the editor's stage in place of the screens, and the editor's zoom drives its canvas:
+        // the app itself is a card under $.apps
         await expect(appCard(page)).toBeVisible();
-        await expect(page.locator('#screens')).toBeHidden();
+        await expect(page.locator(BOARD)).toBeHidden();
         await expect(editor.button('Zoom in (+)')).toBeVisible();
         await page.reload();
         await expect(page.locator('body')).toHaveAttribute('data-view', 'statenet');
@@ -107,9 +105,9 @@ test.describe("The editor's views", () => {
         // The board's tools are for the board: hidden in a view without it
         await pickView(editor, page, 'Theme');
         await expect(editor.button('Zoom in (+)')).toBeHidden();
-        await expect(page.locator('#statenet')).toBeHidden();
+        await expect(graph(page)).toBeHidden();
         await pickView(editor, page, 'Screens');
-        await expect(sheet(page)).toBeHidden();
+        await expect(viewPage(page)).toHaveCount(0);
         await expect(editor.app.getByText('Home words')).toBeVisible();
     });
 
@@ -264,7 +262,7 @@ test.describe("The editor's views", () => {
         // Act: the value edited in place
         await value.fill('Washer');
         await value.press('Tab');
-        await expect(sheet(page).getByRole('status')).toHaveText('Saved');
+        await expect(graph(page)).toContainText('Saved');
 
         // Assert: read again when the card is opened again
         await side.getByRole('button', { name: 'Close' }).click();
@@ -337,8 +335,8 @@ test.describe("The editor's views", () => {
         const side = sidePanel(page);
         const card = appCard(page);
         await expect(card).toBeVisible();
-        /** A point of the page over the canvas, or the diagram between its cards, with no head or panel of the editor over it */
-        const empty = async (): Promise<{ x: number; y: number }> => {
+        /** A point of the page over the canvas, or the diagram between its cards, with no head or panel of the editor over it, and away from `from` */
+        const empty = async (from?: { x: number; y: number }): Promise<{ x: number; y: number }> => {
             const points = await page.evaluate(() => {
                 const deepest = (x: number, y: number): Element | null => {
                     let found = document.elementFromPoint(x, y);
@@ -349,17 +347,36 @@ test.describe("The editor's views", () => {
                     }
                     return found;
                 };
+                const find = (root: Document | ShadowRoot, selector: string): Element | null => {
+                    const found = root.querySelector(selector);
+                    if (found !== null) return found;
+                    for (const each of Array.from(root.querySelectorAll('*'))) {
+                        const inner = each.shadowRoot === null ? null : find(each.shadowRoot, selector);
+                        if (inner !== null) return inner;
+                    }
+                    return null;
+                };
+                // Statenet's page, and whether an element is in it through the shadow roots around it
+                const net = find(document, '.stateui-panel[role="region"][aria-label="Statenet"]');
+                const inNet = (element: Element): boolean => {
+                    let at: Element | null = element;
+                    while (at !== null) {
+                        if (net?.contains(at)) return true;
+                        const root = at.getRootNode();
+                        at = root instanceof ShadowRoot ? root.host : null;
+                    }
+                    return false;
+                };
                 const out: { x: number; y: number }[] = [];
                 for (let y = 20; y < innerHeight - 20; y += 16) {
                     for (let x = 20; x < innerWidth - 20; x += 16) {
                         const hit = deepest(x, y);
-                        const top = document.elementFromPoint(x, y);
-                        if (top?.closest('#statenet') && hit !== null && (['viewport', 'world', 'diagram', 'edges'].some((name) => hit.classList.contains(name)) || hit.closest('svg') !== null)) out.push({ x, y });
+                        if (hit !== null && inNet(hit) && (['viewport', 'world', 'diagram', 'edges'].some((name) => hit.classList.contains(name)) || hit.closest('svg') !== null)) out.push({ x, y });
                     }
                 }
                 return out;
             });
-            const point = points[0];
+            const point = points.find((each) => from === undefined || Math.hypot(each.x - from.x, each.y - from.y) > 80);
             if (point === undefined) throw new Error('No empty point on the canvas');
             return point;
         };
@@ -388,7 +405,8 @@ test.describe("The editor's views", () => {
         await page.mouse.move(point.x + 40, point.y + 30, { steps: 4 });
         await page.mouse.up();
         await expect(side).toBeVisible();
-        const again = await empty();
+        // Away from where the drag began: a press there at once would count as its second click
+        const again = await empty(point);
         await page.mouse.click(again.x, again.y);
         await expect(side).toBeHidden();
         await expect(chosen(page)).toHaveCount(0);
@@ -424,7 +442,7 @@ test.describe("The editor's views", () => {
 
         // Assert
         await expect(page.locator('#alone')).toBeVisible();
-        await expect(sheet(page)).toBeHidden();
+        await expect(graph(page)).toBeHidden();
         await expect(page.locator('#alone').getByText('Home words')).toBeVisible();
     });
 

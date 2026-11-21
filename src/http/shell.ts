@@ -2,7 +2,11 @@ import { escapeHtml } from '@punyts/stateui-mcp';
 import { FAVICON_LINK } from './logo.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
+import { LOGIC_APP } from '../logic/LogicPage.js';
+import { SCREENS_APP } from '../screens/ScreensPage.js';
 import { SIDE_APP } from '../side/SidePage.js';
+import { STATENET_APP } from '../statenet/StatenetPage.js';
+import { THEME_APP } from '../theme/ThemePage.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
 export interface ShellPageOptions {
@@ -43,11 +47,11 @@ export const FRAME_SIZES = [
  * a Mac) brings the editor around it, and takes it away again, without loading the page again. The address follows.
  *
  * The app runs in the page (`data-surface="page"` and the page bundle): without the editor in `#alone`, which fills the
- * window, and with it on the screens board (`/assets/screens.js`), Magnetic's page `magnetic-screens` mounted in
- * `#screens`: a canvas that pans and zooms with every screen of the app on it, the live app on the screen worked on.
- * The editor is a StateUI app of the person's own (`/assets/editor.json`, their `magnetic-editor`), in the page too:
- * panels floating over the canvas, on a stage that lets presses through (`panel`'s `passThrough`), so the rest of the
- * window is the canvas's. The page drives the editor through its data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
+ * window, and with it on the screens board (`/assets/screens.js`). The editor is a StateUI app of the person's own
+ * (`/assets/editor.json`, their `magnetic-editor`), in the page too, and the canvas is part of it: Magnetic's pages
+ * `magnetic-screens` (the board, every screen of the app on it and the live app on the screen worked on),
+ * `magnetic-statenet`, `magnetic-theme` and `magnetic-logic` are live embeddedApps first on its stage, and its panels
+ * float over them. The stage lets presses through (`panel`'s `passThrough`), so the rest of the window is the canvas's. The page drives the editor through its data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
  * app, so the app is live while the agent works on it
  */
 export function shellPage(options: ShellPageOptions): string {
@@ -63,11 +67,9 @@ export function shellPage(options: ShellPageOptions): string {
         FAVICON_LINK,
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
-        '<link rel="stylesheet" href="/assets/views.css">',
         '</head>',
         `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="editor" id="editor"></div>',
-        `<main class="board" id="board" tabindex="-1" aria-label="${escapeHtml(t['screens.board'])}"><div class="screens" id="screens"></div></main>`,
         '<div class="alone" id="alone"></div>',
         `<p class="hint" id="hint" role="status" hidden>${escapeHtml(t['shell.hintBefore'])} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> ${escapeHtml(t['shell.hintAfter'])}</p>`,
         `<script type="application/json" id="magnetic-models">${JSON.stringify(models).replace(/</g, '\\u003c')}</script>`,
@@ -95,15 +97,9 @@ body.view.shell { display: block; font-family: system-ui, sans-serif; color: var
    through (passThrough), and so does the element it is mounted on. Without the editor it is out of sight but loaded,
    to come back at once */
 .editor { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
-.editor > .stateui-panel { position: absolute; inset: 0; }
+.editor > .stateui-panel { position: absolute; inset: 0; overflow: hidden; }
 body.shell:not(.editing) .editor { visibility: hidden; }
 body.shell:not(.editing) .editor * { pointer-events: none !important; }
-/* The screens board fills the window under the editor: Magnetic's page magnetic-screens (screens.js), which draws the
-   canvas itself. Until it has its view it waits out of sight rather than show at the wrong place */
-.board { position: fixed; inset: 0; z-index: 1; overflow: hidden; background: var(--soft); }
-.board > .screens, .board > .screens > .stateui-panel { position: absolute; inset: 0; }
-.board > .screens.unplaced { visibility: hidden; }
-body.shell:not(.editing) .board { display: none; }
 /* Without the editor the app fills the window */
 .alone { position: fixed; inset: 0; z-index: 1; overflow: auto; background: var(--paper); }
 body.shell.editing .alone { display: none; }
@@ -122,7 +118,21 @@ body.shell.editing .alone { display: none; }
 .screen-menu-row button.danger { border-color: #c62828; }
 .screen-menu-status { margin: 0; padding: 0 8px; color: #c62828; font-size: 12px; }
 .screen-menu-status:empty { display: none; }
-.inspect-layer { position: absolute; left: 0; top: 0; z-index: 2; transform-origin: 0 0; pointer-events: none; }
+body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); z-index: 3; }
+.hint { position: fixed; z-index: 4; left: 50%; bottom: 1rem; transform: translateX(-50%); margin: 0; padding: 0.45rem 0.9rem; border-radius: 1rem; background: var(--ink); color: var(--paper); font: 0.85rem system-ui, sans-serif; box-shadow: var(--shadow); transition: opacity 0.4s; pointer-events: none; }
+.hint[hidden] { display: none; }
+.hint.gone { opacity: 0; }
+.hint kbd { font: inherit; font-weight: 600; }
+body.shell.editing .hint { display: none; }
+`;
+
+/**
+ * `/assets/layers.css`: the inspector's layer (`/assets/inspect.js`) and the views' layers (`/assets/views.js`) over
+ * the board. They are drawn in the board page's own element, inside its embeddedApp's shadow root, where the page's
+ * sheets do not reach: the shell links this sheet there (`magneticShell.boardLayer`). The colours are the page's custom
+ * properties, which the shadow root inherits
+ */
+export const LAYERS_CSS = `.inspect-layer { position: absolute; left: 0; top: 0; z-index: 2; transform-origin: 0 0; pointer-events: none; }
 .inspect-layer[hidden], .inspect-layer .shield[hidden] { display: none; }
 .inspect-layer .shield { position: absolute; inset: 0; z-index: 1; pointer-events: auto; }
 .inspect-layer.selecting .shield { cursor: crosshair; }
@@ -143,12 +153,6 @@ body.shell.editing .alone { display: none; }
 .overlay .tag { position: absolute; left: -1px; bottom: 100%; margin-bottom: calc(2px / var(--zoom, 1)); padding: calc(1px / var(--zoom, 1)) calc(5px / var(--zoom, 1)); font: calc(11px / var(--zoom, 1)) system-ui, sans-serif; color: var(--paper); background: var(--accent); border-radius: calc(3px / var(--zoom, 1)); white-space: nowrap; }
 .overlay .drop { position: absolute; background: var(--accent); border-radius: calc(2px / var(--zoom, 1)); }
 .overlay .dot { position: absolute; width: calc(10px / var(--zoom, 1)); height: calc(10px / var(--zoom, 1)); margin: calc(-5px / var(--zoom, 1)); border-radius: 50%; background: var(--accent); }
-body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); z-index: 3; }
-.hint { position: fixed; z-index: 4; left: 50%; bottom: 1rem; transform: translateX(-50%); margin: 0; padding: 0.45rem 0.9rem; border-radius: 1rem; background: var(--ink); color: var(--paper); font: 0.85rem system-ui, sans-serif; box-shadow: var(--shadow); transition: opacity 0.4s; pointer-events: none; }
-.hint[hidden] { display: none; }
-.hint.gone { opacity: 0; }
-.hint kbd { font: inherit; font-weight: 600; }
-body.shell.editing .hint { display: none; }
 `;
 
 /**
@@ -170,7 +174,16 @@ const READY_MS = 10000;
  * and the script that drives it takes its panel with magneticShell.page(name, { mounted, disposed }). Registered before
  * the editor mounts, so its embeddedApps find them
  */
-const PLACED_PAGES = { [${JSON.stringify(SIDE_APP)}]: { url: '/assets/side.json', title: T['views.side'] } };
+const PLACED_PAGES = {
+    [${JSON.stringify(SIDE_APP)}]: { url: '/assets/side.json', title: T['views.side'] },
+    [${JSON.stringify(SCREENS_APP)}]: { url: '/assets/screens.json', title: T['screens.board'], keys: ['escape'] },
+    [${JSON.stringify(STATENET_APP)}]: { url: '/assets/statenet.json', title: T['shell.view.statenet'] },
+    [${JSON.stringify(THEME_APP)}]: { url: '/assets/theme.json', title: T['shell.view.theme'] },
+    [${JSON.stringify(LOGIC_APP)}]: { url: '/assets/logic.json', title: T['shell.view.logic'] }
+};
+const BOARD_PAGE = ${JSON.stringify(SCREENS_APP)};
+/** The documents of the placed pages, by name, as last opened: a script finds its nodes in it */
+const placedDocuments = {};
 /** The placed pages mounted now, by name: { panel, element } */
 const placed = {};
 /** What each placed page's script does when it is mounted and let go, by name */
@@ -181,11 +194,15 @@ host.pages({
         if (!page) return undefined;
         return fetch(page.url, { headers: { Accept: 'application/json' } })
             .then((response) => { if (!response.ok) throw new Error(T['views.refused']); return response.json(); })
-            .then((served) => ({ document: served.document, icons: served.icons, title: page.title }));
+            .then((served) => {
+                placedDocuments[name] = served.document;
+                return { document: served.document, icons: served.icons, title: page.title, ...(page.keys && { keys: page.keys }) };
+            });
     },
     mounted(name, panel, element) {
         placed[name] = { panel, element };
-        if (placedScripts[name]) placedScripts[name].mounted(panel, element);
+        if (name === BOARD_PAGE) holdLayers();
+        if (placedScripts[name]) placedScripts[name].mounted(panel, element, placedDocuments[name]);
     },
     // An editor mounted again may mount the page again before the old one is let go: only the page mounted now counts
     disposed(name, panel) {
@@ -194,6 +211,27 @@ host.pages({
         if (placedScripts[name] && placedScripts[name].disposed) placedScripts[name].disposed();
     }
 });
+
+/*
+ * The layers drawn over the board (the inspector's, the views'): in the board page's own element, after its panel, so
+ * they lie over its canvas and under the editor's panels. The element is in its embeddedApp's shadow root, where the
+ * page's sheets do not reach: layers.css is linked there. A board mounted again takes the layers again
+ */
+const boardLayers = [];
+function holdLayers() {
+    const board = placed[BOARD_PAGE];
+    if (!board) return;
+    const root = board.element.getRootNode();
+    if (root instanceof ShadowRoot && !root.querySelector('link[data-layers]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/assets/layers.css';
+        link.dataset.layers = '';
+        root.prepend(link);
+    }
+    board.element.style.position = 'relative';
+    for (const layer of boardLayers) if (layer.parentNode !== board.element) board.element.append(layer);
+}
 
 // The editor: a StateUI app the page drives through its data and its emits
 let panel = null;
@@ -731,10 +769,9 @@ emitListeners.push((name, payload) => {
     }
 });
 
-// The canvas is the screens board's (screens.js), a page that pans and zooms itself. The page keeps the size the app's
+// The canvas is the screens board's (screens.js), a page the editor places that pans and zooms itself. The page keeps the size the app's
 // screens have on it, kept per app in this browser, and the tools; the zoom control and its keys drive the board, or
 // Statenet while it shows (views.js)
-const board = document.getElementById('board');
 const SIZES = { desktop: [1280, 800], tablet: [834, 1112], phone: [390, 844] };
 const FRAME_KEY = 'magnetic.frame.' + appId;
 let size = 'desktop';
@@ -806,8 +843,6 @@ function setSize(id) {
 function moving() { return tool === 'move' || spaceHeld; }
 
 function showTool() {
-    board.classList.toggle('moving', moving());
-    board.classList.toggle('selecting', !moving() && (tool === 'select' || tool === 'place'));
     const shownTool = tool === 'place' ? 'select' : tool;
     const look = (on) => (on ? 'solid' : 'ghost');
     const tone = (on) => (on ? 'accent' : 'neutral');
@@ -820,11 +855,6 @@ function showTool() {
 
 const toolListeners = [];
 function setTool(name) { tool = name; showTool(); for (const listener of toolListeners) listener(name); }
-
-// The keyboard comes back to the page at a press on the board
-board.addEventListener('pointerdown', () => {
-    if (editing() && document.activeElement === document.body) board.focus({ preventScroll: true });
-}, true);
 
 /** The editor's keys: pressed on the page, or raised by an app in it that names them (the board's Escape) */
 const TOOL_KEYS = {
@@ -918,10 +948,24 @@ function editorChanged() {
 
 // What /assets/inspect.js uses of the editor: the tools, the editor and the paths the next turn is about
 const magneticShell = {
-    /** A placed page's script: mounted(panel, element) now if it is mounted, and each time it is; disposed() when it goes */
+    /**
+     * A placed page's script: mounted(panel, element, document) now if it is mounted, and each time it is; disposed()
+     * when it goes
+     */
     page(name, script) {
         placedScripts[name] = script;
-        if (placed[name]) script.mounted(placed[name].panel, placed[name].element);
+        if (placed[name]) script.mounted(placed[name].panel, placed[name].element, placedDocuments[name]);
+    },
+    /** Draws a layer over the board, now and whenever the board is mounted again (inspect.js, views.js) */
+    boardLayer(node) {
+        boardLayers.push(node);
+        holdLayers();
+    },
+    /** Where the board's element is in the window, which the layers in it are placed from: { left, top } */
+    boardOrigin() {
+        const board = placed[BOARD_PAGE];
+        const box = board ? board.element.getBoundingClientRect() : null;
+        return box ? { left: box.left, top: box.top } : { left: 0, top: 0 };
     },
     tool: () => tool,
     setTool,
