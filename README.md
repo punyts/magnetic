@@ -372,8 +372,12 @@ workspace, and stops when you sign out of that browser.
   A link is `/s/<token>`, with a random 32-character token, and needs a signed-in person. The home page lists the
   apps shared with the person. **Revoke** closes the open views of everyone who opened the link and tells their
   browsers to delete what they kept of the app. A browser that was away is told on its next visit or connection.
-  Copies made by remixing are not touched. The starter apps cannot be shared, as every workspace has them under the
-  same id.
+  Copies made by remixing are not touched. The page of a revoked link or app never names the app ("Link revoked",
+  "Not shared"). A person whose `use` link is revoked while a `view` link of theirs stays live opens the owner's
+  instance, and their browser deletes what it kept of their own (`data-forget`); the server keeps it. **Deleting an
+  app** removes every person's instance of it (the people it was shared with, an org's members) through the
+  aggregate, and revokes its links, closing their views; their link pages then say the app was deleted. The starter
+  apps cannot be shared, as every workspace has them under the same id.
 
 ## Orgs
 
@@ -568,10 +572,6 @@ The options also take:
 - **The agent cannot see the page.** The browser tools are withheld: each workspace would open its own Chromium,
   and its headless page cannot sign in to reach the app. One shared browser with a context per user, and a way for
   it to sign in, come before the agent gets them back.
-- **Sharing leaves some things behind.**
-  - Deleting an app does not delete the instances of the people it was shared with, nor its links.
-  - A person who moves from a `use` link to a `view` link keeps their `use` data in their browser.
-  - The page of a revoked app still shows its name.
 
 ## Develop
 

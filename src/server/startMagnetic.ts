@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
-import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
+import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, ServicesStorage, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import { isReported, report } from '@punyts/core';
 import type { Report } from '@punyts/core';
@@ -179,6 +179,8 @@ export const NO_ORG_SIGN_IN = "No organisation signs in here with that email's d
 export const NO_PERSONAL_APPS ='Your org keeps apps in the org, not in your own workspace: make this app in the org instead (Orgs on Your apps).';
 /** What a person sees, and their browser is told, when an app shared with them is taken back */
 export const REVOKED_MESSAGE = 'This app is no longer shared with you.';
+/** The title of that page: never the app's name, which the person no longer has */
+export const REVOKED_TITLE = 'Not shared';
 
 /** The model of the agent when no other is given: the cheapest, as every turn is paid for */
 export const DEFAULT_AGENT_MODEL = 'claude-haiku-5-5';
@@ -595,13 +597,21 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         {
             open: async (workspaceId) => {
                 await owners.ensure(workspaceId);
-                const storage = pgWorkspaceStorage(db, workspaceId, {
+                const stored = pgWorkspaceStorage(db, workspaceId, {
                     owners,
                     embedParts: index !== undefined,
                     embedRecords: index !== undefined,
                     namespaces: stateWriter.forWorkspace(workspaceId),
                     ...(statenet !== undefined && { announceAs: statenet.announceAs, epochOf: (address: string) => statenet.placement.epochOf(address) })
                 });
+                // A deleted app takes every person's instance of it and its links (docs/design/magnetic-sharing-leftovers.md)
+                const storage: ServicesStorage = {
+                    ...stored,
+                    removeApp: async (appId) => {
+                        await stored.removeApp?.(appId);
+                        await appDeleted(workspaceId, appId);
+                    }
+                };
                 // A person's own workspace starts with the showcase; an org's starts empty
                 if ((options.starter ?? 'showcase') === 'showcase' && workspaceId !== SYSTEM_USER_ID && workspaceId !== PAGES_WORKSPACE_ID && (await orgs.byWorkspace(workspaceId)) === undefined) {
                     await installShowcaseInto({ parts: storage.parts, files: storage.files, fileStore: storage.fileStore, ...(storage.importPart !== undefined && { importPart: storage.importPart }), report: options.report });
@@ -743,6 +753,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const live = access !== undefined && 'live' in access;
             for (const close of [...(sharedSockets.get(`${userId}/${grant.appId}`) ?? [])]) close(live ? 'Your access to this app changed' : REVOKED_MESSAGE, !live);
         }
+    }
+
+    /** After an app is deleted: revokes its links and closes the views of everyone who opened them */
+    async function appDeleted(workspaceId: string, appId: string): Promise<void> {
+        const revoked = await grants.revokeApp(workspaceId, appId);
+        for (const grant of revoked) await closeRevoked(grant);
+        if (revoked.length > 0) options.report.info('Links of a deleted app revoked', { appId, links: String(revoked.length) });
     }
 
     /** The signed-in user of a request and their session token, or `undefined` */
@@ -1021,12 +1038,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             if (shared !== undefined && 'revoked' in shared) {
                 const grant = shared.revoked;
                 const persona = grant.right === 'use' ? who.user.id : DEFAULT_PERSONA;
-                return { revoked: { message: REVOKED_MESSAGE, namespace: appNamespace({ persona, ownerId: grant.ownerId, appId }), name: grant.appName } };
+                return { revoked: { message: REVOKED_MESSAGE, namespace: appNamespace({ persona, ownerId: grant.ownerId, appId }), title: REVOKED_TITLE } };
             }
             if (shared !== undefined) {
                 // An org that keeps its links to members: someone who left it, or never joined, no longer reaches its apps
                 if (!(await linkAllowed(shared.live.ownerId, who.user.id))) return { refuse: 404 };
-                return { tenant: await sharedTenant(shared.live, who.user.id, key) };
+                return { tenant: await sharedTenant(shared.live, who.user.id, key, shared.usedBefore === true) };
             }
         }
         const answer: HttpTenant = {
@@ -1050,7 +1067,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     /** The owner's workspace, seen by a person given the app: their own instance (`use`) or the owner's, read only (`view`) */
-    async function sharedTenant(grant: Grant & { readonly right: 'view' | 'use' }, userId: string, sessionKey: string): Promise<HttpTenant> {
+    /** `forgetUse`: the person's `use` link was revoked and a `view` one is live, so their browser deletes their own instance */
+    async function sharedTenant(grant: Grant & { readonly right: 'view' | 'use' }, userId: string, sessionKey: string, forgetUse = false): Promise<HttpTenant> {
         const owner = await workspaces.get(grant.ownerId);
         return {
             useCases: owner.useCases,
@@ -1059,6 +1077,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             instances: owner.instanceViews,
             persona: grant.right === 'use' ? userId : DEFAULT_PERSONA,
             access: grant.right,
+            ...(forgetUse && { forget: [appNamespace({ persona: userId, ownerId: grant.ownerId, appId: grant.appId })] }),
             retain: (close) => {
                 const release = workspaces.retain(grant.ownerId);
                 const untrackSession = track(sessionSockets, sessionKey, close);
@@ -1198,7 +1217,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return;
         }
         if (grant.revokedAt !== undefined) {
-            sendAppPage(request, response, await linkPageOf(request, look, grant.appName, t['link.revoked']), 410);
+            // Named neither in the title nor the text: the person no longer has the app
+            const gone = (await (await workspaces.get(grant.ownerId)).instanceViews.find(grant.appId)) === undefined;
+            sendAppPage(request, response, await linkPageOf(request, look, t['link.revokedTitle'], gone ? t['link.deleted'] : t['link.revoked']), 410);
             return;
         }
         const owner = await workspaces.get(grant.ownerId);

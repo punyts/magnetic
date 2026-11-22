@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { magneticTestDatabase } from '../testing/testDb.js';
@@ -53,7 +54,7 @@ describe('Grants', () => {
         expect((await grants.byToken(other.token))?.members).toEqual({});
     });
 
-    it('should prefer a live use link to a view link, and fall back to a revoked one', async () => {
+    it('should prefer a live use link to a view link, mark a view left after a revoked use, and fall back to a revoked one', async () => {
         // Arrange
         const grants = grantsAt();
         const view = await grants.create(OWNER, APP, 'view');
@@ -70,9 +71,28 @@ describe('Grants', () => {
 
         // Assert
         expect(both).toEqual({ live: expect.objectContaining({ id: use.id }) });
-        expect(viewOnly).toEqual({ live: expect.objectContaining({ id: view.id }) });
+        expect(viewOnly).toEqual({ live: expect.objectContaining({ id: view.id }), usedBefore: true });
         expect(none).toEqual({ revoked: expect.objectContaining({ id: view.id }) });
         expect(await grants.access(APP.id, CAROL)).toBeUndefined();
+    });
+
+    it('should revoke every live link of an app with revokeApp, and answer only those', async () => {
+        // Arrange
+        const grants = grantsAt();
+        const app = { id: randomUUID(), name: 'gone' };
+        const use = await grants.create(OWNER, app, 'use');
+        const view = await grants.create(OWNER, app, 'view');
+        const earlier = await grants.create(OWNER, app, 'remix');
+        await grants.revoke(OWNER, earlier.id);
+        const other = await grants.create(OWNER, { id: randomUUID(), name: 'kept' }, 'use');
+
+        // Act
+        const revoked = await grants.revokeApp(OWNER, app.id);
+
+        // Assert
+        expect(revoked.map((grant) => grant.id).sort()).toEqual([use.id, view.id].sort());
+        expect(revoked.every((grant) => grant.revokedAt !== undefined)).toBe(true);
+        expect((await grants.forApp(OWNER, other.appId))[0]?.revokedAt).toBeUndefined();
     });
 
     it('should give no access to the app through a remix link, and list only live shared apps', async () => {

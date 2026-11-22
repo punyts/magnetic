@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { homeOf } from '../testing/homeOf.js';
 import { REVOKED_MESSAGE, startMagnetic } from './startMagnetic.js';
@@ -98,6 +98,7 @@ const namespaceOf = (html: string): string => /data-namespace="([^"]+)"/.exec(ht
 
 describe('Magnetic sharing', () => {
     let magnetic: RunningMagnetic;
+    let db: Database;
     let alice: string;
     let bob: string;
     let carol: string;
@@ -129,7 +130,8 @@ describe('Magnetic sharing', () => {
     }
 
     beforeAll(async () => {
-        magnetic = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob', 'carol'], starter: 'none', browser: noBrowser });
+        db = await freshDb();
+        magnetic = await startMagnetic({ database: db, host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice', 'bob', 'carol'], starter: 'none', browser: noBrowser });
         alice = await signIn(magnetic.origin, 'alice');
         bob = await signIn(magnetic.origin, 'bob');
         carol = await signIn(magnetic.origin, 'carol');
@@ -291,6 +293,78 @@ describe('Magnetic sharing', () => {
         expect(ended.code).toBe(1008);
         expect(again.status).toBe(410);
         expect(await (await get('/', bob)).text()).not.toContain(`href="/apps/${appId}"`);
+    });
+
+    it('should name a revoked app neither on its link page nor on its own page', async () => {
+        // Arrange
+        const appId = await createApp('secret-plans');
+        const link = await share(appId, 'use');
+        await get(`/s/${link.token}`, bob);
+        await post(`/edit/${appId}/share/${link.id}/revoke`, alice, {});
+
+        // Act
+        const linkPage = await get(`/s/${link.token}`, bob);
+        const linkHtml = await linkPage.text();
+        const appHtml = await (await get(`/apps/${appId}`, bob)).text();
+
+        // Assert
+        expect(linkPage.status).toBe(410);
+        expect(linkHtml).toContain('Link revoked');
+        expect(linkHtml).not.toContain('secret-plans');
+        expect(appHtml).toContain('data-revoked');
+        expect(appHtml).not.toContain('secret-plans');
+    });
+
+    it("should have the browser delete a person's own instance when their use link is revoked and a view link is left", async () => {
+        // Arrange
+        const appId = await createApp('ledger');
+        const use = await share(appId, 'use');
+        const view = await share(appId, 'view');
+        await get(`/s/${use.token}`, bob);
+        await get(`/s/${view.token}`, bob);
+        const before = await (await get(`/apps/${appId}`, bob)).text();
+        const own = namespaceOf(before);
+
+        // Act
+        await post(`/edit/${appId}/share/${use.id}/revoke`, alice, {});
+        const after = await (await get(`/apps/${appId}`, bob)).text();
+
+        // Assert
+        expect(before).not.toContain('data-forget');
+        expect(after).toContain(`data-forget="${own}"`);
+        expect(namespaceOf(after)).toBe(namespaceOf(await (await get(`/apps/${appId}`, alice)).text()));
+        expect(after).not.toContain('data-revoked');
+    });
+
+    it("should revoke the links of a deleted app and remove each person's instance of it", async () => {
+        // Arrange
+        const appId = await createApp('trip');
+        const link = await share(appId, 'use');
+        await get(`/s/${link.token}`, bob);
+        const namespace = namespaceOf(await (await get(`/apps/${appId}`, bob)).text());
+        const view = await open(magnetic, appId, bob);
+        hello(view, namespace);
+        const welcome = await view.next('welcome');
+        view.ws.send(JSON.stringify({ type: 'change', change: { id: 'c1', op: 'set', path: '$.app.note', value: 'mine', base: welcome['revision'] as number } }));
+        await view.next('ack');
+        const heads = async (): Promise<number> => (await db.query("SELECT 1 FROM namespace_head WHERE address LIKE '%/apps/' || $1", [appId])).rowCount ?? 0;
+        await vi.waitFor(async () => expect(await heads()).toBeGreaterThan(0), { timeout: 5000 });
+        const services = await magnetic.workspaces.get(aliceId);
+        const part = await services.parts.findByName('apps', 'trip');
+
+        // Act
+        const deleted = await services.useCases.deletePart.execute({ kind: 'apps', name: 'trip', expectedRevision: part?.revision ?? 0 });
+        view.ws.close();
+        const linkPage = await get(`/s/${link.token}`, bob);
+        const appPage = await (await get(`/apps/${appId}`, bob)).text();
+
+        // Assert
+        expect(deleted.kind).toBe('deleted');
+        expect(await heads()).toBe(0);
+        expect(linkPage.status).toBe(410);
+        expect(await linkPage.text()).toContain('This app was deleted.');
+        expect(appPage).toContain('data-revoked');
+        expect((await magnetic.grants.forApp(aliceId, appId)).every((grant) => grant.revokedAt !== undefined)).toBe(true);
     });
 
     it('should keep a remix working after its link is revoked', async () => {

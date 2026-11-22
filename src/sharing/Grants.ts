@@ -28,7 +28,10 @@ export interface Grant {
 }
 
 /** What a person may do with an app that is not theirs, through the links they opened */
-export type SharedAccess = { readonly live: Grant & { readonly right: 'view' | 'use' } } | { readonly revoked: Grant & { readonly right: 'view' | 'use' } };
+export type SharedAccess =
+    /** `usedBefore`: a live `view` of a person whose `use` link of the app was revoked, so their browser deletes what it kept of their own instance */
+    | { readonly live: Grant & { readonly right: 'view' | 'use' }; readonly usedBefore?: true }
+    | { readonly revoked: Grant & { readonly right: 'view' | 'use' } };
 
 const TOKEN = /^[A-Za-z0-9_-]{32}$/;
 
@@ -135,6 +138,12 @@ export class Grants {
         return (await this.find('g.id = $1 AND g.workspace_id = $2', [grantId, ownerId]))[0];
     }
 
+    /** Revokes every live link of one of the owner's apps (it was deleted); answers those links */
+    async revokeApp(ownerId: string, appId: string): Promise<Grant[]> {
+        const ids = (await this.db.query<{ id: string }>('UPDATE link_grant SET revoked_at = $3 WHERE workspace_id = $1 AND app_id = $2 AND revoked_at IS NULL RETURNING id', [ownerId, appId, this.now()])).rows.map((row) => row.id);
+        return ids.length === 0 ? [] : this.find('g.id = ANY($1::uuid[]) ORDER BY g.created_at, g.id', [ids]);
+    }
+
     /**
      * What a person may do with an app that is not theirs: `use` before `view` among the live links they opened; else
      * a revoked one they had opened, so their browser can be told; else nothing
@@ -145,7 +154,7 @@ export class Grants {
         ).filter(shows);
         const live = opened.filter((grant) => grant.revokedAt === undefined);
         const best = live.find((grant) => grant.right === 'use') ?? live[0];
-        if (best !== undefined) return { live: best };
+        if (best !== undefined) return best.right === 'view' && opened.some((grant) => grant.right === 'use' && grant.revokedAt !== undefined) ? { live: best, usedBefore: true } : { live: best };
         const revoked = opened.sort((a, b) => (b.revokedAt ?? '').localeCompare(a.revokedAt ?? ''))[0];
         return revoked === undefined ? undefined : { revoked };
     }
