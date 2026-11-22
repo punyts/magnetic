@@ -116,6 +116,18 @@ describe('parseOptions', () => {
         expect(parseOptions(['relay-certificate', '--node-id', 'relay-1', '--out', 'certs'], secret)).toMatchObject({ command: 'relay-certificate', nodeId: 'relay-1', out: 'certs' });
     });
 
+    it('should put a relay’s region, group and mesh URL into its certificate, with no mesh port', () => {
+        // Arrange
+        const argv = ['relay-certificate', '--node-id', 'relay-1', '--region', 'us-east-2', '--group', 'magnetic', '--mesh-url', 'wss://relay-1.example:4310'];
+
+        // Act
+        const options = parseOptions(argv, { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' });
+
+        // Assert
+        expect(options.relay).toEqual({ region: 'us-east-2', group: 'magnetic', endpoint: 'wss://relay-1.example:4310' });
+        expect(options.statenet).toBeUndefined();
+    });
+
     it('should link a server up to relays under a group, and run the aggregate and grant its role only with what they need', () => {
         // Arrange
         const secret = { MAGNETIC_SECRET_KEY: 'a-secret-of-enough-length' };

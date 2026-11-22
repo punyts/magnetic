@@ -138,11 +138,11 @@ The commands are:
 | `--top-ups <usd,...>` | `MAGNETIC_TOP_UPS` | `10,25,50` | The amounts of agent use people may buy after their allowance |
 | `--mesh-port <n>` | `MAGNETIC_MESH_PORT` | none: the server runs alone | Runs as one of several servers on one database, linking to the others and to relays on this port (`0` for any free port). The servers share one `MAGNETIC_SECRET_KEY` |
 | `--mesh-host <address>` | `MAGNETIC_MESH_HOST` | `--host` | Address the mesh binds |
-| `--mesh-url <url>` | `MAGNETIC_MESH_URL` | the address it listens on | The URL the other servers and relays reach this one's mesh at, such as `ws://magnetic-2:4310` |
-| `--group <name>` | `MAGNETIC_GROUP` | the host's name | The group of servers that run together and link to each other directly |
+| `--mesh-url <url>` | `MAGNETIC_MESH_URL` | the address it listens on | The URL the other servers and relays reach this one's mesh at, such as `ws://magnetic-2:4310`; for `relay-certificate`, the relay's, written into its certificate and listed in the directory |
+| `--group <name>` | `MAGNETIC_GROUP` | the host's name | The group of servers that run together and link to each other directly; for `relay-certificate`, the relay's |
 | `--relays <urls>` | `MAGNETIC_RELAYS` | none: the aggregate runs in the server | The relays this server links up to, comma-separated, in order; it saves people's state through them to the aggregate. Needs `--mesh-port` |
 | `--node-id <id>` | `MAGNETIC_NODE_ID` | its host name and a random suffix | This server's node id; for `relay-certificate`, the relay's; for `aggregate`, its own (`aggregate-1`) |
-| `--region <name>` | `MAGNETIC_REGION` | none | Where it runs |
+| `--region <name>` | `MAGNETIC_REGION` | none | Where it runs; for `relay-certificate`, where the relay runs |
 | `--out <dir>` | | `.` | For `relay-certificate`: the folder to write the relay's files to |
 | `--report <categories>` | `PUNYTS_REPORT` | none | Reporter categories written to stderr beside warnings and errors, comma-separated, a family as `<prefix>.*`: Magnetic's (see Reporting) and the libraries' (`stateui-app.*`, `state-sync.*`) |
 | | `ANTHROPIC_API_KEY` | none | The Claude API key of the agent |
@@ -500,8 +500,11 @@ magnetic --mesh-port 4310 --mesh-url ws://magnetic-2:4310 --node-id magnetic-2
   (`migrate --app-role magnetic_app --aggregate-role magnetic_aggregate`), and the servers' role may then only read
   the state tables. Retention, deleting an org and moving an app into an org go through it too. The aggregate finds
   each address's workspace in `statenet_namespace`, which a server records before it sends anything for the address.
-- **Relays.** `magnetic relay-certificate --node-id relay-1 --out certs` writes a key and a node certificate for a
-  `statenet-relay`, which links up to the aggregate and carries the servers' saves without reaching the database.
+- **Relays.** `magnetic relay-certificate --node-id relay-1 --mesh-url ws://relay-1:4310 --out certs` writes a key and a
+  node certificate for a `statenet-relay`, which links up to the aggregate and carries the servers' saves without
+  reaching the database. The aggregate lists each relay linked to it in the directory from its certificate (the mesh
+  URL is where other relays reach it), and each server lists the relay it linked to as its parent, so relays route
+  between groups with no row written by hand (`docs/design/statenet-relay-directory.md`).
 
 `docker compose -f docker/statenet.compose.yml up --build` (from the workspace root) runs two servers, a relay, the
 aggregate and Postgres with the hosted roles.

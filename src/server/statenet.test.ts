@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:net';
 import type { PreviewBrowser, UiPart } from '@punyts/stateui-mcp';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -289,6 +290,123 @@ describe('several Magnetic servers on one database', () => {
         // Assert
         expect(JSON.stringify(view.frames.find((frame) => frame.type === 'welcome'))).toContain('stopped');
         expect(two.statenet?.mesh.node.owned()).toContain(address);
+        view.ws.close();
+    });
+});
+
+/** A port free a moment ago, for a relay whose certificate names where it is reached before it starts */
+const freePort = (): Promise<number> =>
+    new Promise((resolve, reject) => {
+        const server = createServer();
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => {
+            const { port } = server.address() as { port: number };
+            server.close(() => resolve(port));
+        });
+    });
+
+/**
+ * Two groups (docs/design/statenet-relay-directory.md, S13): each server under a relay of its own, both relays under
+ * one aggregate. Nothing writes the directory by hand: the aggregate lists the relays from their certificates and each
+ * server lists the relay it linked to
+ */
+describe('Magnetic servers in two groups', () => {
+    let test: TestDatabase;
+    let roles: RoleDatabases;
+    let aggregate: MagneticAggregate;
+    const relays: RelayNode[] = [];
+    let east: RunningMagnetic;
+    let west: RunningMagnetic;
+    let cookie: string;
+    let aliceId: string;
+
+    const start = (group: string, relay: RelayNode): Promise<RunningMagnetic> =>
+        startMagnetic({
+            database: roles.server,
+            host: '127.0.0.1',
+            port: 0,
+            report: silent,
+            devUsers: ['alice'],
+            starter: 'none',
+            browser: noBrowser,
+            secretKey: SECRET,
+            statenet: { meshPort: 0, heartbeatMs: 150, leaseMs: 1_500, group, relays: [relay.meshUrl] }
+        });
+
+    beforeAll(async () => {
+        test = await magneticTestDatabase();
+        roles = await roleDatabases(test);
+        const authority = new StatenetAuthority(test.db, new SecretBox(SECRET));
+        await authority.keys();
+        aggregate = await startMagneticAggregate(roles.aggregate, new SecretBox(SECRET), { nodeId: 'aggregate-1', host: '127.0.0.1', port: 0, embedRecords: false, rereadMs: 150, report: silent.info });
+        for (const id of ['relay-east', 'relay-west']) {
+            const keys = generateKeyPair();
+            const port = await freePort();
+            const issued = await authority.issue(id, 'relay', keys.publicKey, '', undefined, `ws://127.0.0.1:${port}`);
+            relays.push(await startRelayNode({ nodeId: id, keys, certificate: issued.certificate, authorityPublicKey: issued.authorityPublicKey, parents: [aggregate.url], host: '127.0.0.1', meshPort: port }));
+        }
+        east = await start('east', relays[0] as RelayNode);
+        west = await start('west', relays[1] as RelayNode);
+        cookie = await signIn(east.origin, 'alice');
+        aliceId = ((await east.sessions.find(cookie.split('=')[1] as string)) as { userId: string }).userId;
+    });
+
+    afterAll(async () => {
+        await east?.stop();
+        await west?.stop();
+        for (const relay of relays) await relay.close();
+        await aggregate?.close();
+        await roles?.close();
+        await test?.drop();
+    });
+
+    it('should list the relays under the aggregate and each server under its relay, with no row written by hand', async () => {
+        // Arrange
+        const rows = async () => (await test.db.query<{ id: string; role: string; parent: string | null; endpoint: string; group_name: string }>('SELECT id, role, parent, endpoint, group_name FROM statenet_node ORDER BY id')).rows;
+
+        // Act
+        await vi.waitFor(async () => expect((await rows()).filter((row) => row.parent !== null)).toHaveLength(4), { timeout: 5_000 });
+        const listed = await rows();
+
+        // Assert
+        const relayRows = listed.filter((row) => row.role === 'relay').map(({ id, parent, endpoint }) => ({ id, parent, endpoint }));
+        expect(relayRows).toEqual([
+            { id: 'relay-east', parent: 'aggregate-1', endpoint: (relays[0] as RelayNode).meshUrl },
+            { id: 'relay-west', parent: 'aggregate-1', endpoint: (relays[1] as RelayNode).meshUrl }
+        ]);
+        const serverRows = listed.filter((row) => row.role === 'owner').map(({ parent, group_name }) => ({ parent, group_name }));
+        expect(serverRows.sort((a, b) => a.group_name.localeCompare(b.group_name))).toEqual([
+            { parent: 'relay-east', group_name: 'east' },
+            { parent: 'relay-west', group_name: 'west' }
+        ]);
+    });
+
+    it('should give a view at a server of one group the instance a server of the other group runs, through the relays', async () => {
+        // Arrange
+        await vi.waitFor(async () => expect((await test.db.query('SELECT 1 FROM statenet_node WHERE parent IS NOT NULL')).rowCount).toBe(4), { timeout: 5_000 });
+        await east.statenet?.refresh();
+        await west.statenet?.refresh();
+        const services = await east.workspaces.get(aliceId);
+        const created = await services.useCases.createPartApp.execute({ name: 'atlas' });
+        if (created.kind !== 'created') throw new Error(created.kind);
+        const app = (await services.parts.findById('apps', created.id)) as UiPart<'apps'>;
+        const authority = await services.instanceViews.authority(app);
+        authority.write({ op: 'set', path: '$.app.note', value: 'from east' });
+
+        // Act
+        const westCookie = await signIn(west.origin, 'alice');
+        const namespace = namespaceOf(await (await fetch(`${west.origin}/apps/${app.id}`, { headers: { Cookie: westCookie } })).text());
+        const view = await openView(west, app.id, westCookie);
+        view.ws.send(JSON.stringify({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 2 }));
+        const welcome = await view.next('welcome');
+        view.ws.send(JSON.stringify({ type: 'change', change: { id: 'c-west', op: 'set', path: '$.app.fromWest', value: true, base: welcome['revision'] as number } }));
+        const ack = await view.next('ack');
+
+        // Assert
+        expect(JSON.stringify(welcome)).toContain('from east');
+        expect(ack).toMatchObject({ id: 'c-west', result: 'applied' });
+        expect(authority.get('$.app.fromWest')).toBe(true);
+        expect(west.statenet?.mesh.mesh.stats().links.map((link) => link.nodeId)).not.toContain(east.statenet?.mesh.nodeId);
         view.ws.close();
     });
 });

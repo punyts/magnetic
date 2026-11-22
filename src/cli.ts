@@ -138,7 +138,7 @@ async function main(): Promise<void> {
             if (options.nodeId === undefined) throw new Error('relay-certificate needs the relay\'s --node-id');
             await assertMigrated(database, ALL_MIGRATIONS);
             const keys = generateKeyPair();
-            const issued = await new StatenetAuthority(database, new SecretBox(await secretKey())).issue(options.nodeId, 'relay', keys.publicKey, options.statenet?.region ?? '');
+            const issued = await new StatenetAuthority(database, new SecretBox(await secretKey())).issue(options.nodeId, 'relay', keys.publicKey, options.relay.region ?? '', options.relay.group, options.relay.endpoint);
             await mkdir(options.out, { recursive: true });
             const keyFile = join(options.out, `${options.nodeId}.key.json`);
             const certificateFile = join(options.out, `${options.nodeId}.certificate`);

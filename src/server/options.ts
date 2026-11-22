@@ -74,6 +74,11 @@ export interface CliOptions {
     /** For relay-certificate: the relay's node id, and the folder its key and certificate are written to */
     nodeId: string | undefined;
     out: string;
+    /**
+     * For relay-certificate: what the relay's certificate says besides its id, from `--region`, `--group` and
+     * `--mesh-url` (where other relays reach it, which the directory lists: docs/design/statenet-relay-directory.md)
+     */
+    relay: { region?: string; group?: string; endpoint?: string };
     /** The reporter categories written to stderr beside warnings and errors, such as magnetic.http or stateui-app.* */
     report: string[];
     help: boolean;
@@ -189,12 +194,13 @@ Several servers on one database (each a node of the statenet; all with one MAGNE
                          (env MAGNETIC_MESH_PORT; 0 for any free port). Without it the server runs alone
   --mesh-host <address>  Address the mesh binds (env MAGNETIC_MESH_HOST, default --host)
   --mesh-url <url>       The URL the other servers and relays reach this one's mesh at, such as ws://magnetic-2:4310
-                         (env MAGNETIC_MESH_URL, default the address it listens on)
+                         (env MAGNETIC_MESH_URL, default the address it listens on); for relay-certificate, the
+                         relay's, written into its certificate and listed in the directory
   --node-id <id>         This server's node id (env MAGNETIC_NODE_ID, default its host name and a random suffix);
                          for relay-certificate, the relay's
-  --region <name>        Where it runs (env MAGNETIC_REGION)
+  --region <name>        Where it runs (env MAGNETIC_REGION); for relay-certificate, the relay's
   --group <name>         The group of servers that run together and link to each other directly
-                         (env MAGNETIC_GROUP, default the host's name)
+                         (env MAGNETIC_GROUP, default the host's name); for relay-certificate, the relay's
   --relays <urls>        The relays this server links up to, comma-separated, in order, such as ws://relay-1:4310;
                          it saves people's state through them to the aggregate (env MAGNETIC_RELAYS). Without
                          them the server keeps the aggregate in its own process
@@ -545,6 +551,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
         if (publicOrigin !== undefined) throw new UsageError('--network-host is for a server reached on the local network; behind a proxy, give --public-origin alone');
     }
     const network = networkHost === undefined ? undefined : { host: networkHost, ...(tlsCert !== undefined && { tlsCert }), ...(tlsKey !== undefined && { tlsKey }) };
+    const relay = { ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(meshUrl !== undefined && { endpoint: meshUrl }) };
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(relays !== undefined && { relays }) };
-    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, report, help };
+    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, relay, report, help };
 }

@@ -61,9 +61,9 @@ export class StatenetAuthority {
     }
 
     /** A node certificate signed by the authority, and the authority's public key that checks it */
-    async issue(nodeId: string, role: NodeRole, publicKey: string, region = '', group?: string): Promise<{ certificate: string; authorityPublicKey: string }> {
+    async issue(nodeId: string, role: NodeRole, publicKey: string, region = '', group?: string, endpoint?: string): Promise<{ certificate: string; authorityPublicKey: string }> {
         const authority = await this.keys();
-        return { certificate: issueNodeCertificate({ nodeId, role, region, publicKey, expires: Date.now() + CERTIFICATE_MS, ...(group === undefined ? {} : { group }) }, authority.privateKey), authorityPublicKey: authority.publicKey };
+        return { certificate: issueNodeCertificate({ nodeId, role, region, publicKey, expires: Date.now() + CERTIFICATE_MS, ...(group === undefined ? {} : { group }), ...(endpoint === undefined ? {} : { endpoint }) }, authority.privateKey), authorityPublicKey: authority.publicKey };
     }
 
     /** The next certificate of one the authority signed and that has not ended: the same node, role and key, a later end */
@@ -142,6 +142,10 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
     };
 
     let mesh: OwnerMesh | undefined;
+    /** The relay this server's uplink is linked to, once it has linked */
+    let parent: string | undefined;
+    const register = (): Promise<void> =>
+        directory.register({ id: nodeId, role: 'owner', region, group, endpoint: options.meshUrl ?? (mesh as OwnerMesh).url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL, ...(parent === undefined ? {} : { parent }) });
     mesh = await startOwnerMesh({
         nodeId,
         region,
@@ -150,8 +154,8 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         keys,
         certificate: () => certificate,
         authorityPublicKey,
-        // another server links only while the directory lists it with the key it shows; a relay is not in the directory
-        // (nothing registers it until relays sit above the servers), so its certificate lets it in
+        // another server links only while the directory lists it with the key it shows; a relay that dials a server
+        // (the relays of statenet-relays.md) is let in by its certificate
         requireListed: ['owner'],
         reread: () => readDirectory(),
         certify: async (presented, claims) => {
@@ -164,15 +168,20 @@ export async function startStatenetNode(db: Database, box: SecretBox, workspaces
         policy: new ClaimPolicy(),
         ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
         ...(options.meshHost === undefined ? {} : { listenHost: options.meshHost }),
-        port: options.meshPort
+        port: options.meshPort,
+        // the relay the uplink reached is this server's parent in the directory, the way to it from other groups
+        onUplinked: (relayId) => {
+            parent = relayId;
+            if (mesh !== undefined) void register().then(readDirectory).catch((error: unknown) => report('The statenet node could not list its relay', { node: nodeId, error: error instanceof Error ? error.name : 'error' }));
+        }
     });
     const running = mesh;
-    await directory.register({ id: nodeId, role: 'owner', region, group, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
+    await register();
     await readDirectory();
 
     const beat = setInterval(() => {
         void (async () => {
-            if (!(await directory.heartbeat(nodeId))) await directory.register({ id: nodeId, role: 'owner', region, group, endpoint: options.meshUrl ?? running.url, publicKey: keys.publicKey, protocol: MESH_PROTOCOL });
+            if (!(await directory.heartbeat(nodeId))) await register();
             await directory.sweep(heartbeatMs * 5);
             await readDirectory();
             // the server's own certificate, signed again well before it ends
