@@ -115,7 +115,7 @@ test.describe('Connections in the editor', () => {
         await addEndpoint(page, name, 'today', '/today/{city}');
         await home.goto();
         const editor = await home.makeApp(uniqueName(info, 'calls'));
-        await expect(editor.editor.getByText('Yours', { exact: true })).toBeVisible();
+        await expect(editor.editor.getByText('Yours', { exact: true }).filter({ visible: true })).toBeVisible();
         await editor.button('Connections (C)').click();
         await expect(editor.editor.getByText('The outside APIs this app can call.', { exact: false })).toBeVisible();
         const card = editor.editor.getByText(`${name} · today`, { exact: true });
@@ -166,7 +166,7 @@ test.describe('An org that turns connections off', () => {
         await page.waitForURL(/\/edit\/[0-9a-f-]+$/);
         const editor = new EditorPage(page);
         await editor.ready();
-        await expect(editor.editor.getByText(`Quiet ${slug}`, { exact: true })).toBeVisible();
+        await expect(editor.editor.getByText(`Quiet ${slug}`, { exact: true }).filter({ visible: true })).toBeVisible();
         await editor.button('Connections (C)').click();
         await expect(editor.editor.getByText('This org has turned connections off: its apps cannot call outside APIs.')).toBeVisible();
         await expect(editor.editor.getByText(`${name} · today`, { exact: true })).toBeVisible();

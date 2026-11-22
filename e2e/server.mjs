@@ -21,8 +21,8 @@ import { roleDatabases } from '../dist/testing/testDb.js';
 
 const port = Number(process.env.MAGNETIC_E2E_PORT ?? 4390);
 // Every report of the server and the libraries in it goes to e2e-logs/server.log: MAGNETIC_E2E_REPORT names the
-// categories (all by default). The suite marks where each test starts and ends there (POST /mark)
-const reportCategories = (process.env.MAGNETIC_E2E_REPORT ?? 'all').split(',').map((each) => each.trim()).filter(Boolean);
+// categories (info, error and stack by default, as the reporter's own default). The suite marks where each test starts and ends there (POST /mark)
+const reportCategories = (process.env.MAGNETIC_E2E_REPORT ?? 'info,error,stack').split(',').map((each) => each.trim()).filter(Boolean);
 configureFileLogger({ filePath: `${process.env.MAGNETIC_E2E_LOGS ?? 'e2e-logs'}/server.log` });
 setCategories(reportCategories);
 startFileLogger(reportCategories);
@@ -154,7 +154,7 @@ const control = createServer((request, response) => {
     request.on('end', () => {
         if (request.method === 'POST' && request.url === '/mark') {
             const { phase, title } = JSON.parse(body);
-            report('e2e.test', `${phase} ${title}`);
+            report.info(`e2e test ${phase} ${title}`);
             response.writeHead(204).end();
         } else if (request.method === 'GET' && request.url === '/mail') {
             response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(mailer.sent));

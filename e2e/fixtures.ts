@@ -242,8 +242,8 @@ export class AppPage {
 }
 
 const LOGS = process.env['MAGNETIC_E2E_LOGS'] ?? 'e2e-logs';
-/** The categories the pages report to their console (localStorage['punyts.report']): MAGNETIC_E2E_REPORT, all by default */
-const PAGE_REPORT = process.env['MAGNETIC_E2E_REPORT'] ?? 'all';
+/** The categories the pages report to their console (localStorage['punyts.report']): MAGNETIC_E2E_REPORT, info, error and stack by default */
+const PAGE_REPORT = process.env['MAGNETIC_E2E_REPORT'] ?? 'info,error,stack';
 
 /** Marks a test's start or end in the server's log */
 async function mark(phase: 'start' | 'end', title: string): Promise<void> {
@@ -252,7 +252,7 @@ async function mark(phase: 'start' | 'end', title: string): Promise<void> {
 
 export const test = base.extend<{ home: HomePage; signInPage: SignInPage; reportLogs: void }>({
     /**
-     * Every test: the pages report every category to their console, which goes to e2e-logs/browser.log under the test's
+     * Every test: the pages report the categories to their console, which goes to e2e-logs/browser.log under the test's
      * title, and the server's log marks where the test starts and ends
      */
     reportLogs: [async ({ context }, use, info) => {

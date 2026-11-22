@@ -55,8 +55,7 @@ test.describe("The editor's chat", () => {
         await expect(editor.editor.getByText('Done: your words are on the first screen.', { exact: false })).toHaveCount(2);
     });
 
-    test('Open opens the app on its own in a new tab', async ({ page }, info) => {
-        test.skip(info.project.name === 'phone', 'On a phone the Open button wraps under the tool rail and cannot be pressed (reported as a bug)');
+    test('Open opens the app on its own in a new tab', async ({ page }) => {
         // Arrange
         await editor.ask('On its own');
 

@@ -278,30 +278,39 @@ const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64
 /** The row of a top corner: the gap between its parts as wide as the corner's own padding, so the spaces are even */
 const CORNER_ROW = { layout: { type: 'row', gap: 'md', align: 'center' } };
 
-/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size, its turn and Open; as wide as they are, up to half the window */
+/** The frame size: Desktop, Tablet or Phone; in the name corner, or below 760px on the top rail */
+function frameSize(t: Texts, extra: Record<string, unknown>): Record<string, unknown> {
+    return {
+        component: 'selectField',
+        size: 'sm',
+        variant: 'soft',
+        width: 'auto',
+        titlePosition: 'hidden',
+        _label: t['shell.frameSize'],
+        options: { desktop: { _label: t['shell.size.desktop'] }, tablet: { _label: t['shell.size.tablet'] }, phone: { _label: t['shell.size.phone'] } },
+        '<-value': `${E}.size`,
+        on: { change: emit('size') },
+        ...extra
+    };
+}
+
+/** The corner at the top left: Magnetic's logo (back to the apps), the app's name, the frame size, its turn and Open, on one line; below 760px only the logo, the name and Open */
 function nameCorner(t: Texts): Record<string, unknown> {
-    return float({ x: '12px', y: '12px', maxWidth: 'max(calc(50% - 32px), calc(100% - 120px))' }, {
+    // Up to half the window, or all but the share corner when that is more; below 760px all but the share corner (its
+    // bug, appearance and Share buttons, about 140px, and the gaps)
+    return float({ x: '12px', y: '12px', maxWidth: 'clamp(calc(100% - 176px), (100vw - 760px) * 1000, max(calc(50% - 32px), calc(100% - 120px)))' }, {
         bar: row({
             home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, on: { press: emit('home') } },
             name: bound(`${E}.appName`, { textRole: 'heading', truncate: 1, placement: { grow: 1 } }),
-            // The workspace the app is in: the person's own, or an org's
-            workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }),
-            size: {
-                component: 'selectField',
-                size: 'sm',
-                variant: 'soft',
-                width: 'auto',
-                titlePosition: 'hidden',
-                _label: t['shell.frameSize'],
-                options: { desktop: { _label: t['shell.size.desktop'] }, tablet: { _label: t['shell.size.tablet'] }, phone: { _label: t['shell.size.phone'] } },
-                '<-value': `${E}.size`,
-                on: { change: emit('size') }
-            },
+            // The workspace the app is in: the person's own, or an org's. Below 760px the corner has room only for the logo, the
+            // name and Open, all on one line: the workspace and the frame size are on the top rail
+            workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1, '<-hidden': `${E}.isNarrow` }),
+            size: frameSize(t, { '<-hidden': `${E}.isNarrow` }),
             // Turns the frame between landscape and portrait: its width and height swap. Below 760px the corner has no room
             turn: icon(t['shell.turn'], 'turn', 'rotate-rectangle', { '<-hidden': `${E}.isNarrow` }),
             // Soft, so its box shows: every part of the bar is then a box with the same space either side
             open: button(t['shell.open'], 'open', { tone: 'accent', variant: 'soft' })
-        }, CORNER_ROW)
+        }, { layout: { ...CORNER_ROW.layout, wrap: false } })
     });
 }
 
@@ -383,7 +392,9 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
             padding: 'none',
             layout: { type: line, gap: 'sm', align: 'stretch' },
             children: { layerLayout: layer('layout', 'layerLayout'), layerData: layer('data', 'layerData'), layerLogic: layer('logic', 'layerLogic') }
-        }
+        },
+        // Below 760px the name corner has no room for the workspace and the frame size
+        ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, screensOnly) })
     }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden` });
 }
 
