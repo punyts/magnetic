@@ -244,6 +244,7 @@ async function main(): Promise<void> {
         devUsers,
         ...(seeded !== undefined && { devProfiles: seeded.profiles }),
         starter: options.starter,
+        agentBrowser: options.agentBrowser,
         ...(options.runtimeDir !== undefined && { runtimeDir: options.runtimeDir }),
         ...(options.publicOrigin !== undefined && { publicOrigin: options.publicOrigin }),
         ...(options.runtimeOrigin !== undefined && { runtimeOrigin: options.runtimeOrigin }),

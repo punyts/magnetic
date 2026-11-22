@@ -62,12 +62,19 @@ export interface AgentTurnsOptions {
     /** What the agent is told of the outside APIs an app's workspace has (names, endpoints, params, never a secret) */
     readonly connectionFacts?: (workspaceId: string) => Promise<string | undefined>;
     readonly chats: Chats;
+    /** Whether the agent gets the headless browser's tools (docs/design/magnetic-agent-browser.md); default not */
+    readonly browser?: boolean;
     readonly limits?: TurnLimits;
     readonly report: { info(message: string, details?: Record<string, unknown>): void };
 }
 
-/** Tools the agent does not get: the headless browser cannot reach a signed-in page yet, and no logic waits for an agent */
-export const WITHHELD_TOOLS: ReadonlySet<string> = new Set(['ui_preview', 'ui_screenshot', 'ui_interact', 'ui_call_answer', 'ui_effect_answer']);
+/** The headless browser's tools, which the agent gets only from a server with a browser for it */
+export const BROWSER_TOOLS: readonly string[] = ['ui_preview', 'ui_screenshot', 'ui_interact'];
+
+/** Tools the agent does not get: no logic waits for an agent, and the browser's tools on a server without one for it */
+export function withheldTools(browser: boolean): ReadonlySet<string> {
+    return new Set(['ui_call_answer', 'ui_effect_answer', ...(browser ? [] : BROWSER_TOOLS)]);
+}
 
 /** The models that take the server-side `fallbacks: "default"` on the Claude API */
 const FALLBACK_MODELS = new Set(['claude-opus-5-5', 'claude-sonnet-5-5']);
@@ -290,7 +297,8 @@ export class AgentTurns {
         await chats.append(userId, app.id, { role: 'person', text, at }, app.workspaceId ?? userId);
         this.emit(userId, app.id, { type: 'person', text, at });
 
-        const tools = workspace.tools.filter((tool) => !WITHHELD_TOOLS.has(tool.name));
+        const withheld = withheldTools(this.options.browser === true);
+        const tools = workspace.tools.filter((tool) => !withheld.has(tool.name));
         const byName = new Map(tools.map((tool) => [tool.name, tool]));
         const lines: ToolLine[] = [];
         const said: string[] = [];

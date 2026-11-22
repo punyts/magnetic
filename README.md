@@ -122,6 +122,7 @@ The commands are:
 | `--dev-user <name>` | `MAGNETIC_DEV_USERS` (comma-separated) | none | A test user who signs in with a button and no provider; repeat for more. Loopback hosts only |
 | `--seed <scenario>` | `MAGNETIC_SEED` | none | Seeds the beta's people to sign in as, for development: `beta` (3 places left) or `beta-full`. Needs `--beta-org`. Loopback hosts only |
 | `--starter <kind>` | `MAGNETIC_STARTER` | `showcase` | What a new workspace holds: the component showcase, or `none` |
+| `--agent-browser <on\|off>` | `MAGNETIC_AGENT_BROWSER` | `on` | Whether the agent sees the app it builds in a headless Chromium (`ui_preview`, `ui_screenshot`, `ui_interact`): one per server, a context per workspace, closed when idle |
 | `--runtime-dir <dir>` | `MAGNETIC_RUNTIME_DIR` | the bundle in `@punyts/stateui-app` | The built StateUI runtime bundle |
 | `--public-origin <url>` | `MAGNETIC_PUBLIC_ORIGIN` | the address it listens on | The origin people reach the server at. Redirect URIs are `<origin>/auth/<provider>/callback`, and cookies are `Secure` when it is HTTPS |
 | `--runtime-origin <url>` | `MAGNETIC_RUNTIME_ORIGIN` | `http://<host>:<runtime port>` | The origin people reach the app frame at behind a proxy, such as `https://run.magnetic.example`. Needs `--public-origin` on another host; with both, the server answers only to those two host names (and loopback, for health checks) |
@@ -323,8 +324,12 @@ workspace, and stops when you sign out of that browser.
     request the model declines is retried on the fallback model.
   - A turn ends when the model answers without a tool call, after 40 tool calls, after 5 minutes, on a refusal, or
     on Stop.
-  - The browser tools (`ui_preview`, `ui_screenshot`, `ui_interact`) are withheld until the headless browser
-    can reach a signed-in page, and so are the answer tools, as no logic waits for an agent here.
+  - The browser tools (`ui_preview`, `ui_screenshot`, `ui_interact`) run in one headless Chromium per server, a
+    context per workspace that signs in with an agent session (`src/agent/AgentSessions.ts`): a token in this
+    server's memory, set as the `magnetic_agent` cookie, good only for the views of that workspace's apps and only
+    from this machine. The page loads the server over loopback, so its origins are loopback ones. A context closes
+    after 10 minutes idle and the browser with the last one. `--agent-browser off` withholds them. The answer tools
+    are withheld, as no logic waits for an agent here.
   - Each chat is kept in `chat_entry`, every entry; a turn reads the last 100.
 - **Budgets** (`Budgets`, a ledger of requests in `agent_request`). Each request is priced from its token counts. A user may spend
   `--daily-budget` dollars per UTC day (default 1; `off` for none), `--user-allowance` dollars ever (a one-time
@@ -566,12 +571,6 @@ The options also take:
 
 `startMockOidcProvider()` starts the mock provider the tests use, and `MockAgentModel` is the scripted agent of
 `--mock-agent`.
-
-## Not yet
-
-- **The agent cannot see the page.** The browser tools are withheld: each workspace would open its own Chromium,
-  and its headless page cannot sign in to reach the app. One shared browser with a context per user, and a way for
-  it to sign in, come before the agent gets them back.
 
 ## Develop
 
