@@ -114,12 +114,13 @@ describe('Magnetic', () => {
         it('should refuse anything else without a session with 401', async () => {
             // Act
             const report = await fetch(`${magnetic.origin}/apps/${aliceApp}/report`, { method: 'POST', body: '{}' });
-            const file = await get(magnetic.origin, `/apps/${aliceApp}/files/${randomUUID()}`);
+            const file = await get(magnetic.origin, `/paths/1/apps/${aliceApp}/files/${randomUUID()}`);
 
             // Assert
             expect(report.status).toBe(401);
             expect(await report.json()).toMatchObject({ error: 'unauthorized' });
-            expect(file.status).toBe(401);
+            // A file no one may read is not found, so /paths does not tell which exist
+            expect(file.status).toBe(404);
         });
 
         it('should offer a button for each development user', async () => {

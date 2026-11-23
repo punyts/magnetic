@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, pathGrantKey, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, ServicesStorage, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import { isReported, report } from '@punyts/core';
@@ -170,7 +170,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** A random (version 4) UUID: the id of an app made in a workspace, which no other workspace has */
 const RANDOM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const APP_PATH = /^\/apps\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
+/** The app a request is about: `/apps/<id>…`, or a file of it by its statenet path, `/paths/<owner>/apps/<id>/…` */
+const APP_PATH = /^\/(?:paths\/[^/]+\/)?apps\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
 /** Said when an org's monthly agent budget is spent: turns in its apps wait for next month */
 export const ORG_BUDGET_SPENT = "Your org has used this month's agent budget. Everything else still works, and the agent will be back next month.";
 /** Said to a member of an org that keeps its apps in the org, who tries to make one of their own */
@@ -1991,6 +1992,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         ...(options.network !== undefined && { network: options.network }),
         ...(runtimeOrigin !== undefined && publicOrigin !== undefined && { publicOrigins: { main: publicOrigin, runtime: runtimeOrigin } }),
         tenant,
+        // A read of /paths with a grant and no cookie: the workspace of the owner the path names
+        ownerTenant: async (owner) => {
+            const workspaceId = owners.idOf(owner);
+            if (workspaceId === undefined) return undefined;
+            const services = await workspaces.get(workspaceId);
+            return { useCases: services.useCases, hub: services.hub, liveViews: services.liveViews, instances: services.instanceViews };
+        },
+        // Both servers of a host accept each other's grants
+        ...(options.secretKey !== undefined && { pathGrantKey: pathGrantKey(options.secretKey) }),
         // An org's SAML provider posts its answer from its own page
         crossOriginPost: (path) => SAML_ROUTE.test(path),
         routes: async (request, response) => {

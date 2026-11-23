@@ -245,6 +245,37 @@ describe('Magnetic sharing', () => {
         view.ws.close();
     });
 
+    it("should let whoever may open an app read its files by /paths, with the session or the page's grant, and no one else", async () => {
+        // Arrange
+        const appId = await createApp('photos');
+        const form = new FormData();
+        form.append('file', new Blob(['hello']), 'hello.txt');
+        const uploaded = await fetch(`${magnetic.origin}/apps/${appId}/files`, { method: 'POST', headers: { Cookie: alice, Origin: magnetic.origin }, body: form });
+        const { id } = (await uploaded.json()) as { id: string };
+        const link = await share(appId, 'view');
+        await get(`/s/${link.token}`, bob);
+        const page = await (await get(`/apps/${appId}`, bob)).text();
+        const paths = /data-paths="([^"]+)"/.exec(page)?.[1] as string;
+        const grant = /data-grant="([^"]+)"/.exec(page)?.[1] as string;
+        const file = `${paths}/files/${id}`;
+
+        // Act
+        const owner = await get(file, alice);
+        const viewer = await get(file, bob);
+        const stranger = await get(file, carol);
+        const withGrant = await fetch(`${magnetic.origin}${file}?g=${grant}`);
+        const bare = await fetch(`${magnetic.origin}${file}`);
+        await post(`/edit/${appId}/share/${link.id}/revoke`, alice, {});
+        const revoked = await get(file, bob);
+
+        // Assert
+        expect(paths).toMatch(new RegExp(`^/paths/\\d+/apps/${appId}$`));
+        expect([owner.status, await owner.text()]).toEqual([200, 'hello']);
+        expect([viewer.status, await viewer.text()]).toEqual([200, 'hello']);
+        expect([withGrant.status, await withGrant.text()]).toEqual([200, 'hello']);
+        expect([stranger.status, bare.status, revoked.status]).toEqual([404, 404, 404]);
+    });
+
     it('should close the socket of a use link when it is revoked, telling the browser to delete what it kept', async () => {
         // Arrange
         const appId = await createApp('journal');
