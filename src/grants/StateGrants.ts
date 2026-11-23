@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { addressCovers, checkAccess, isWithinPrefix, ownerOfAddress, signGrant } from '@punyts/state-sync/authority';
+import { patternContains, type PathPattern } from '@punyts/state';
+import { addressPath, checkAccess, grantPattern, ownerOfAddress, readGrant, signGrant } from '@punyts/state-sync/authority';
 import type { Access, GrantRight } from '@punyts/state-sync/authority';
 import type { Database, Queryable } from '@punyts/stateui-pg';
 import { audit, OrgError } from '../orgs/Orgs.js';
@@ -151,7 +152,7 @@ export class StateGrants {
             const parent = await this.row(this.db, input.parentId);
             if (parent === undefined || parent.revoked_at !== null || (parent.expires_at !== null && parent.expires_at <= now)) throw new OrgError(404, 'That grant is not there any more.');
             if (parent.subject !== issuer) throw new OrgError(403, 'Only the person a grant was given to can pass it on.');
-            if (!addressCovers(parent.address, address) || !isWithinPrefix(parent.prefix, prefix) || !rights.every((right) => parent.rights.includes(right))) {
+            if (ownerOfAddress(parent.address) !== ownerOfAddress(address) || !patternContains(patternOf(parent.address, parent.prefix), patternOf(address, prefix)) || !rights.every((right) => parent.rights.includes(right))) {
                 throw new OrgError(403, 'A grant passed on can only be narrower than the one it came from.');
             }
             if (parent.expires_at !== null && (expires === null || parent.expires_at < expires)) expires = parent.expires_at;
@@ -188,7 +189,7 @@ export class StateGrants {
         const ends = Math.min(now.getTime() + TOKEN_LIFE_MS, row.expires_at?.getTime() ?? Number.POSITIVE_INFINITY);
         await this.db.query('UPDATE state_grant SET last_used_at = $2 WHERE id = $1', [grantId, now]);
         return signGrant(
-            { id: row.id, kid: key.kid, issuer: row.issuer, subject: row.subject, address: row.address, prefix: row.prefix, rights: row.rights, issued: now.getTime(), expires: ends, ...(parent !== undefined && { parent }) },
+            { entry: row.id, kid: key.kid, issuer: row.issuer, subject: row.subject, owner: ownerOfAddress(row.address), pattern: addressPath(row.address, row.prefix).path, rights: row.rights, issued: now.getTime(), expires: ends, ...(parent !== undefined && { parent }) },
             key.privateKey
         );
     }
@@ -314,17 +315,17 @@ export class StateGrants {
 /** The subject an org reads as */
 export const orgSubject = (orgId: string): string => `org:${orgId}`;
 
-/** The grant ids of a token's chain, without checking it */
+/** The grant ids of a token's chain (the entries its grants were made from), without checking it */
 function chainIds(token: string): string[] {
     const ids: string[] = [];
-    for (let part: string | undefined = token; part !== undefined && ids.length < 16; ) {
-        try {
-            const claims = JSON.parse(Buffer.from(part.split('.')[0] ?? '', 'base64url').toString('utf8')) as { id?: string; parent?: string };
-            if (typeof claims.id === 'string') ids.push(claims.id);
-            part = claims.parent;
-        } catch {
-            break;
-        }
-    }
+    for (let claims = readGrant(token); claims !== undefined && ids.length < 16; claims = claims.parent === undefined ? undefined : readGrant(claims.parent)) ids.push(claims.entry);
     return ids;
+}
+
+/**
+ * The pattern a row's address and prefix name in its owner's tree (`<owner>/apps/*` and `$` is `$.apps.*`), as its
+ * tokens carry it (docs/design/statenet-permissions.md, "Tokens")
+ */
+function patternOf(address: string, prefix: string): PathPattern {
+    return grantPattern(addressPath(address, prefix).path) as PathPattern;
 }
