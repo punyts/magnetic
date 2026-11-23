@@ -334,7 +334,7 @@ describe('Enterprise controls', () => {
         expect(byAdmin.status).toBe(403);
         expect(exported.status).toBe(200);
         expect(exported.headers.get('content-disposition')).toBe('attachment; filename="acme-export.json"');
-        expect(body.format).toBe('magnetic-org-export/2');
+        expect(body.format).toBe('magnetic-org-export/3');
         expect(body.parts.map((part) => part.name)).toEqual(expect.arrayContaining(['roster', 'budgeted']));
         expect(body.members.length).toBeGreaterThanOrEqual(2);
         expect(body.audit.length).toBeGreaterThan(5);

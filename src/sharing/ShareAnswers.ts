@@ -1,11 +1,13 @@
 import type { Database } from '@punyts/stateui-pg';
+import { appPattern, Permissions } from '../permissions/Permissions.js';
 
 /** What a person said to an app shared with them; an app with no answer waits */
 export type ShareAnswer = 'accepted' | 'rejected';
 
 /**
  * Each person's answers to the apps shared with them (`share_answer`, docs/design/magnetic-home.md). Accepting puts the
- * app among theirs on Your apps; rejecting takes it off, and drops them from its links, so the app opens for them
+ * app among theirs on Your apps; rejecting takes it off, and revokes their openings of its links (by them, so they are
+ * no longer among who opened them), so the app opens for them
  * again only through a link opened anew (`Grants.join` then forgets the rejection and the app waits again)
  */
 export class ShareAnswers {
@@ -28,7 +30,7 @@ export class ShareAnswers {
     /** Takes an app shared with the person off their apps, and them off its links */
     async reject(userId: string, appId: string): Promise<void> {
         await this.db.transaction(async (tx) => {
-            await tx.query('DELETE FROM link_grant_member m USING link_grant g WHERE g.id = m.grant_id AND m.user_id = $1 AND g.app_id::text = $2', [userId, appId]);
+            await new Permissions(this.db, this.now).revokeWhere("p.kind = 'opened' AND p.made_by::text = $1 AND p.pattern = $2", [userId, appPattern(appId)], userId, tx);
             await tx.query(
                 `INSERT INTO share_answer (user_id, app_id, answer, answered_at) VALUES ($1, $2, 'rejected', $3)
                  ON CONFLICT (user_id, app_id) DO UPDATE SET answer = 'rejected', answered_at = $3`,

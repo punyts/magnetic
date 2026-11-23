@@ -7,6 +7,7 @@ import type { ScimGroupInput, ScimGroupRow, ScimUserInput, ScimUserRow } from '.
 import type { OrgDomains } from './Domains.js';
 import { audit, dropMember, OrgError } from './Orgs.js';
 import type { OrgRole, Orgs } from './Orgs.js';
+import { Permissions } from '../permissions/Permissions.js';
 
 /*
  * SCIM provisioning per org (docs/design/magnetic-scim.md): the org's identity provider pushes people and groups.
@@ -304,7 +305,7 @@ export class ScimDirectory {
             const found = (await tx.query('SELECT 1 FROM org_group WHERE org_id = $1 AND id = $2 AND scim FOR UPDATE', [orgId, id])).rows.length > 0;
             if (!found) return undefined;
             const regrouped = (await tx.query<{ user_id: string }>('SELECT user_id FROM org_group_member WHERE group_id = $1', [id])).rows.map((row) => row.user_id);
-            await tx.query("DELETE FROM app_access WHERE principal_kind = 'group' AND principal_id = $2 AND workspace_id = (SELECT id FROM workspace WHERE org_id = $1)", [orgId, id]);
+            await new Permissions(this.db).revokeWhere("p.owner = (SELECT owner_number FROM org WHERE id = $1) AND p.subject = 'group:' || (SELECT owner_number FROM org WHERE id = $1) || '.' || $2 AND p.kind LIKE 'access.%'", [orgId, id], undefined, tx);
             await tx.query('DELETE FROM org_group WHERE org_id = $1 AND id = $2', [orgId, id]);
             await audit(tx, { orgId, action: 'scim.group_deleted', targetKind: 'group', targetId: id, detail: { via: 'scim' } });
             return { removed: [], regrouped };

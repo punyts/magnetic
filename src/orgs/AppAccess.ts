@@ -5,6 +5,7 @@ import type { FunctionEntry } from '@punyts/stateui-app/core';
 import { atLeast, audit, OrgError } from './Orgs.js';
 import type { OrgRole } from './Orgs.js';
 import type { StateChanges } from '../statenet/StateNamespaces.js';
+import { appPattern, groupSubject, membersSubject, ownerSubject, Permissions, type Permission, type Right } from '../permissions/Permissions.js';
 
 export const APP_PERMISSIONS = ['view', 'use', 'edit', 'manage'] as const;
 export type AppPermission = (typeof APP_PERMISSIONS)[number];
@@ -41,35 +42,46 @@ export interface AccessEntry {
     readonly permission: AppPermission;
 }
 
+/** The kinds of entry that give access to an app of an org, as AppAccess reads them */
+const APP_KINDS = ['access.view', 'access.use', 'access.edit', 'access.manage', 'open', 'creator', 'admins'];
+
+/** What an entry gives on an app: `manage` with `share`, `edit` with `write`, else `view` for a view entry and `use` */
+function levelOf(entry: Permission): AppPermission {
+    if (entry.rights.includes('share')) return 'manage';
+    if (entry.rights.includes('write')) return 'edit';
+    return entry.kind === 'access.view' ? 'view' : 'use';
+}
+
+const RIGHTS_OF: Record<AppPermission, Right[]> = { view: ['read'], use: ['read'], edit: ['read', 'write'], manage: ['read', 'write', 'share'] };
+
 /**
- * Who may do what with each app (`app_access`, `app_setting`), and where an app is. In a person's own workspace they
- * manage everything. In an org's: owners and admins manage every app, whoever made an app manages it, and anyone else
- * has the highest of their own entries and their groups' entries on the app's access list, or `use` when the app is
- * open to the org. Every route, tool and socket asks here
+ * Who may do what with each app of an org, and where an app is, read from the permission table
+ * (docs/design/statenet-permissions.md, "Today's mechanisms as entries"). In a person's own workspace they manage
+ * everything. In an org's: owners and admins hold its whole tree (`admins`), whoever made an app manages it
+ * (`creator`), and anyone else has the highest of the entries that reach them on the app: their own, their groups',
+ * and `use` when the app is open to the org (`open`). Every route, tool and socket asks here
  */
 export class AppAccess {
-    constructor(private readonly db: Database) {}
+    private readonly permissions: Permissions;
+
+    constructor(private readonly db: Database) {
+        this.permissions = new Permissions(db);
+    }
 
     /** What a person may do with an app of a workspace; `undefined` for nothing */
     async permission(userId: string, workspaceId: string, appId: string): Promise<AppPermission | undefined> {
         if (workspaceId === userId) return 'manage';
-        const row = (
-            await this.db.query<{ org_id: string; role: OrgRole | null; created_by: string | null; open_to_org: boolean | null; entries: AppPermission[] | null }>(
-                `SELECT w.org_id, m.role, s.created_by, s.open_to_org,
-                        (SELECT array_agg(a.permission) FROM app_access a
-                          WHERE a.workspace_id = w.id AND a.app_id = $3
-                            AND ((a.principal_kind = 'user' AND a.principal_id = $1)
-                              OR (a.principal_kind = 'group' AND a.principal_id IN (SELECT gm.group_id FROM org_group_member gm WHERE gm.user_id = $1)))) AS entries
-                   FROM workspace w
-                   LEFT JOIN org_member m ON m.org_id = w.org_id AND m.user_id = $1
-                   LEFT JOIN app_setting s ON s.workspace_id = w.id AND s.app_id = $3
-                  WHERE w.id = $2 AND w.kind = 'org'`,
-                [userId, workspaceId, appId]
+        const org = (
+            await this.db.query<{ number: string; role: OrgRole | null }>(
+                "SELECT o.owner_number::text AS number, m.role FROM workspace w JOIN org o ON o.id = w.org_id LEFT JOIN org_member m ON m.org_id = w.org_id AND m.user_id = $1 WHERE w.id = $2 AND w.kind = 'org'",
+                [userId, workspaceId]
             )
         ).rows[0];
-        if (row === undefined || row.role === null) return undefined;
-        if (atLeast(row.role, 'admin') || row.created_by === userId) return 'manage';
-        return highest([...(row.entries ?? []), row.open_to_org === true ? 'use' : undefined]);
+        if (org === undefined || org.role === null) return undefined;
+        const holder = await this.permissions.holder(userId);
+        if (holder === undefined) return undefined;
+        const entries = (await this.permissions.holding(holder, org.number, appPattern(appId))).filter((entry) => APP_KINDS.includes(entry.kind));
+        return highest(entries.map(levelOf));
     }
 
     /** The workspaces a person can reach apps in: their own first, then their orgs' */
@@ -122,36 +134,46 @@ export class AppAccess {
     /** An app's access list and whether it is open to the org; for people who manage it */
     async list(actorId: string, workspaceId: string, appId: string): Promise<{ readonly openToOrg: boolean; readonly entries: readonly AccessEntry[] }> {
         if (!allows(await this.permission(actorId, workspaceId, appId), 'manage')) throw new OrgError(403, 'Only people who manage the app can see who has it.');
-        const entries = (
-            await this.db.query<{ principal_kind: 'user' | 'group'; principal_id: string; permission: AppPermission }>(
-                'SELECT principal_kind, principal_id, permission FROM app_access WHERE workspace_id = $1 AND app_id = $2 ORDER BY principal_kind, principal_id',
-                [workspaceId, appId]
+        const org = await this.orgOf(this.db, workspaceId);
+        const live = org === undefined ? [] : await this.permissions.find("p.owner = $1::numeric AND p.pattern = $2 AND p.revoked_at IS NULL AND (p.kind LIKE 'access.%' OR p.kind = 'open')", [org.number, appPattern(appId)]);
+        const users = new Map(
+            (await this.db.query<{ number: string; id: string }>('SELECT owner_number::text AS number, id::text FROM app_user WHERE owner_number::text = ANY($1::text[])', [live.map((entry) => entry.subject.slice('owner:'.length))])).rows.map(
+                (row) => [row.number, row.id] as const
             )
-        ).rows.map((row) => ({ principalKind: row.principal_kind, principalId: row.principal_id, permission: row.permission }));
-        const open = (await this.db.query<{ open_to_org: boolean }>('SELECT open_to_org FROM app_setting WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows[0]?.open_to_org === true;
-        return { openToOrg: open, entries };
+        );
+        const entries: AccessEntry[] = [];
+        for (const entry of live) {
+            if (!entry.kind.startsWith('access.')) continue;
+            const permission = entry.kind.slice('access.'.length) as AppPermission;
+            if (entry.subject.startsWith('owner:')) {
+                const id = users.get(entry.subject.slice('owner:'.length));
+                if (id !== undefined) entries.push({ principalKind: 'user', principalId: id, permission });
+            } else if (entry.subject.startsWith('group:')) {
+                entries.push({ principalKind: 'group', principalId: entry.subject.slice(entry.subject.indexOf('.') + 1), permission });
+            }
+        }
+        entries.sort((a, b) => a.principalKind.localeCompare(b.principalKind) || a.principalId.localeCompare(b.principalId));
+        return { openToOrg: live.some((entry) => entry.kind === 'open'), entries };
     }
 
     /** Gives a member or a group a permission on an org app, or takes it away (`undefined`); for people who manage it */
     async set(actorId: string, workspaceId: string, appId: string, principal: { readonly kind: 'user' | 'group'; readonly id: string }, permission: AppPermission | undefined): Promise<void> {
         await this.db.transaction(async (tx) => {
-            const orgId = await this.manageable(tx, actorId, workspaceId, appId);
-            const known =
-                principal.kind === 'user'
-                    ? (await tx.query('SELECT 1 FROM org_member WHERE org_id = $1 AND user_id = $2', [orgId, principal.id])).rows.length > 0
-                    : (await tx.query('SELECT 1 FROM org_group WHERE org_id = $1 AND id = $2', [orgId, principal.id])).rows.length > 0;
-            if (!known) throw new OrgError(404, principal.kind === 'user' ? 'That person is not in the org.' : 'The org has no such group.');
-            if (permission === undefined) {
-                await tx.query('DELETE FROM app_access WHERE workspace_id = $1 AND app_id = $2 AND principal_kind = $3 AND principal_id = $4', [workspaceId, appId, principal.kind, principal.id]);
-            } else {
-                await tx.query(
-                    `INSERT INTO app_access (workspace_id, app_id, principal_kind, principal_id, permission, granted_by) VALUES ($1, $2, $3, $4, $5, $6)
-                     ON CONFLICT (workspace_id, app_id, principal_kind, principal_id) DO UPDATE SET permission = EXCLUDED.permission, granted_by = EXCLUDED.granted_by, granted_at = now()`,
-                    [workspaceId, appId, principal.kind, principal.id, permission, actorId]
-                );
+            const org = await this.manageable(tx, actorId, workspaceId, appId);
+            let subject: string | undefined;
+            if (principal.kind === 'user') {
+                const number = (await tx.query<{ number: string }>('SELECT u.owner_number::text AS number FROM org_member m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.user_id::text = $2', [org.id, principal.id])).rows[0]?.number;
+                subject = number === undefined ? undefined : ownerSubject(number);
+            } else if ((await tx.query("SELECT 1 FROM org_group WHERE org_id = $1 AND id::text = $2", [org.id, principal.id])).rows.length > 0) {
+                subject = groupSubject(org.number, principal.id);
+            }
+            if (subject === undefined) throw new OrgError(404, principal.kind === 'user' ? 'That person is not in the org.' : 'The org has no such group.');
+            await this.permissions.revokeWhere("p.owner = $1::numeric AND p.pattern = $2 AND p.subject = $3 AND p.kind LIKE 'access.%'", [org.number, appPattern(appId), subject], actorId, tx);
+            if (permission !== undefined) {
+                await this.permissions.make({ owner: org.number, pattern: appPattern(appId), subject, rights: RIGHTS_OF[permission], kind: `access.${permission}`, madeBy: actorId }, tx);
             }
             await audit(tx, {
-                orgId,
+                orgId: org.id,
                 workspaceId,
                 actorId,
                 action: permission === undefined ? 'access.removed' : 'access.set',
@@ -165,33 +187,44 @@ export class AppAccess {
     /** Opens an org app to every member (`use`), or closes it again; for people who manage it */
     async setOpenToOrg(actorId: string, workspaceId: string, appId: string, open: boolean): Promise<void> {
         await this.db.transaction(async (tx) => {
-            const orgId = await this.manageable(tx, actorId, workspaceId, appId);
-            await tx.query('INSERT INTO app_setting (workspace_id, app_id, open_to_org) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, app_id) DO UPDATE SET open_to_org = EXCLUDED.open_to_org', [
-                workspaceId,
-                appId,
-                open
-            ]);
-            await audit(tx, { orgId, workspaceId, actorId, action: 'access.open_to_org', targetKind: 'app', targetId: appId, detail: { open } });
+            const org = await this.manageable(tx, actorId, workspaceId, appId);
+            await this.permissions.revokeWhere("p.owner = $1::numeric AND p.pattern = $2 AND p.kind = 'open'", [org.number, appPattern(appId)], actorId, tx);
+            if (open) await this.permissions.make({ owner: org.number, pattern: appPattern(appId), subject: membersSubject(org.number), rights: ['read'], kind: 'open', madeBy: actorId }, tx);
+            await audit(tx, { orgId: org.id, workspaceId, actorId, action: 'access.open_to_org', targetKind: 'app', targetId: appId, detail: { open } });
         });
     }
 
     /** Records who made an app in an org workspace: they manage it */
     async recordCreated(userId: string, workspaceId: string, appId: string): Promise<void> {
         await this.db.transaction(async (tx) => {
-            const org = (await tx.query<{ org_id: string }>("SELECT org_id FROM workspace WHERE id = $1 AND kind = 'org'", [workspaceId])).rows[0];
+            const org = await this.orgOf(tx, workspaceId);
             if (org === undefined) return;
-            await tx.query('INSERT INTO app_setting (workspace_id, app_id, created_by) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, app_id) DO NOTHING', [workspaceId, appId, userId]);
-            await audit(tx, { orgId: org.org_id, workspaceId, actorId: userId, action: 'app.created', targetKind: 'app', targetId: appId });
+            await recordCreator(this.permissions, tx, org.number, userId, appId);
+            await audit(tx, { orgId: org.id, workspaceId, actorId: userId, action: 'app.created', targetKind: 'app', targetId: appId });
         });
     }
 
+    /** The org of an org workspace, with its number */
+    private async orgOf(tx: Queryable, workspaceId: string): Promise<{ id: string; number: string } | undefined> {
+        return (await tx.query<{ id: string; number: string }>("SELECT o.id::text, o.owner_number::text AS number FROM workspace w JOIN org o ON o.id = w.org_id WHERE w.id::text = $1 AND w.kind = 'org'", [workspaceId])).rows[0];
+    }
+
     /** The org of an org workspace, when the actor manages the app there; refuses otherwise */
-    private async manageable(tx: Queryable, actorId: string, workspaceId: string, appId: string): Promise<string> {
-        const org = (await tx.query<{ org_id: string }>("SELECT org_id FROM workspace WHERE id = $1 AND kind = 'org'", [workspaceId])).rows[0];
+    private async manageable(tx: Queryable, actorId: string, workspaceId: string, appId: string): Promise<{ id: string; number: string }> {
+        const org = await this.orgOf(tx, workspaceId);
         if (org === undefined) throw new OrgError(400, 'Access lists are for the apps of an org.');
         if (!allows(await this.permission(actorId, workspaceId, appId), 'manage')) throw new OrgError(403, 'Only people who manage the app can change who has it.');
-        return org.org_id;
+        return org;
     }
+}
+
+/** Gives whoever made an app in an org its management, once */
+async function recordCreator(permissions: Permissions, tx: Queryable, orgNumber: string, userId: string, appId: string): Promise<void> {
+    const number = (await tx.query<{ number: string }>('SELECT owner_number::text AS number FROM app_user WHERE id::text = $1', [userId])).rows[0]?.number;
+    if (number === undefined) return;
+    const subject = ownerSubject(number);
+    const held = await permissions.find("p.owner = $1::numeric AND p.pattern = $2 AND p.subject = $3 AND p.kind = 'creator' AND p.revoked_at IS NULL", [orgNumber, appPattern(appId), subject], tx);
+    if (held.length === 0) await permissions.make({ owner: orgNumber, pattern: appPattern(appId), subject, rights: ['read', 'write', 'share'], kind: 'creator', madeBy: userId }, tx);
 }
 
 /** What a move did */
@@ -247,12 +280,12 @@ export async function moveAppToOrg(
                 await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE workspace_id = $1 AND app_id = $3`, [personal, target, appId]);
             }
             await tx.query('UPDATE chat_entry SET workspace_id = $2 WHERE workspace_id = $1 AND app_id = $3', [personal, target, appId]);
-            await tx.query('UPDATE link_grant SET workspace_id = $2 WHERE workspace_id = $1 AND app_id = $3', [personal, target, appId]);
-            await tx.query('INSERT INTO app_setting (workspace_id, app_id, created_by) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, app_id) DO UPDATE SET created_by = EXCLUDED.created_by', [
-                target,
-                appId,
-                personal
-            ]);
+            // The app's links, and the entries of the people who opened them, move to the org's tree
+            const permissions = new Permissions(db);
+            const [fromNumber, into] = [await permissions.numberOf(personal, tx), await permissions.numberOf(input.orgId, tx)];
+            if (fromNumber === undefined || into === undefined) throw new OrgError(404, 'No such org.');
+            await tx.query("UPDATE permission SET owner = $2::numeric WHERE owner = $1::numeric AND pattern = $3 AND kind IN ('link.view', 'link.use', 'link.remix', 'opened')", [fromNumber, into, appPattern(appId)]);
+            await recordCreator(permissions, tx, into, personal, appId);
             await audit(tx, {
                 orgId: input.orgId,
                 workspaceId: target,

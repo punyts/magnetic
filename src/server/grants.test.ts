@@ -95,7 +95,7 @@ describe('Grants of state', () => {
         expect(page).toContain('carol');
         expect(page).toContain('Revoke');
         expect(listed.available).toBe(true);
-        expect(listed.grants.filter((grant) => grant.subject === carolId && grant.revokedAt === undefined)).toHaveLength(1);
+        expect(listed.grants.filter((grant) => grant.subject === `owner:${magnetic.owners.of(carolId)}` && grant.revokedAt === undefined)).toHaveLength(1);
     });
 
     it('should keep verifying grants of a rotated key until they expire, and sign new ones with the new key', async () => {
@@ -124,7 +124,7 @@ describe('Grants of state', () => {
 
         // Act
         const viewed = await json(`/orgs/${org.id}/apps/${appId}/instances/${bobId}`, alice, 'GET');
-        const grant = (await magnetic.database.query<{ id: string }>("SELECT id::text FROM state_grant WHERE kind = 'org-read' AND org_id = $1 AND issuer = $2", [org.id, magnetic.owners.of(bobId)])).rows[0]?.id as string;
+        const grant = (await magnetic.database.query<{ id: string }>("SELECT id::text FROM permission WHERE kind = 'org-read' AND owner::text = $1", [magnetic.owners.of(bobId)])).rows[0]?.id as string;
         const event = (await magnetic.database.query<{ detail: { grantId?: string } }>("SELECT detail FROM audit_event WHERE org_id = $1 AND action = 'instance.support_view'", [org.id])).rows[0];
         const token = await grants.tokenFor(grant);
         await json(`/orgs/${org.id}/members/${bobId}`, bob, 'DELETE');

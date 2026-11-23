@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { isUniqueViolation } from '@punyts/stateui-pg';
 import type { Database, Queryable } from '@punyts/stateui-pg';
+import { membersSubject, ownerSubject, Permissions } from '../permissions/Permissions.js';
 
 export const ORG_ROLES = ['owner', 'admin', 'builder', 'member'] as const;
 export type OrgRole = (typeof ORG_ROLES)[number];
@@ -83,15 +84,19 @@ export async function scimHolds(tx: Queryable, orgId: string, userId: string): P
 }
 
 /**
- * Takes a member out of an org in an open transaction: their groups of the org, their own app access there, the
- * membership, and the org's read grant on their state. The caller checks who may and keeps an owner
+ * Takes a member out of an org in an open transaction: their groups of the org, the app access given to them there,
+ * the membership, and the org's read of their state (the entries are revoked). The caller checks who may and keeps an
+ * owner
  */
 export async function dropMember(tx: Queryable, orgId: string, userId: string): Promise<void> {
     await tx.query('DELETE FROM org_group_member WHERE user_id = $2 AND group_id IN (SELECT id FROM org_group WHERE org_id = $1)', [orgId, userId]);
-    await tx.query("DELETE FROM app_access WHERE principal_kind = 'user' AND principal_id = $2 AND workspace_id = (SELECT id FROM workspace WHERE org_id = $1)", [orgId, userId]);
     await tx.query('DELETE FROM org_member WHERE org_id = $1 AND user_id = $2', [orgId, userId]);
+    const numbers = (await tx.query<{ org: string; user: string }>('SELECT o.owner_number::text AS org, u.owner_number::text AS user FROM org o, app_user u WHERE o.id = $1 AND u.id = $2', [orgId, userId])).rows[0];
+    if (numbers === undefined) return;
+    const permissions = new Permissions(tx as Database);
+    await permissions.revokeWhere("p.owner = $1::numeric AND p.subject = $2 AND p.kind LIKE 'access.%'", [numbers.org, ownerSubject(numbers.user)], undefined, tx);
     // The org reads a member's state only while they are one
-    await tx.query("UPDATE state_grant SET revoked_at = now() WHERE kind = 'org-read' AND org_id = $1 AND issuer = (SELECT owner_number::text FROM app_user WHERE id = $2) AND revoked_at IS NULL", [orgId, userId]);
+    await permissions.revokeWhere("p.owner = $1::numeric AND p.subject = $2 AND p.kind = 'org-read'", [numbers.user, membersSubject(numbers.org, 'admin')], undefined, tx);
 }
 
 /** How long an invite can be accepted */
@@ -164,6 +169,9 @@ export class Orgs {
                 await tx.query('INSERT INTO org (id, slug, name, created_by) VALUES ($1, $2, $3, $4)', [id, slug, name, userId]);
                 await tx.query("INSERT INTO workspace (id, kind, org_id) VALUES ($1, 'org', $2)", [workspaceId, id]);
                 await tx.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'owner')", [id, userId]);
+                // its owners and admins hold its whole tree
+                const number = (await tx.query<{ number: string }>('SELECT owner_number::text AS number FROM org WHERE id = $1', [id])).rows[0]?.number as string;
+                await new Permissions(this.db, this.now).make({ owner: number, pattern: '$', subject: membersSubject(number, 'admin'), rights: ['read', 'write', 'share'], kind: 'admins', madeBy: userId }, tx);
                 await audit(tx, { orgId: id, workspaceId, actorId: userId, action: 'org.created', targetKind: 'org', targetId: id, detail: { name, slug } });
             });
         } catch (error) {

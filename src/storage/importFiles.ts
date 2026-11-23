@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PART_KINDS } from '@punyts/stateui-mcp';
@@ -219,14 +220,21 @@ async function importGrants(tx: Queryable, dataDir: string, report: ImportReport
             report.skipped.push(`link ${grant.id}: its owner or app is not a UUID`);
             continue;
         }
+        // a link is an entry under its owner's number; a person who opened it holds an entry passed on from it
         const inserted = await tx.query(
-            `INSERT INTO link_grant (id, token, workspace_id, app_id, app_name, "right", created_by, created_at, revoked_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $3, $7, $8) ON CONFLICT DO NOTHING`,
-            [grant.id, grant.token, grant.ownerId, grant.appId, grant.appName, grant.right, grant.createdAt, grant.revokedAt ?? null]
+            `INSERT INTO permission (id, owner, pattern, subject, rights, kind, made_by, created_at, revoked_at, token, label)
+             SELECT $1::uuid, u.owner_number, '$.apps.' || $3, 'link:' || $1::text, '{read}', 'link.' || $4, u.id, $5, $6, $7, $8 FROM app_user u WHERE u.id = $2
+             ON CONFLICT DO NOTHING`,
+            [grant.id, grant.ownerId, grant.appId.toLowerCase(), grant.right, grant.createdAt, grant.revokedAt ?? null, grant.token, grant.appName]
         );
         report.grants += inserted.rowCount ?? 0;
+        if ((inserted.rowCount ?? 0) === 0) continue;
         for (const [userId, at] of Object.entries(grant.members)) {
-            await tx.query('INSERT INTO link_grant_member (grant_id, user_id, first_opened_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [grant.id, userId, at]);
+            await tx.query(
+                `INSERT INTO permission (id, owner, pattern, subject, rights, parent, kind, made_by, created_at, revoked_at)
+                 SELECT $1, p.owner, p.pattern, 'owner:' || u.owner_number, '{read}', p.id, 'opened', u.id, $4, p.revoked_at FROM permission p, app_user u WHERE p.id = $2 AND u.id = $3`,
+                [randomUUID(), grant.id, userId, at]
+            );
         }
     }
 }

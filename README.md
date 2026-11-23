@@ -367,7 +367,7 @@ workspace, and stops when you sign out of that browser.
     org's monthly budget still does.
   - Without the keys, the page shows the balance and says buying is not available.
 
-- **Sharing** (`Grants`, `link_grant` and `link_grant_member`). The editor's Share panel makes links to the app:
+- **Sharing** (`Grants`, as `link.*` entries of the `permission` table and the `opened` entries passed on from them). The editor's Share panel makes links to the app:
   - `use` (the default): each person who opens it gets their own instance of the app, with their own data
     (persona = their user id);
   - `view`: the owner's instance, live and read only. Changes are rejected and file uploads refused;
@@ -477,8 +477,10 @@ People can share part of their own state with someone else, read or write, and s
 - `POST /grants` `{ subject, address, prefix, rights, lifeMs?, parentId? }` shares part of your state (an address is
   `<owner>/<app>/user`), or passes on part of a grant you hold, never wider. `POST /grants/<id>/token` signs a fresh
   token, which lives four hours; `POST /grants/<id>/revoke` revokes a grant and everything passed on from it.
-- **Shared by me** (`/settings/shared`, `GET /grants`) lists every grant on your state and every grant you gave, with
-  when it was last used and Revoke.
+- **Shared by me** (`/settings/shared`, `GET /grants`) lists every permission entry on your state and apps and every
+  one you made (links, who opened them, app access, shares), with who holds it, when it was last used and Revoke.
+- **Permissions** (`src/permissions/Permissions.ts`, table `permission`): every right above is an entry of an owner
+  number, a path pattern, a subject, rights and a parent; `allows(person, owner, path, right)` is the one check.
 - An org reads its members' state in its apps through a standing grant (made the first time it reads, revoked when
   they leave); the support view reads through it and writes the grant's id to the audit log. With the policy
   `grantsInOrg`, members' state in the org's apps can be shared only with people in the org.

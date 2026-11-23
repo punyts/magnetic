@@ -19,6 +19,8 @@ afterEach(async () => {
 describe('migration 0016 (owner tree addresses)', () => {
     it("should move the addresses Magnetic keeps to an owner and a path under its $, an org's read of every app included, and change nothing the second time", async () => {
         // Arrange: a namespace's workspace and three grants, by the addresses of before
+        // state_grant moved into permission (0024); this migration ran on it as it was then
+        await test.db.query('CREATE TABLE state_grant (id uuid PRIMARY KEY, kind text NOT NULL, issuer text NOT NULL, subject text NOT NULL, address text NOT NULL, prefix text NOT NULL, rights text[] NOT NULL, issued_at timestamptz NOT NULL DEFAULT now())');
         const [user, app, workspace] = [randomUUID(), randomUUID(), randomUUID()];
         await test.db.query('INSERT INTO statenet_namespace (address, workspace_id) VALUES ($1, $2)', [`${user}/${app}/user`, workspace]);
         const grant = "INSERT INTO state_grant (id, kind, issuer, subject, address, prefix, rights, issued_at) VALUES ($1, $2, $3, 'someone', $4, '$', '{read}', now())";

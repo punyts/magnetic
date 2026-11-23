@@ -349,9 +349,9 @@ describe('SCIM provisioning per org', () => {
         const byMember = (await (await scim('GET', `/Groups?filter=${encodeURIComponent(`members[value eq "${leeId}"]`)}`)).json()) as { totalResults: number };
         const adminAdd = await json(`/orgs/${orgId}/groups/${made.id}/members/${ann.userId}`, alice, 'POST');
         const handGroup = await scim('GET', `/Groups/${(await magnetic.orgs.groups(aliceId, orgId)).find((group) => group.name === 'Finance')?.id}`);
-        await magnetic.database.query("INSERT INTO app_access (workspace_id, app_id, principal_kind, principal_id, permission) VALUES ($1, $2, 'group', $3, 'use')", [org?.workspaceId, '00000000-0000-4000-8000-000000000001', made.id]);
+        await magnetic.database.query("INSERT INTO permission (id, owner, pattern, subject, rights, kind, created_at) SELECT $1, o.owner_number, '$.apps.00000000-0000-4000-8000-000000000001', 'group:' || o.owner_number || '.' || $3, '{read}', 'access.use', now() FROM org o WHERE o.id = $2", [crypto.randomUUID(), orgId, made.id]);
         const deleted = await scim('DELETE', `/Groups/${made.id}`);
-        const access = (await magnetic.database.query("SELECT 1 FROM app_access WHERE principal_kind = 'group' AND principal_id = $1", [made.id])).rows.length;
+        const access = (await magnetic.database.query("SELECT 1 FROM permission WHERE subject LIKE 'group:%.' || $1 AND revoked_at IS NULL", [made.id])).rows.length;
 
         // Assert
         expect(clash.status).toBe(409);

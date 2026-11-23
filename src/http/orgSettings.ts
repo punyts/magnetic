@@ -12,7 +12,7 @@ import type { OrgPolicy } from '../orgs/Policies.js';
 import type { OrgSsoSettings } from '../orgs/Sso.js';
 import type { OrgSamlSettings } from '../orgs/Saml.js';
 import type { OrgScimStatus } from '../orgs/Scim.js';
-import type { GrantRecord } from '../grants/StateGrants.js';
+import type { Permission } from '../permissions/Permissions.js';
 import { htmlOpen } from './pages.js';
 import type { PageLook } from './pages.js';
 
@@ -374,32 +374,55 @@ export function supportPage(view: { readonly look: PageLook; readonly org: Org; 
 /** What Shared by me shows */
 export interface SharedPageView {
     readonly look: PageLook;
-    readonly grants: readonly GrantRecord[];
-    /** People's and orgs' names by subject, apps' names by id */
+    readonly entries: readonly Permission[];
+    /** The names of subjects (`owner:<number>`), orgs by number (`org:<number>`) and groups (`group:<id>`) */
     readonly names: ReadonlyMap<string, string>;
+    /** Apps' names by id */
     readonly apps: ReadonlyMap<string, string>;
     readonly notice?: string;
     readonly error?: string;
 }
 
-/** `GET /settings/shared`: every grant on the person's state and every grant they gave, with Revoke */
+/** `GET /settings/shared`: every permission entry on the person's state and apps and every one they made, with Revoke */
 export function sharedPage(view: SharedPageView): string {
     const t = orgTextsOf(view.look.language);
     const date = (at: string | undefined, none: string): string => (at === undefined ? none : new Date(at).toISOString().slice(0, 16).replace('T', ' '));
-    const rows = view.grants
-        .map((grant) => {
-            const [, branch, named] = grant.address.split('/');
-            const appId = named ?? '';
-            const to = grant.kind === 'org-read' ? t['shared.orgRead'] : (view.names.get(grant.subject) ?? grant.subject);
-            const app = branch === 'data' ? fill(t['shared.dataset'], { name: appId }) : appId === '*' ? t['shared.allApps'] : (view.apps.get(appId) ?? appId);
-            const rights = grant.rights.map((right) => t[`shared.${right}`]).join(', ');
-            const until = grant.revokedAt !== undefined ? t['shared.revoked'] : grant.expiresAt === undefined ? t['shared.standing'] : date(grant.expiresAt, '');
-            const revoke = grant.revokedAt !== undefined ? '' : `<form method="post" action="/settings/shared" class="inline"><input type="hidden" name="id" value="${e(grant.id)}"><button class="danger">${e(t['shared.revoke'])}</button></form>`;
-            return `<tr><td>${e(to)}</td><td>${e(app)}</td><td><code>${e(grant.prefix)}</code></td><td>${e(rights)}</td><td>${e(until)}</td><td>${e(date(grant.lastUsedAt, t['shared.never']))}</td><td>${revoke}</td></tr>`;
+    const orgName = (number: string): string => view.names.get(`org:${number}`) ?? number;
+    const holder = (entry: Permission): string => {
+        if (entry.kind === 'org-read') return t['shared.orgRead'];
+        if (entry.kind === 'link.view') return t['shared.linkView'];
+        if (entry.kind === 'link.use') return t['shared.linkUse'];
+        if (entry.kind === 'link.remix') return t['shared.linkRemix'];
+        const subject = entry.subject;
+        if (subject === 'everyone') return t['shared.everyone'];
+        if (subject.startsWith('owner:')) {
+            const name = view.names.get(subject) ?? subject.slice('owner:'.length);
+            return entry.kind === 'opened' ? fill(t['shared.opened'], { name }) : name;
+        }
+        const members = /^members:([0-9]+)(?:\.([a-z]+))?$/.exec(subject);
+        if (members !== null) return members[2] === undefined ? fill(t['shared.members'], { org: orgName(members[1] as string) }) : fill(t['shared.role'], { org: orgName(members[1] as string), role: members[2] });
+        const group = /^group:[0-9]+\.(.+)$/.exec(subject);
+        if (group !== null) return fill(t['shared.group'], { name: view.names.get(`group:${group[1] as string}`) ?? (group[1] as string) });
+        return subject;
+    };
+    const covers = (entry: Permission): { what: string; path: string } => {
+        const [, branch, name = '', ...rest] = entry.pattern.split('.');
+        const path = ['$', ...rest].join('.');
+        if (branch === 'data') return { what: fill(t['shared.dataset'], { name }), path };
+        if (branch === 'apps') return { what: name === '*' ? t['shared.allApps'] : (view.apps.get(name) ?? name), path };
+        return { what: '', path: entry.pattern };
+    };
+    const rows = view.entries
+        .map((entry) => {
+            const { what, path } = covers(entry);
+            const rights = entry.rights.map((right) => t[`shared.${right}`]).join(', ');
+            const until = entry.revokedAt !== undefined ? t['shared.revoked'] : entry.until === undefined ? t['shared.standing'] : date(entry.until, '');
+            const revoke = entry.revokedAt !== undefined ? '' : `<form method="post" action="/settings/shared" class="inline"><input type="hidden" name="id" value="${e(entry.id)}"><button class="danger">${e(t['shared.revoke'])}</button></form>`;
+            return `<tr><td>${e(holder(entry))}</td><td>${e(what)}</td><td><code>${e(path)}</code></td><td>${e(rights)}</td><td>${e(until)}</td><td>${e(date(entry.lastUsedAt, t['shared.never']))}</td><td>${revoke}</td></tr>`;
         })
         .join('');
     const table =
-        view.grants.length === 0
+        view.entries.length === 0
             ? `<p class="muted">${e(t['shared.none'])}</p>`
             : `<div class="table"><table><thead><tr><th>${e(t['shared.to'])}</th><th>${e(t['shared.app'])}</th><th>${e(t['shared.what'])}</th><th>${e(t['shared.rights'])}</th><th>${e(t['shared.until'])}</th><th>${e(t['shared.used'])}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
     return page(view.look, t['shared.pageTitle'], `${top(t, t['shared.title'], [['/', t['shared.back']]])}<p class="muted">${e(t['shared.intro'])}</p>${messages(view)}${table}`);

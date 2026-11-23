@@ -3,7 +3,8 @@ import type { GrantRight } from '@punyts/state-sync/authority';
 import type { Database } from '@punyts/stateui-pg';
 import type { User } from '../accounts/Accounts.js';
 import type { OwnerKeys } from '../grants/OwnerKeys.js';
-import type { StateGrants } from '../grants/StateGrants.js';
+import { subjectName, type StateGrants } from '../grants/StateGrants.js';
+import { Permissions, type Permission } from '../permissions/Permissions.js';
 import { sharedPage } from '../http/orgSettings.js';
 import { orgTextsOf } from '../http/orgText.js';
 import type { PageLook } from '../http/pages.js';
@@ -39,7 +40,7 @@ const ORG_ROTATE = /^\/orgs\/([0-9a-fA-F-]{36})\/keys\/rotate$/;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
- * Grants over HTTP (docs/design/statenet-relays.md, "Grants" and "Visibility"): `GET /grants` (Shared by me, as JSON),
+ * Grants over HTTP (docs/design/statenet-permissions.md, "Tokens" and "Pages"): `GET /grants` (Shared by me, as JSON),
  * `POST /grants` (share part of your state, or pass on part of a grant you hold), `POST /grants/<id>/token` (a fresh
  * short-lived token, for the grant's subject or issuer), `POST /grants/<id>/revoke`, `POST /keys/rotate` (your own
  * signing key) and `POST /orgs/<id>/keys/rotate` (an org owner, the org's). `GET /settings/shared` is the Shared by me
@@ -48,29 +49,40 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 export function grantRoutes(context: GrantRouteContext): (request: IncomingMessage, response: ServerResponse, method: string, path: string, query: URLSearchParams) => Promise<boolean> {
     const { grants } = context;
 
-    async function namesOf(grantList: Awaited<ReturnType<StateGrants['sharedBy']>>): Promise<{ names: Map<string, string>; apps: Map<string, string> }> {
-        const subjects = [...new Set(grantList.map((grant) => grant.subject))].filter((subject) => /^[0-9a-f-]{36}$/i.test(subject));
-        const appIds = [...new Set(grantList.map((grant) => grant.address.split('/')[2] ?? ''))].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
-        const names = new Map((await context.db.query<{ id: string; name: string }>('SELECT id::text, name FROM app_user WHERE id::text = ANY($1::text[])', [subjects])).rows.map((row) => [row.id, row.name] as const));
-        // An app's name is behind row-level security; Shared by me shows the names of the person's own apps and their orgs' apps it can read
-        const apps = new Map<string, string>();
-        for (const id of appIds) {
-            const row = (await context.db.query<{ workspace_id: string }>('SELECT workspace_id::text FROM app_setting WHERE app_id::text = $1', [id])).rows[0];
-            const workspace = row?.workspace_id;
-            const name = await context.db.transaction(
-                async (tx) => (await tx.query<{ name: string }>("SELECT name FROM part WHERE kind = 'apps' AND id::text = $1", [id])).rows[0]?.name,
-                { workspaceIds: workspace === undefined ? grantList.map((grant) => grant.address.split('/')[0] ?? '').filter((owner) => /^[0-9a-f-]{36}$/i.test(owner)) : [workspace] }
-            );
-            if (name !== undefined) apps.set(id, name);
+    /** The names Shared by me shows: people and orgs by number, groups by id, and the apps the person can read */
+    async function namesOf(user: User, entries: readonly Permission[]): Promise<{ names: Map<string, string>; apps: Map<string, string> }> {
+        const numbers = new Set<string>();
+        const groups = new Set<string>();
+        for (const entry of entries) {
+            const subject = /^(?:owner|members|group):([0-9]+)(?:\.(.+))?$/.exec(entry.subject);
+            if (subject === null) continue;
+            numbers.add(subject[1] as string);
+            if (entry.subject.startsWith('group:') && subject[2] !== undefined) groups.add(subject[2]);
         }
+        const names = new Map<string, string>();
+        for (const row of (await context.db.query<{ number: string; name: string }>('SELECT owner_number::text AS number, name FROM app_user WHERE owner_number::text = ANY($1::text[])', [[...numbers]])).rows) names.set(`owner:${row.number}`, row.name);
+        for (const row of (await context.db.query<{ number: string; name: string }>('SELECT owner_number::text AS number, name FROM org WHERE owner_number::text = ANY($1::text[])', [[...numbers]])).rows) {
+            names.set(`owner:${row.number}`, row.name);
+            names.set(`org:${row.number}`, row.name);
+        }
+        for (const row of (await context.db.query<{ id: string; name: string }>('SELECT id::text, name FROM org_group WHERE id::text = ANY($1::text[])', [[...groups]])).rows) names.set(`group:${row.id}`, row.name);
+        // An app's name is behind row-level security: Shared by me shows the names of the person's own apps and their orgs' apps
+        const appIds = [...new Set(entries.map((entry) => entry.pattern.split('.')[2] ?? ''))].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+        const workspaceIds = [user.id, ...(await context.db.query<{ id: string }>("SELECT w.id::text FROM workspace w JOIN org_member m ON m.org_id = w.org_id WHERE m.user_id = $1 AND w.kind = 'org'", [user.id])).rows.map((row) => row.id)];
+        const apps = new Map(
+            await context.db.transaction(
+                async (tx) => (await tx.query<{ id: string; name: string }>("SELECT id::text, name FROM part WHERE kind = 'apps' AND id::text = ANY($1::text[])", [appIds])).rows.map((row) => [row.id, row.name] as const),
+                { workspaceIds }
+            )
+        );
         return { names, apps };
     }
 
     async function showShared(request: IncomingMessage, response: ServerResponse, user: User, extra: { notice?: string; error?: string } = {}, status = 200): Promise<void> {
         const look = await context.lookOf(request, user.id);
-        const list = grants === undefined ? [] : await grants.sharedBy(user.id);
-        const { names, apps } = await namesOf(list);
-        context.sendPage(response, sharedPage({ look, grants: list, names, apps, ...extra, ...(grants === undefined && { error: GRANTS_UNAVAILABLE }) }), status);
+        const entries = grants === undefined ? [] : await grants.sharedBy(user.id);
+        const { names, apps } = await namesOf(user, entries);
+        context.sendPage(response, sharedPage({ look, entries, names, apps, ...extra, ...(grants === undefined && { error: GRANTS_UNAVAILABLE }) }), status);
     }
 
     async function handle(request: IncomingMessage, response: ServerResponse, method: string, path: string, query: URLSearchParams, user: User): Promise<boolean> {
@@ -119,9 +131,11 @@ export function grantRoutes(context: GrantRouteContext): (request: IncomingMessa
             const id = (match[1] as string).toLowerCase();
             if (match[2] === 'token') {
                 // a grant names who gave it and who holds it by their numbers
-                const row = (await context.db.query<{ subject: string; issuer: string }>('SELECT subject, issuer FROM state_grant WHERE id = $1', [id])).rows[0];
+                const entry = await new Permissions(context.db).get(id);
+                const parent = entry?.parent === undefined ? undefined : await new Permissions(context.db).get(entry.parent);
                 const me = await context.owners.nameOf(user.id);
-                if (row === undefined || (row.subject !== me && row.issuer !== me)) throw new OrgError(404, 'No such grant.');
+                const issuer = entry === undefined ? undefined : parent === undefined ? entry.owner : subjectName(parent.subject);
+                if (entry === undefined || (subjectName(entry.subject) !== me && issuer !== me)) throw new OrgError(404, 'No such grant.');
                 context.sendJson(response, 200, { token: await grants.tokenFor(id) });
             } else {
                 const revoked = await grants.revoke(user.id, id);

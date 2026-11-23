@@ -22,6 +22,8 @@ const column = async (sql: string): Promise<string[]> => (await test.db.query<{ 
 describe('migration 0017 (owner numbers everywhere)', () => {
     it("should name every owner by its number in addresses, grants and beside keys, an org's subject and workspace included, leave what is no owner's, and change nothing the second time", async () => {
         // Arrange: a person, an org with its workspace, and what was stored by their ids
+        // state_grant moved into permission (0024); this migration ran on it as it was then
+        await test.db.query('CREATE TABLE state_grant (id uuid PRIMARY KEY, kind text NOT NULL, issuer text NOT NULL, subject text NOT NULL, address text NOT NULL, prefix text NOT NULL, rights text[] NOT NULL, issued_at timestamptz NOT NULL DEFAULT now())');
         const ana = await new Accounts(test.db).signIn({ provider: 'dev', subject: 'ana' }, { name: 'Ana' });
         const [org, orgSpace, app, stranger] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
         await test.db.query('INSERT INTO org (id, slug, name, created_by) VALUES ($1, $2, $3, $4)', [org, 'acme', 'Acme', ana.id]);

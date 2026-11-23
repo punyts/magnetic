@@ -17,6 +17,8 @@ describe('Grants', () => {
 
     beforeEach(async () => {
         test = await magneticTestDatabase();
+        // links are entries under their owner's number, and an opening under the opener's
+        for (const [id, name] of [[OWNER, 'owner'], [BOB, 'bob'], [CAROL, 'carol'], [MALLORY, 'mallory']]) await test.db.query('INSERT INTO app_user (id, name) VALUES ($1, $2)', [id, name]);
         clock = 1;
     });
 
