@@ -1,5 +1,5 @@
 import { addressPath, checkAccess, ownerOfAddress, readGrant, signGrant } from '@punyts/state-sync/authority';
-import type { Access, GrantRight } from '@punyts/state-sync/authority';
+import type { Access, GrantContext, GrantRight } from '@punyts/state-sync/authority';
 import type { Database } from '@punyts/stateui-pg';
 import { membersSubject, ownerSubject, PermissionError, Permissions, type Permission } from '../permissions/Permissions.js';
 import { audit, OrgError } from '../orgs/Orgs.js';
@@ -12,7 +12,7 @@ export const TOKEN_LIFE_MS = 4 * 3_600_000;
 /** The longest a share may last before it is given again */
 export const MAX_SHARE_MS = 30 * 86_400_000;
 
-export type GrantKind = 'share' | 'passed' | 'org-read';
+export type GrantKind = 'share' | 'passed' | 'org-read' | 'bound';
 
 /** A state grant or dataset share, with people, workspaces and orgs by their ids */
 export interface GrantRecord {
@@ -49,7 +49,8 @@ export interface IssueInput {
 
 /**
  * The address of a workspace's dataset, for grants: `$.data.<dataset>` of its owner's tree, `<owner>/data/<dataset>`
- * (docs/design/statenet-network.md, "`$` is the owner"). The records stay in the data part; this names them
+ * (docs/design/statenet-network.md, "`$` is the owner"). Named by the workspace's id here; at the edge of this class
+ * the owner becomes its number, so it is the address of the dataset's namespace (docs/design/statenet-requests.md)
  */
 export const datasetAddress = (workspaceId: string, dataset: string): string => `${workspaceId}/data/${dataset}`;
 
@@ -113,6 +114,9 @@ async function refusing<T>(work: () => Promise<T>): Promise<T> {
  * pages and tables do; it turns one into the other at its edge (`OwnerNumbers`)
  */
 export class StateGrants {
+    /** Entries revoked within a token's life, as `refreshRevoked` last read them and `revoke` added since */
+    private revokedIds = new Set<string>();
+
     constructor(
         private readonly db: Database,
         private readonly keys: OwnerKeys,
@@ -222,7 +226,7 @@ export class StateGrants {
                 subject: subjectName(entry.subject),
                 owner: entry.owner,
                 pattern: entry.pattern,
-                rights: entry.rights.filter((right): right is GrantRight => right === 'read' || right === 'write'),
+                rights: entry.rights.filter((right): right is GrantRight => right === 'read' || right === 'write' || right === 'request'),
                 issued: now.getTime(),
                 expires: ends,
                 ...(parent !== undefined && { parent })
@@ -261,6 +265,7 @@ export class StateGrants {
             const mine = actor === entry.owner || actor === (await this.issuerOf(entry)) || (by ?? actorId) === entry.madeBy || actorId === entry.madeBy;
             if (!mine && !orgAdmin) throw new OrgError(403, 'Only who gave a grant, or the owner of the state, can revoke it.');
             const revoked = await table.revoke(grantId, by ?? (UUID.test(actorId) ? actorId : undefined), tx);
+            for (const id of revoked) this.revokedIds.add(id);
             const { address } = addressOfEntry(entry);
             const org = entry.kind === 'org-read' ? await this.owners.idOfName(subjectName(entry.subject)) : undefined;
             const orgId = org?.startsWith('org:') === true ? org.slice('org:'.length) : await this.orgOfAddress(address);
@@ -275,7 +280,7 @@ export class StateGrants {
      */
     async sharedBy(ownerId: string): Promise<Permission[]> {
         const number = await this.owners.nameOf(ownerId);
-        return this.table(new Date()).find("(p.owner::text = $1 OR p.made_by::text = $2) AND p.kind NOT IN ('admins', 'creator') ORDER BY p.created_at DESC, p.id LIMIT 500", [number, ownerId.toLowerCase()]);
+        return this.table(new Date()).find("(p.owner::text = $1 OR p.made_by::text = $2) AND p.kind NOT IN ('admins', 'creator', 'bound') ORDER BY p.created_at DESC, p.id LIMIT 500", [number, ownerId.toLowerCase()]);
     }
 
     /** The shares of a workspace's datasets that hold now, newest first */
@@ -307,6 +312,40 @@ export class StateGrants {
             now
         ]);
         return found.length === 0 ? undefined : (await this.records(found))[0];
+    }
+
+    /**
+     * The access an instance's binding of a workspace's dataset connects with, as the persona it acts for
+     * (docs/design/statenet-requests.md, R3b): the workspace itself for its own persona (`default`), otherwise a token
+     * for the person's standing `bound` entry on the dataset, read and write, made the first time they bind it and kept
+     * until revoked. The token's keys are loaded, so a check with `accessContext` reads them synchronously
+     */
+    async boundAccess(persona: string, workspaceId: string, dataset: string, now: Date = new Date()): Promise<Access> {
+        const owner = await this.owners.nameOf(workspaceId);
+        if (persona === 'default' || persona.toLowerCase() === workspaceId.toLowerCase()) return { subject: owner };
+        const person = await this.owners.nameOf(persona);
+        const table = this.table(now);
+        const subject = ownerSubject(person);
+        const pattern = `$.data.${dataset}`;
+        const existing = (await table.find("p.kind = 'bound' AND p.owner::text = $1 AND p.subject = $2 AND p.pattern = $3 AND p.revoked_at IS NULL", [owner, subject, pattern]))[0];
+        const id = existing?.id ?? (await table.make({ owner, pattern, subject, rights: ['read', 'write'], kind: 'bound' })).id;
+        const grant = await this.tokenFor(id, now);
+        await this.keys.load(grant);
+        return { subject: person, grant };
+    }
+
+    /**
+     * What a dataset's authority checks sessions with: the keys loaded so far and the entries revoked within a token's
+     * life, read now (`refreshRevoked`)
+     */
+    accessContext(): GrantContext {
+        return { keyOf: (kid) => this.keys.keyOf(kid), now: Date.now(), revoked: (id) => this.revokedIds.has(id) };
+    }
+
+    /** Reads the entries revoked within a token's life, for `accessContext`; a server calls it every few seconds */
+    async refreshRevoked(now: Date = new Date()): Promise<void> {
+        const rows = (await this.db.query<{ id: string }>('SELECT id::text FROM permission WHERE revoked_at IS NOT NULL AND revoked_at > $1', [new Date(now.getTime() - TOKEN_LIFE_MS)])).rows;
+        this.revokedIds = new Set(rows.map((row) => row.id));
     }
 
     /** The org's standing read of a member's state in its apps: made the first time the org reads it, and kept until revoked */

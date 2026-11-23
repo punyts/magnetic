@@ -22,7 +22,8 @@ export type PermissionKind =
     | 'opened'
     | 'share'
     | 'passed'
-    | 'org-read';
+    | 'org-read'
+    | 'bound';
 
 /** The longest chain of entries passed on, the owner's own included (state-sync's `MAX_GRANT_DEPTH`) */
 export const MAX_DEPTH = 8;

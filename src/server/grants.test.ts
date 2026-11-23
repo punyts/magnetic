@@ -1,4 +1,4 @@
-import { readGrant } from '@punyts/state-sync/authority';
+import { checkAccess, readGrant } from '@punyts/state-sync/authority';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { txInstances } from '@punyts/stateui-pg';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
@@ -151,5 +151,42 @@ describe('Grants of state', () => {
         expect(outside.status).toBe(403);
         expect(((await outside.json()) as { message: string }).message).toBe("The org's policy keeps grants of its apps' state in the org.");
         expect(inside.status).toBe(201);
+    });
+
+    describe("a binding's access to a dataset (docs/design/statenet-requests.md, R3b)", () => {
+        it('should give a person one standing bound entry on the dataset, read and write, and the workspace itself access without a grant', async () => {
+            // Act
+            const first = await grants.boundAccess(bobId, aliceId, 'prices');
+            const again = await grants.boundAccess(bobId, aliceId, 'prices');
+            const owner = await grants.boundAccess('default', aliceId, 'prices');
+
+            // Assert
+            const claims = readGrant(first.grant as string);
+            expect(claims).toMatchObject({ subject: magnetic.owners.of(bobId), owner: magnetic.owners.of(aliceId), pattern: '$.data.prices', rights: ['read', 'write'] });
+            expect(readGrant(again.grant as string)?.entry).toBe(claims?.entry);
+            expect(owner).toEqual({ subject: magnetic.owners.of(aliceId) });
+            const address = `${owner.subject}/data/prices`;
+            expect(checkAccess(first, { address, path: '$.data.records.tea', right: 'write' }, grants.accessContext())).toMatchObject({ ok: true });
+            expect(checkAccess(first, { address: `${owner.subject}/data/other`, path: '$.data.records.tea', right: 'write' }, grants.accessContext())).toMatchObject({ ok: false });
+            const listed = await grants.sharedBy(aliceId);
+            expect(listed.some((entry) => entry.kind === 'bound')).toBe(false);
+        });
+
+        it('should refuse a bound grant once its entry is revoked, here at once and on another server once it reads the revocations', async () => {
+            // Arrange
+            const access = await grants.boundAccess(carolId, aliceId, 'stock');
+            const entry = readGrant(access.grant as string)?.entry as string;
+            const address = `${magnetic.owners.of(aliceId)}/data/stock`;
+
+            // Act
+            await grants.revoke(aliceId, entry);
+            const here = checkAccess(access, { address, path: '$.data.records.tea', right: 'write' }, grants.accessContext());
+            await grants.refreshRevoked();
+            const reread = checkAccess(access, { address, path: '$.data.records.tea', right: 'write' }, grants.accessContext());
+
+            // Assert
+            expect(here).toEqual({ ok: false, reason: 'revoked' });
+            expect(reread).toEqual({ ok: false, reason: 'revoked' });
+        });
     });
 });

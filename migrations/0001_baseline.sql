@@ -564,7 +564,7 @@ CREATE TABLE permission (
     token text,
     label text,
     last_used_at timestamp with time zone,
-    CONSTRAINT permission_kind_check CHECK ((kind = ANY (ARRAY['access.view'::text, 'access.use'::text, 'access.edit'::text, 'access.manage'::text, 'open'::text, 'creator'::text, 'admins'::text, 'link.view'::text, 'link.use'::text, 'link.remix'::text, 'opened'::text, 'share'::text, 'passed'::text, 'org-read'::text]))),
+    CONSTRAINT permission_kind_check CHECK ((kind = ANY (ARRAY['access.view'::text, 'access.use'::text, 'access.edit'::text, 'access.manage'::text, 'open'::text, 'creator'::text, 'admins'::text, 'link.view'::text, 'link.use'::text, 'link.remix'::text, 'opened'::text, 'share'::text, 'passed'::text, 'org-read'::text, 'bound'::text]))),
     CONSTRAINT permission_rights_check CHECK (((cardinality(rights) > 0) AND (rights <@ ARRAY['read'::text, 'request'::text, 'write'::text, 'share'::text]))),
     CONSTRAINT permission_pkey PRIMARY KEY (id),
     CONSTRAINT permission_token_key UNIQUE (token),

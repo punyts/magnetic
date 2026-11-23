@@ -650,7 +650,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     }),
                     ...(statenet !== undefined && { placement: statenet.placement }),
                     // Datasets other owners shared with this workspace, read by its apps' `uses.external`
-                    ...(sharedData !== undefined && { sharedData: sharedData.forReader(workspaceId) })
+                    ...(sharedData !== undefined && { sharedData: sharedData.forReader(workspaceId) }),
+                    // Who may write the workspace's datasets: each binding connects as its person (docs/design/statenet-requests.md, R3b)
+                    ...(stateGrants !== undefined && {
+                        datasetAccess: { context: () => stateGrants.accessContext(), accessFor: (persona: string, dataset: string) => stateGrants.boundAccess(persona, workspaceId, dataset) }
+                    })
                 });
                 await services.recoverParts();
                 return services;
@@ -2080,6 +2084,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     networkOrigin = http.networkOrigin;
     const sweep = setInterval(() => void workspaces.sweep(), 60_000);
     sweep.unref();
+    // Revocations reach the datasets' authorities here within seconds, wherever they were made
+    const readRevoked = (): void => void stateGrants?.refreshRevoked().catch((error: unknown) => options.report.info('Reading revocations failed', { error: error instanceof Error ? error.message : String(error) }));
+    const revocations = setInterval(readRevoked, 5_000);
+    revocations.unref();
+    readRevoked();
     // Each org's retentionDays: its old chats, and the state of people no longer in it, go once an hour
     const retention = setInterval(() => void policies.applyRetention().catch((error: unknown) => options.report.info('Retention sweep failed', { error: error instanceof Error ? error.message : String(error) })), 3_600_000);
     retention.unref();
@@ -2128,6 +2137,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             if (stopped) return;
             stopped = true;
             clearInterval(sweep);
+            clearInterval(revocations);
             clearInterval(retention);
             clearInterval(samlMetadata);
             await turns.stopAll();
