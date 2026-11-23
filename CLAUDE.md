@@ -53,15 +53,15 @@ $0.15, so allowances move.
   their definition and texts changes, under an advisory lock (`src/storage/exclusive.ts`) because two servers race.
 - Text: `src/http/text.ts` has `EN` and `DE`/`FR`/`ES` typed against it (a missing key fails the typecheck), and pages
   have their own `*Text.ts` files (billing, connections, data, orgs). Admin pages are English only.
-- Database: Magnetic's tables are in `migrations/NNNN_name.sql` (next is 0025); StateUI's workspace tables come from
-  `@punyts/stateui-pg`. Only stateui-pg's workspace tables have row-level security; a new workspace-scoped table must
-  copy that policy and be queried through `db.transaction(…, { workspaceIds })`. The server connects as
-  `magnetic_app`, granted every table by `migrate --app-role`; hosted, `--aggregate-role magnetic_aggregate` leaves it
-  only `SELECT` on `state_node`, `state_change` and `namespace_head`, so people's state changes only through
-  `StateWriter` (`src/statenet/StateNamespaces.ts`) and the aggregate. `statenet.test.ts` and the e2e server run as
-  those roles (`roleDatabases` in `src/testing/testDb.ts`). The development `magnetic` user is a superuser and
-  bypasses row-level security. A migration that rewrites workspace rows sets no workspace, so it lifts `FORCE ROW
-  LEVEL SECURITY` for its own transaction and restores it (`0013_effect_function_paths.sql`).
+- Database: Magnetic's tables are in `migrations/0001_baseline.sql`. While Magnetic has no users a schema change edits
+  that file, and the database is reset (`npm run magnetic:reset` locally; resetting the hosted one is the owner's call).
+  StateUI's workspace tables come from `@punyts/stateui-pg`. Only stateui-pg's workspace tables have row-level security;
+  a new workspace-scoped table must copy that policy and be queried through `db.transaction(…, { workspaceIds })`. The
+  server connects as `magnetic_app`, granted every table by `migrate --app-role`; hosted, `--aggregate-role
+  magnetic_aggregate` leaves it only `SELECT` on `state_node`, `state_change` and `namespace_head`, so people's state
+  changes only through `StateWriter` (`src/statenet/StateNamespaces.ts`) and the aggregate. `statenet.test.ts` and the
+  e2e server run as those roles (`roleDatabases` in `src/testing/testDb.ts`). The development `magnetic` user is a
+  superuser and bypasses row-level security.
 - Generate UUIDs in code (`randomUUID()`), not in SQL.
 - Budgets: `src/agent/Budgets.ts` (spend ledger `agent_request`; credits, payments and gifts in `agent_credit`); the
   beta's places: `src/beta/Beta.ts`.
