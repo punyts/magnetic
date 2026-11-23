@@ -18,7 +18,7 @@ import type { Embedder } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from './agent/Chats.js';
 import { EMBEDDING_SOURCES } from './search/Search.js';
 import { Feedback } from './feedback/Feedback.js';
-import { ALL_MIGRATIONS } from './storage/db.js';
+import { AGGREGATE_READS, ALL_MIGRATIONS } from './storage/db.js';
 import { importPeople } from './storage/importFiles.js';
 import type { OidcProvider } from './auth/OidcSignIn.js';
 import { MockAgentModel } from './testing/mockAgentModel.js';
@@ -93,8 +93,7 @@ async function main(): Promise<void> {
                 process.stdout.write(`magnetic: ${options.appRole} may read and write the tables${options.aggregateRole === undefined ? '' : ", and only read people's state"}\n`);
             }
             if (options.aggregateRole !== undefined) {
-                // The aggregate reads which workspace an address is in, and the grant keys it gives the relays
-                await grantAggregateRole(database, options.aggregateRole, ['statenet_namespace', 'owner_key']);
+                await grantAggregateRole(database, options.aggregateRole, AGGREGATE_READS);
                 process.stdout.write(`magnetic: ${options.aggregateRole} may write people's state\n`);
             }
             // The search index of the configured model is the owner's to make; the servers may not own the table

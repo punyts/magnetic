@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import type { PreviewBrowser, UiPart } from '@punyts/stateui-mcp';
+import { assertMigrated } from '@punyts/stateui-pg';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
@@ -10,6 +11,7 @@ import { SecretBox } from '../auth/secrets.js';
 import { startMagneticAggregate } from '../statenet/MagneticAggregate.js';
 import type { MagneticAggregate } from '../statenet/MagneticAggregate.js';
 import { StatenetAuthority } from '../statenet/StatenetNode.js';
+import { ALL_MIGRATIONS } from '../storage/db.js';
 import { magneticTestDatabase, roleDatabases } from '../testing/testDb.js';
 import type { RoleDatabases } from '../testing/testDb.js';
 import { startMagnetic } from './startMagnetic.js';
@@ -172,6 +174,16 @@ describe('several Magnetic servers on one database', () => {
         expect(one.statenet?.mesh.node.owned()).toContain(address);
         expect(two.statenet?.mesh.node.owned()).not.toContain(address);
         view.ws.close();
+    });
+
+    it("should let the aggregate's role check that the database is migrated, as the aggregate does when it starts", async () => {
+        // Arrange: the roles of beforeAll, granted as `migrate --aggregate-role` grants them
+
+        // Act
+        const checked = assertMigrated(roles.aggregate, ALL_MIGRATIONS);
+
+        // Assert
+        await expect(checked).resolves.toBeUndefined();
     });
 
     it('should show a view at one server a part another server changed, and restart the instance over it where it runs', async () => {

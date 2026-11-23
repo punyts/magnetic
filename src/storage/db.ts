@@ -7,3 +7,9 @@ export const MAGNETIC_MIGRATIONS: MigrationSet = { owner: 'magnetic', dir: fileU
 
 /** Every migration set a Magnetic database needs, in the order they apply */
 export const ALL_MIGRATIONS: readonly MigrationSet[] = [STATEUI_PG_MIGRATIONS, MAGNETIC_MIGRATIONS];
+
+/**
+ * The tables the aggregate's role reads besides people's state: which workspace an address is in, the grant keys it
+ * gives the relays, and the migrations it checks at start
+ */
+export const AGGREGATE_READS: readonly string[] = ['statenet_namespace', 'owner_key', 'schema_migration'];

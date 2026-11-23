@@ -2,7 +2,7 @@ import { createDatabase, grantAggregateRole, grantAppRole } from '@punyts/stateu
 import type { Database } from '@punyts/stateui-pg';
 import { createTestDatabase } from '@punyts/stateui-pg/testing';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
-import { ALL_MIGRATIONS } from '../storage/db.js';
+import { AGGREGATE_READS, ALL_MIGRATIONS } from '../storage/db.js';
 
 /** A schema of its own in the test database (`PUNYTS_TEST_DATABASE_URL`) with Magnetic's tables, dropped by `drop` */
 export function magneticTestDatabase(): Promise<TestDatabase> {
@@ -29,7 +29,7 @@ export interface RoleDatabases {
 export async function roleDatabases(test: TestDatabase): Promise<RoleDatabases> {
     for (const role of Object.values(TEST_ROLES)) await test.db.query(`DO $$ BEGIN CREATE ROLE ${role} NOLOGIN NOSUPERUSER NOBYPASSRLS; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`);
     await grantAppRole(test.db, TEST_ROLES.server, { readOnlyState: true });
-    await grantAggregateRole(test.db, TEST_ROLES.aggregate, ['statenet_namespace', 'owner_key']);
+    await grantAggregateRole(test.db, TEST_ROLES.aggregate, AGGREGATE_READS);
     const as = (role: string): Database => createDatabase({ url: test.url, config: { options: `${test.config.options} -c role=${role}`, max: 5 } });
     const server = as(TEST_ROLES.server);
     const aggregate = as(TEST_ROLES.aggregate);
