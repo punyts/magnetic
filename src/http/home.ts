@@ -151,6 +151,7 @@ addEventListener('stateui:emit', (event) => {
     else if (name === 'orgs') location.assign('/settings/orgs');
     else if (name === 'connections') location.assign('/settings/connections');
     else if (name === 'data') location.assign('/settings/data');
+    else if (name === 'requests') location.assign('/requests');
     else if (name === 'device') location.assign('/settings/device');
     else if (name === 'billing') location.assign('/settings/billing');
     else if (name === 'admin') location.assign('/admin');

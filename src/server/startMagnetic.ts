@@ -40,7 +40,9 @@ import type { GuardOptions } from '../connections/guard.js';
 import { CallLimits, httpCatalog } from '../connections/httpEffect.js';
 import { connectionRoutes } from './connectionRoutes.js';
 import { viewRoutes } from './viewRoutes.js';
-import { dataRoutes } from './dataRoutes.js';
+import { dataRoutes, managedWorkspaces } from './dataRoutes.js';
+import { requestsRoutes } from './requestsRoutes.js';
+import { PendingRequests } from '../requests/PendingRequests.js';
 import { billingRoutes } from './billingRoutes.js';
 import { Credits } from '../billing/Credits.js';
 import { Feedback, FEEDBACK_KINDS, FEEDBACK_PER_HOUR, MAX_FEEDBACK_LENGTH } from '../feedback/Feedback.js';
@@ -982,11 +984,27 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         origin: () => publicOrigin ?? origin,
         report: (message, fields) => options.report.info(message, fields)
     });
+    const pendingRequests = new PendingRequests(db);
     const handleData = dataRoutes({
         db,
         orgs,
         ...(stateGrants !== undefined && { grants: stateGrants }),
         ...(sharedData !== undefined && { sharedData }),
+        pending: pendingRequests,
+        workspace: (workspaceId) => workspaces.get(workspaceId),
+        signedIn,
+        readForm,
+        lookOf,
+        sendPage,
+        redirect: (response, location) => redirect(response, location),
+        report: (message, fields) => options.report.info(message, fields)
+    });
+    const handleRequests = requestsRoutes({
+        db,
+        orgs,
+        owners,
+        ...(stateGrants !== undefined && { grants: stateGrants }),
+        pending: pendingRequests,
         workspace: (workspaceId) => workspaces.get(workspaceId),
         signedIn,
         readForm,
@@ -1230,7 +1248,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 admin: await admins.is(user.id),
                 makeOrgs: !inBeta,
                 usage,
-                person: { name: user.name, email: user.email ?? '' }
+                person: { name: user.name, email: user.email ?? '' },
+                requests: await pendingRequests.count((await managedWorkspaces(orgs, user)).map((workspace) => workspace.id))
             },
             look, (message, fields) => options.report.info(message, fields));
         const home = await services.instanceViews.find(homeId);
@@ -1657,6 +1676,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleConnections(request, response, method, path)) return true;
         if (await handleData(request, response, method, path)) return true;
+        if (await handleRequests(request, response, method, path)) return true;
         if (await handleAgent(request, response, method, path)) return true;
         if (await handleAdmin(request, response, method, path, url.searchParams)) return true;
         if (await handleBeta(request, response, method, path)) return true;

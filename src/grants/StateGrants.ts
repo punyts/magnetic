@@ -1,4 +1,4 @@
-import { addressPath, checkAccess, ownerOfAddress, readGrant, signGrant } from '@punyts/state-sync/authority';
+import { addressPath, checkAccess, MAX_REQUEST_MS, ownerOfAddress, readGrant, signGrant } from '@punyts/state-sync/authority';
 import type { Access, GrantContext, GrantRight } from '@punyts/state-sync/authority';
 import type { Database } from '@punyts/stateui-pg';
 import { membersSubject, ownerSubject, PermissionError, Permissions, type Permission } from '../permissions/Permissions.js';
@@ -13,6 +13,23 @@ export const TOKEN_LIFE_MS = 4 * 3_600_000;
 export const MAX_SHARE_MS = 30 * 86_400_000;
 
 export type GrantKind = 'share' | 'passed' | 'org-read' | 'bound';
+
+const DAY_MS = 86_400_000;
+
+/**
+ * What people using a workspace's apps may do to one of its datasets (docs/design/statenet-requests.md, R3c): write it,
+ * or request changes, which wait `requestDays` for a decision
+ */
+export interface DatasetSetting {
+    readonly rights: 'write' | 'request';
+    readonly requestDays: number;
+}
+
+/** A dataset nobody set: written, and requests would wait a week */
+export const DEFAULT_DATASET_SETTING: DatasetSetting = Object.freeze({ rights: 'write', requestDays: 7 });
+
+/** The rights of a `bound` entry under a setting */
+const boundRights = (setting: DatasetSetting): GrantRight[] => (setting.rights === 'request' ? ['read', 'request'] : ['read', 'write']);
 
 /** A state grant or dataset share, with people, workspaces and orgs by their ids */
 export interface GrantRecord {
@@ -217,6 +234,8 @@ export class StateGrants {
         const issuer = await this.issuerOf(entry);
         const key = await this.keys.signing(issuer);
         const ends = Math.min(now.getTime() + TOKEN_LIFE_MS, entry.until === undefined ? Number.POSITIVE_INFINITY : Date.parse(entry.until));
+        // A request outlives the token: it waits as long as the entry says, within the entry's own life
+        const requesting = entry.rights.includes('request');
         await table.used(grantId);
         return signGrant(
             {
@@ -229,6 +248,8 @@ export class StateGrants {
                 rights: entry.rights.filter((right): right is GrantRight => right === 'read' || right === 'write' || right === 'request'),
                 issued: now.getTime(),
                 expires: ends,
+                ...(requesting && { lasts: entry.until === undefined ? now.getTime() + MAX_REQUEST_MS : Date.parse(entry.until) }),
+                ...(requesting && entry.requestDays !== undefined && { requestMs: entry.requestDays * DAY_MS }),
                 ...(parent !== undefined && { parent })
             },
             key.privateKey
@@ -317,8 +338,9 @@ export class StateGrants {
     /**
      * The access an instance's binding of a workspace's dataset connects with, as the persona it acts for
      * (docs/design/statenet-requests.md, R3b): the workspace itself for its own persona (`default`), otherwise a token
-     * for the person's standing `bound` entry on the dataset, read and write, made the first time they bind it and kept
-     * until revoked. The token's keys are loaded, so a check with `accessContext` reads them synchronously
+     * for the person's standing `bound` entry on the dataset, made the first time they bind it and kept until revoked,
+     * with the rights the dataset's setting gives (R3c: read and write, or read and request). The token's keys are
+     * loaded, so a check with `accessContext` reads them synchronously
      */
     async boundAccess(persona: string, workspaceId: string, dataset: string, now: Date = new Date()): Promise<Access> {
         const owner = await this.owners.nameOf(workspaceId);
@@ -327,11 +349,78 @@ export class StateGrants {
         const table = this.table(now);
         const subject = ownerSubject(person);
         const pattern = `$.data.${dataset}`;
-        const existing = (await table.find("p.kind = 'bound' AND p.owner::text = $1 AND p.subject = $2 AND p.pattern = $3 AND p.revoked_at IS NULL", [owner, subject, pattern]))[0];
-        const id = existing?.id ?? (await table.make({ owner, pattern, subject, rights: ['read', 'write'], kind: 'bound' })).id;
+        const setting = await this.datasetSetting(workspaceId, dataset);
+        const rights = boundRights(setting);
+        let existing = (await table.find("p.kind = 'bound' AND p.owner::text = $1 AND p.subject = $2 AND p.pattern = $3 AND p.revoked_at IS NULL", [owner, subject, pattern]))[0];
+        if (existing !== undefined && !(existing.rights.length === rights.length && rights.every((right) => existing?.rights.includes(right)))) {
+            for (const id of await table.revoke(existing.id, undefined)) this.revokedIds.add(id);
+            existing = undefined;
+        }
+        const id = existing?.id ?? (await table.make({ owner, pattern, subject, rights, kind: 'bound', ...(setting.rights === 'request' && { requestDays: setting.requestDays }) })).id;
         const grant = await this.tokenFor(id, now);
         await this.keys.load(grant);
         return { subject: person, grant };
+    }
+
+    /** The id of a workspace's data part by its name */
+    private async datasetPartId(workspaceId: string, dataset: string): Promise<string | undefined> {
+        return this.db.transaction(
+            async (tx) => (await tx.query<{ id: string }>("SELECT id::text FROM part WHERE workspace_id = $1 AND kind = 'data' AND name = $2", [workspaceId, dataset])).rows[0]?.id,
+            { workspaceIds: [workspaceId] }
+        );
+    }
+
+    /** What people using a workspace's apps may do to one of its datasets; the default when nobody set it */
+    async datasetSetting(workspaceId: string, dataset: string): Promise<DatasetSetting> {
+        return (await this.datasetSettings(workspaceId)).get(dataset) ?? DEFAULT_DATASET_SETTING;
+    }
+
+    /** The settings of a workspace's datasets that were set, by dataset name */
+    async datasetSettings(workspaceId: string): Promise<Map<string, DatasetSetting>> {
+        const rows = await this.db.transaction(
+            async (tx) =>
+                (
+                    await tx.query<{ name: string; bound_rights: 'write' | 'request'; request_days: number }>(
+                        "SELECT p.name, s.bound_rights, s.request_days FROM dataset_setting s JOIN part p ON p.workspace_id = s.workspace_id AND p.id = s.part_id AND p.kind = 'data' WHERE s.workspace_id = $1",
+                        [workspaceId]
+                    )
+                ).rows,
+            { workspaceIds: [workspaceId] }
+        );
+        return new Map(rows.map((row) => [row.name, { rights: row.bound_rights, requestDays: row.request_days }]));
+    }
+
+    /**
+     * Sets what people using a workspace's apps may do to one of its datasets. A change of rights revokes the dataset's
+     * `bound` entries, so each person's next session gets the new rights (and their waiting requests end); a change of
+     * days alone is written to them. Answers how many entries were revoked
+     */
+    async setDatasetSetting(workspaceId: string, dataset: string, setting: DatasetSetting, by: string, now: Date = new Date()): Promise<number> {
+        if (setting.rights !== 'write' && setting.rights !== 'request') throw new OrgError(400, 'People using the apps either write a dataset or request changes.');
+        if (!Number.isInteger(setting.requestDays) || setting.requestDays < 1 || setting.requestDays > 30) throw new OrgError(400, 'Requests wait 1 to 30 days.');
+        const partId = await this.datasetPartId(workspaceId, dataset);
+        if (partId === undefined) throw new OrgError(404, 'No such dataset.');
+        const previous = await this.datasetSetting(workspaceId, dataset);
+        await this.db.transaction(
+            (tx) =>
+                tx.query(
+                    `INSERT INTO dataset_setting (workspace_id, part_id, bound_rights, request_days, updated_at, updated_by) VALUES ($1, $2, $3, $4, $5, $6)
+                     ON CONFLICT (workspace_id, part_id) DO UPDATE SET bound_rights = $3, request_days = $4, updated_at = $5, updated_by = $6`,
+                    [workspaceId, partId, setting.rights, setting.requestDays, now, UUID.test(by) ? by : null]
+                ),
+            { workspaceIds: [workspaceId] }
+        );
+        const owner = await this.owners.nameOf(workspaceId);
+        const pattern = `$.data.${dataset}`;
+        if (previous.rights !== setting.rights) {
+            const revoked = await this.table(now).revokeWhere("p.kind = 'bound' AND p.owner::text = $1 AND p.pattern = $2", [owner, pattern], UUID.test(by) ? by : undefined);
+            for (const id of revoked) this.revokedIds.add(id);
+            return revoked.length;
+        }
+        if (setting.rights === 'request' && previous.requestDays !== setting.requestDays) {
+            await this.db.query("UPDATE permission SET request_days = $3 WHERE kind = 'bound' AND owner::text = $1 AND pattern = $2 AND revoked_at IS NULL", [owner, pattern, setting.requestDays]);
+        }
+        return 0;
     }
 
     /**

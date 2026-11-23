@@ -484,6 +484,12 @@ People can share part of their own state with someone else, read or write, and s
 - An org reads its members' state in its apps through a standing grant (made the first time it reads, revoked when
   they leave); the support view reads through it and writes the grant's id to the audit log. With the policy
   `grantsInOrg`, members' state in the org's apps can be shared only with people in the org.
+- **Changes that wait for approval** (`docs/design/statenet-requests.md`, R3c). People using a workspace's apps write
+  its datasets through a `bound` entry each. The Data page sets per dataset whether their changes are saved at once
+  or wait 1 to 30 days for approval (`dataset_setting`); changing it revokes the entries. `/requests` lists the
+  changes waiting on the datasets of every workspace the person manages, and `/requests/<workspace>/<dataset>/<id>`
+  shows one beside the record as it is, with Approve and Reject and an optional note. Your apps shows an alert while
+  some wait.
 
 ## Several servers
 

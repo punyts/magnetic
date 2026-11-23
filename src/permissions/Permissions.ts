@@ -49,6 +49,8 @@ export interface Permission {
     /** The app's name when a link was made */
     readonly label?: string;
     readonly lastUsedAt?: string;
+    /** How long a request made with it waits for a decision, in days (1 to 30), for an entry with `request` */
+    readonly requestDays?: number;
 }
 
 export interface MakeInput {
@@ -63,6 +65,7 @@ export interface MakeInput {
     readonly until?: Date;
     readonly token?: string;
     readonly label?: string;
+    readonly requestDays?: number;
 }
 
 /** Why an entry could not be made; the caller turns it into its own error */
@@ -91,9 +94,10 @@ export interface PermissionRow {
     token: string | null;
     label: string | null;
     last_used_at: Date | null;
+    request_days: number | null;
 }
 
-export const PERMISSION_COLUMNS = 'p.id::text, p.owner::text, p.pattern, p.subject, p.rights, p.parent::text, p.kind, p.made_by::text, p.created_at, p.until, p.revoked_at, p.revoked_by::text, p.token, p.label, p.last_used_at';
+export const PERMISSION_COLUMNS = 'p.id::text, p.owner::text, p.pattern, p.subject, p.rights, p.parent::text, p.kind, p.made_by::text, p.created_at, p.until, p.revoked_at, p.revoked_by::text, p.token, p.label, p.last_used_at, p.request_days';
 
 export function permissionOf(row: PermissionRow): Permission {
     return {
@@ -111,7 +115,8 @@ export function permissionOf(row: PermissionRow): Permission {
         ...(row.revoked_by !== null && { revokedBy: row.revoked_by }),
         ...(row.token !== null && { token: row.token }),
         ...(row.label !== null && { label: row.label }),
-        ...(row.last_used_at !== null && { lastUsedAt: row.last_used_at.toISOString() })
+        ...(row.last_used_at !== null && { lastUsedAt: row.last_used_at.toISOString() }),
+        ...(row.request_days !== null && { requestDays: row.request_days })
     };
 }
 
@@ -209,9 +214,9 @@ export class Permissions {
         const id = input.id ?? randomUUID();
         const row = (
             await tx.query<PermissionRow>(
-                `INSERT INTO permission AS p (id, owner, pattern, subject, rights, parent, kind, made_by, created_at, until, token, label)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING ${PERMISSION_COLUMNS}`,
-                [id, input.owner, input.pattern, input.subject, input.rights, input.parent ?? null, input.kind, input.madeBy ?? null, now, until ?? null, input.token ?? null, input.label ?? null]
+                `INSERT INTO permission AS p (id, owner, pattern, subject, rights, parent, kind, made_by, created_at, until, token, label, request_days)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING ${PERMISSION_COLUMNS}`,
+                [id, input.owner, input.pattern, input.subject, input.rights, input.parent ?? null, input.kind, input.madeBy ?? null, now, until ?? null, input.token ?? null, input.label ?? null, input.requestDays ?? null]
             )
         ).rows[0] as PermissionRow;
         return permissionOf(row);

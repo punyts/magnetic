@@ -1,7 +1,7 @@
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
 import type { Preferences } from '../prefs/Preferences.js';
-import { textsOf } from '../http/text.js';
+import { fill, textsOf } from '../http/text.js';
 import type { Texts } from '../http/text.js';
 import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
 import type { PageSource } from '../pages/PersonPages.js';
@@ -56,6 +56,8 @@ export interface HomeData {
     readonly admin?: boolean;
     readonly usage?: HomeUsage;
     readonly person?: { readonly name: string; readonly email: string };
+    /** How many changes people asked for wait for this person's decision (docs/design/statenet-requests.md, R3c) */
+    readonly requests?: number;
 }
 
 /** The cards of a list, keyed by id in their order, as a record grid reads them */
@@ -194,6 +196,17 @@ function homeScreen(t: Texts): Record<string, unknown> {
                         children: {
                             apps: tab(t['home.tabApps'], 'apps', {
                                 invitesWaiting: { component: 'alert', tone: 'info', icon: 'mail', _text: t['home.invitesWaiting'], '<-hidden': `${H}.noInvites` },
+                                // Shown only while changes people asked for wait for a decision
+                                requestsWaiting: {
+                                    component: 'panel',
+                                    padding: 'none',
+                                    '<-hidden': `${H}.noRequests`,
+                                    layout: { type: 'row', gap: 'sm', align: 'center' },
+                                    children: {
+                                        alert: { component: 'alert', tone: 'warning', icon: 'inbox', placement: { grow: 1 }, '<-_text': `${H}.requestsLine` },
+                                        review: link('requests', t['home.requestsReview'])
+                                    }
+                                },
                                 new: {
                                     component: 'panel',
                                     bordered: true,
@@ -279,6 +292,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                             children: {
                                                 connections: link('connections', t['home.connections']),
                                                 data: link('data', t['home.data']),
+                                                requests: link('requests', t['home.requests']),
                                                 device: link('device', t['home.device']),
                                                 admin: link('admin', t['home.admin'], { '<-hidden': `${H}.notAdmin` }),
                                                 signout: link('signout', t['home.signOut'], { variant: 'ghost' })
@@ -322,7 +336,8 @@ const CARD_FIELDS = [
 
 /** The fields of the page's record, `$.data.home`: the flags start as Your apps shows to someone with nothing waiting */
 const HOME_FIELDS = [
-    ...['noInvites', 'notAdmin', 'noMakeOrg'].map((field) => ({ op: 'set', field, type: 'boolean', default: field !== 'noMakeOrg' })),
+    ...['noInvites', 'noRequests', 'notAdmin', 'noMakeOrg'].map((field) => ({ op: 'set', field, type: 'boolean', default: field !== 'noMakeOrg' })),
+    { op: 'set', field: 'requestsLine', type: 'string', default: '' },
     { op: 'set', field: 'mode', type: 'string', default: 'system' },
     { op: 'set', field: 'language', type: 'string', default: 'en' },
     { op: 'set', field: 'make', type: 'string', default: '' },
@@ -352,6 +367,8 @@ export const HOME: PageSpec = {
         '$.data.invites': { 'invite-one': { id: 'invite-one', name: 'Join an org', note: 'As a builder, from someone' } },
         [H]: {
             noInvites: false,
+            noRequests: false,
+            requestsLine: '2 changes people asked for wait for your approval.',
             notAdmin: false,
             noMakeOrg: false,
             mode: 'system',
@@ -433,6 +450,8 @@ export class HomeApps extends PersonPages {
                 H,
                 {
                     noInvites: (data.invites ?? []).length === 0,
+                    noRequests: (data.requests ?? 0) === 0,
+                    requestsLine: (data.requests ?? 0) === 0 ? '' : fill(textsOf(prefs.language)['home.requestsWaiting'], { count: String(data.requests) }),
                     notAdmin: data.admin !== true,
                     noMakeOrg: data.makeOrgs === false,
                     mode: prefs.mode,

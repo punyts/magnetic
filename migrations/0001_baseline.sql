@@ -564,6 +564,8 @@ CREATE TABLE permission (
     token text,
     label text,
     last_used_at timestamp with time zone,
+    request_days integer,
+    CONSTRAINT permission_request_days_check CHECK (((request_days >= 1) AND (request_days <= 30))),
     CONSTRAINT permission_kind_check CHECK ((kind = ANY (ARRAY['access.view'::text, 'access.use'::text, 'access.edit'::text, 'access.manage'::text, 'open'::text, 'creator'::text, 'admins'::text, 'link.view'::text, 'link.use'::text, 'link.remix'::text, 'opened'::text, 'share'::text, 'passed'::text, 'org-read'::text, 'bound'::text]))),
     CONSTRAINT permission_rights_check CHECK (((cardinality(rights) > 0) AND (rights <@ ARRAY['read'::text, 'request'::text, 'write'::text, 'share'::text]))),
     CONSTRAINT permission_pkey PRIMARY KEY (id),
@@ -571,6 +573,24 @@ CREATE TABLE permission (
     CONSTRAINT permission_parent_fkey FOREIGN KEY (parent) REFERENCES permission(id)
 );
 CREATE INDEX permission_owner_subject ON permission USING btree (owner, subject);
+
+-- What people using a workspace's apps may do to one of its datasets (docs/design/statenet-requests.md, R3c): write it,
+-- or request changes that wait request_days for the owner. Keyed by the data part's id, so a rename keeps it; a
+-- dataset without a row is written.
+CREATE TABLE dataset_setting (
+    workspace_id uuid NOT NULL,
+    part_id uuid NOT NULL,
+    bound_rights text NOT NULL,
+    request_days integer NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    updated_by uuid,
+    CONSTRAINT dataset_setting_pkey PRIMARY KEY (workspace_id, part_id),
+    CONSTRAINT dataset_setting_rights_check CHECK ((bound_rights = ANY (ARRAY['write'::text, 'request'::text]))),
+    CONSTRAINT dataset_setting_days_check CHECK (((request_days >= 1) AND (request_days <= 30)))
+);
+ALTER TABLE dataset_setting ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dataset_setting FORCE ROW LEVEL SECURITY;
+CREATE POLICY workspace_rows ON dataset_setting USING (workspace_id = ANY (app_workspace_ids())) WITH CHECK (workspace_id = ANY (app_workspace_ids()));
 CREATE INDEX permission_parent ON permission USING btree (parent);
 CREATE INDEX permission_pattern ON permission USING btree (pattern);
 

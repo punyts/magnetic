@@ -1,4 +1,5 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
+import type { DatasetSetting } from '../grants/StateGrants.js';
 import { dataTextsOf } from './dataText.js';
 import type { DataSaid, DataTexts } from './dataText.js';
 import type { ManagedWorkspace } from './connectionsPage.js';
@@ -20,6 +21,10 @@ export interface OwnDataset {
     readonly model: string;
     readonly count: number;
     readonly shares: ReadonlyArray<{ readonly id: string; readonly with: Principal }>;
+    /** What people using the workspace's apps may do to it (docs/design/statenet-requests.md, R3c) */
+    readonly setting: DatasetSetting;
+    /** How many of their changes wait for a decision */
+    readonly waiting: number;
 }
 
 /** One dataset another owner shared with the workspace */
@@ -78,7 +83,33 @@ function datasetSection(t: DataTexts, view: DataView, dataset: OwnDataset): stri
         view.canShare
             ? form(w, 'share', { dataset: dataset.name }, `<label>${e(t['data.shareWith'])} <input name="to" required maxlength="200" autocomplete="off"></label> <button class="primary">${e(t['data.share'])}</button>`)
             : '',
+        view.canShare ? usersSection(t, w, dataset) : '',
         '</section>'
+    ].join('\n');
+}
+
+/** What people using the workspace's apps may do to a dataset, and how many of their changes wait */
+function usersSection(t: DataTexts, w: string, dataset: OwnDataset): string {
+    const choice = (value: DatasetSetting['rights'], label: string): string =>
+        `<label><input type="radio" name="rights" value="${value}"${dataset.setting.rights === value ? ' checked' : ''}> ${e(label)}</label>`;
+    const waiting =
+        dataset.waiting === 0
+            ? ''
+            : `<p class="notice" role="note">${e(fill(t['data.waiting'], { count: String(dataset.waiting) }))} ${e(fill(t['data.waitingDrop'], { count: String(dataset.waiting) }))} <a href="/requests">${e(t['data.review'])}</a></p>`;
+    return [
+        `<h4>${e(t['data.users'])}</h4>`,
+        waiting,
+        form(
+            w,
+            'setting',
+            { dataset: dataset.name },
+            [
+                choice('write', t['data.usersWrite']),
+                choice('request', t['data.usersRequest']),
+                `<label>${e(t['data.requestDays'])} <input type="number" name="days" min="1" max="30" step="1" value="${e(dataset.setting.requestDays)}" required></label>`,
+                `<button>${e(t['data.saveSetting'])}</button>`
+            ].join(' ')
+        )
     ].join('\n');
 }
 

@@ -38,7 +38,17 @@ const EN = {
     'data.notManaged': 'You do not manage the data of that workspace.',
     'data.noShare': 'That share is not there any more.',
     'data.unavailable': 'This server cannot share data: it has no signing key.',
-    'data.unknown': 'Unknown change.'
+    'data.unknown': 'Unknown change.',
+    'data.users': 'People using your apps',
+    'data.usersWrite': 'Their changes are saved at once',
+    'data.usersRequest': 'Their changes wait for your approval',
+    'data.requestDays': 'A change waits up to (days)',
+    'data.saveSetting': 'Save',
+    'data.waiting': '{count} changes wait for your approval.',
+    'data.waitingDrop': 'Saving their changes at once drops the {count} changes that wait.',
+    'data.review': 'Review them',
+    'data.settingSaved': 'Saved for {dataset}. People using your apps get it with their next change.',
+    'data.badSetting': 'Choose whether changes are saved or wait, and a wait of 1 to 30 days.'
 };
 
 export type DataTextKey = keyof typeof EN;
@@ -77,7 +87,17 @@ const DE: DataTexts = {
     'data.notManaged': 'Du verwaltest die Daten dieses Arbeitsbereichs nicht.',
     'data.noShare': 'Diese Freigabe gibt es nicht mehr.',
     'data.unavailable': 'Dieser Server kann keine Daten teilen: Er hat keinen Signaturschlüssel.',
-    'data.unknown': 'Unbekannte Änderung.'
+    'data.unknown': 'Unbekannte Änderung.',
+    'data.users': 'Personen, die deine Apps nutzen',
+    'data.usersWrite': 'Ihre Änderungen werden sofort gespeichert',
+    'data.usersRequest': 'Ihre Änderungen warten auf deine Zustimmung',
+    'data.requestDays': 'Eine Änderung wartet höchstens (Tage)',
+    'data.saveSetting': 'Speichern',
+    'data.waiting': '{count} Änderungen warten auf deine Zustimmung.',
+    'data.waitingDrop': 'Wenn ihre Änderungen sofort gespeichert werden, entfallen die {count} wartenden Änderungen.',
+    'data.review': 'Ansehen',
+    'data.settingSaved': 'Für {dataset} gespeichert. Wer deine Apps nutzt, bekommt es mit der nächsten Änderung.',
+    'data.badSetting': 'Wähle, ob Änderungen gespeichert werden oder warten, und eine Wartezeit von 1 bis 30 Tagen.'
 };
 
 const FR: DataTexts = {
@@ -113,7 +133,17 @@ const FR: DataTexts = {
     'data.notManaged': 'Vous ne gérez pas les données de cet espace.',
     'data.noShare': 'Ce partage n’existe plus.',
     'data.unavailable': 'Ce serveur ne peut pas partager de données : il n’a pas de clé de signature.',
-    'data.unknown': 'Changement inconnu.'
+    'data.unknown': 'Changement inconnu.',
+    'data.users': 'Les personnes qui utilisent vos apps',
+    'data.usersWrite': 'Leurs changements sont enregistrés tout de suite',
+    'data.usersRequest': 'Leurs changements attendent votre accord',
+    'data.requestDays': 'Un changement attend au plus (jours)',
+    'data.saveSetting': 'Enregistrer',
+    'data.waiting': '{count} changements attendent votre accord.',
+    'data.waitingDrop': 'Enregistrer leurs changements tout de suite abandonne les {count} changements en attente.',
+    'data.review': 'Les voir',
+    'data.settingSaved': 'Enregistré pour {dataset}. Les personnes qui utilisent vos apps l’ont à leur prochain changement.',
+    'data.badSetting': 'Choisissez si les changements sont enregistrés ou attendent, et une attente de 1 à 30 jours.'
 };
 
 const ES: DataTexts = {
@@ -149,7 +179,17 @@ const ES: DataTexts = {
     'data.notManaged': 'No gestionas los datos de ese espacio.',
     'data.noShare': 'Ese permiso ya no existe.',
     'data.unavailable': 'Este servidor no puede compartir datos: no tiene clave de firma.',
-    'data.unknown': 'Cambio desconocido.'
+    'data.unknown': 'Cambio desconocido.',
+    'data.users': 'Las personas que usan tus apps',
+    'data.usersWrite': 'Sus cambios se guardan al momento',
+    'data.usersRequest': 'Sus cambios esperan tu aprobación',
+    'data.requestDays': 'Un cambio espera como mucho (días)',
+    'data.saveSetting': 'Guardar',
+    'data.waiting': '{count} cambios esperan tu aprobación.',
+    'data.waitingDrop': 'Guardar sus cambios al momento descarta los {count} cambios que esperan.',
+    'data.review': 'Verlos',
+    'data.settingSaved': 'Guardado para {dataset}. Quien usa tus apps lo tendrá con su próximo cambio.',
+    'data.badSetting': 'Elige si los cambios se guardan o esperan, y una espera de 1 a 30 días.'
 };
 
 const ALL: Record<Language, DataTexts> = { en: EN, de: DE, fr: FR, es: ES };

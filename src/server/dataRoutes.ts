@@ -12,7 +12,9 @@ import type { DataSaid, DataTextKey } from '../http/dataText.js';
 import type { PageLook } from '../http/pages.js';
 import { OrgError } from '../orgs/Orgs.js';
 import type { Orgs } from '../orgs/Orgs.js';
+import type { PendingRequests } from '../requests/PendingRequests.js';
 import type { SharedData } from '../sharing/SharedData.js';
+import { DEFAULT_DATASET_SETTING } from '../grants/StateGrants.js';
 
 export interface DataRouteContext {
     readonly db: Database;
@@ -20,6 +22,8 @@ export interface DataRouteContext {
     /** Absent when the server has no signing key: the page lists, and nothing can be shared */
     readonly grants?: StateGrants;
     readonly sharedData?: SharedData;
+    /** The requests that wait on the workspace's datasets, counted per dataset */
+    readonly pending?: PendingRequests;
     /** A workspace's services, to list its datasets */
     readonly workspace: (workspaceId: string) => Promise<Services>;
     readonly signedIn: (request: IncomingMessage) => Promise<{ readonly user: User } | undefined>;
@@ -54,6 +58,13 @@ export async function principalsOf(db: Database, ids: readonly string[]): Promis
     return found;
 }
 
+/** The workspaces whose data a person manages: their own, and the orgs' they own or administer */
+export async function managedWorkspaces(orgs: Orgs, user: User): Promise<ManagedWorkspace[]> {
+    const own: ManagedWorkspace = { id: user.id, name: 'Yours', own: true };
+    const theirs = (await orgs.of(user.id)).filter((org) => org.role === 'owner' || org.role === 'admin').map((org) => ({ id: org.workspaceId, name: org.name }));
+    return [own, ...theirs];
+}
+
 /**
  * `GET|POST /settings/data` (`?w=<workspace>`): the datasets of a workspace the person manages (their own, or an
  * org's they are an admin or owner of), each with whom it is shared, shared by a person's verified email or an org's
@@ -63,11 +74,7 @@ export async function principalsOf(db: Database, ids: readonly string[]): Promis
 export function dataRoutes(context: DataRouteContext) {
     const { db, orgs, grants } = context;
 
-    async function managed(user: User): Promise<ManagedWorkspace[]> {
-        const own: ManagedWorkspace = { id: user.id, name: 'Yours', own: true };
-        const theirs = (await orgs.of(user.id)).filter((org) => org.role === 'owner' || org.role === 'admin').map((org) => ({ id: org.workspaceId, name: org.name }));
-        return [own, ...theirs];
-    }
+    const managed = (user: User): Promise<ManagedWorkspace[]> => managedWorkspaces(orgs, user);
 
     async function datasetsOf(workspaceId: string): Promise<OwnDataset[]> {
         const services = await context.workspace(workspaceId);
@@ -77,6 +84,9 @@ export function dataRoutes(context: DataRouteContext) {
             shares.map((share) => share.subject)
         );
         const summaries = await services.parts.list('data');
+        const settings = grants === undefined ? new Map() : await grants.datasetSettings(workspaceId);
+        const waiting = new Map<string, number>();
+        for (const request of (await context.pending?.of([workspaceId])) ?? []) waiting.set(request.dataset, (waiting.get(request.dataset) ?? 0) + 1);
         const datasets: OwnDataset[] = [];
         for (const summary of [...summaries].sort((a, b) => a.name.localeCompare(b.name))) {
             const part = await services.parts.findByName('data', summary.name);
@@ -86,7 +96,9 @@ export function dataRoutes(context: DataRouteContext) {
                 name: summary.name,
                 model: body.model ?? '',
                 count: Object.keys(body.records ?? {}).length,
-                shares: shares.filter((share) => datasetOf(share.address)?.dataset === summary.name).map((share) => ({ id: share.id, with: people.get(share.subject) as Principal }))
+                shares: shares.filter((share) => datasetOf(share.address)?.dataset === summary.name).map((share) => ({ id: share.id, with: people.get(share.subject) as Principal })),
+                setting: settings.get(summary.name) ?? DEFAULT_DATASET_SETTING,
+                waiting: waiting.get(summary.name) ?? 0
             });
         }
         return datasets;
@@ -159,6 +171,17 @@ export function dataRoutes(context: DataRouteContext) {
                 const name = principalName(t, (await principalsOf(db, [share.subject])).get(share.subject) as Principal);
                 context.report('Dataset share stopped', { workspace: workspaceId, dataset: data.dataset, with: share.subject });
                 return { key: 'data.stopped', values: { dataset: data.dataset, name } };
+            }
+            case 'setting': {
+                const dataset = (form.get('dataset') ?? '').trim();
+                const rights = form.get('rights');
+                const requestDays = Number(form.get('days') ?? '');
+                if ((rights !== 'write' && rights !== 'request') || !Number.isInteger(requestDays) || requestDays < 1 || requestDays > 30) throw refused('data.badSetting');
+                const services = await context.workspace(workspaceId);
+                if ((await services.parts.findByName('data', dataset)) === undefined) throw refused('data.noDataset', { dataset });
+                const revoked = await grants.setDatasetSetting(workspaceId, dataset, { rights, requestDays }, user.id);
+                context.report('Dataset setting saved', { workspace: workspaceId, dataset, rights, requestDays, revoked });
+                return { key: 'data.settingSaved', values: { dataset } };
             }
             default:
                 throw refused('data.unknown');
