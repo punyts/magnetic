@@ -52,9 +52,9 @@ describe('migration 0017 (owner numbers everywhere)', () => {
         const now = `${anaNo}/apps/${app}`;
         expect(await column('SELECT address AS v FROM state_node')).toEqual([now]);
         expect(await column('SELECT address AS v FROM state_change')).toEqual([now]);
-        expect(await column('SELECT address AS v FROM namespace_head ORDER BY address')).toEqual([now, `${stranger}/apps/${app}`].sort());
+        expect(await column('SELECT address AS v FROM namespace_head ORDER BY address COLLATE "C"')).toEqual([now, `${stranger}/apps/${app}`].sort());
         expect(await column('SELECT address AS v FROM namespace_owner')).toEqual([now]);
-        expect(await column('SELECT source_id AS v FROM embedding_job ORDER BY source_id')).toEqual([`${now}/people/k1`, `${ana.id}/x`].sort());
+        expect(await column('SELECT source_id AS v FROM embedding_job ORDER BY source_id COLLATE "C"')).toEqual([`${now}/people/k1`, `${ana.id}/x`].sort());
         expect(await column('SELECT address AS v FROM statenet_namespace')).toEqual([now]);
         expect((await column("SELECT issuer || ' ' || subject || ' ' || address AS v FROM state_grant")).sort()).toEqual([
             `${anaNo} org:${orgNo} ${anaNo}/apps/*`,

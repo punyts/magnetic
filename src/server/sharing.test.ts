@@ -245,7 +245,7 @@ describe('Magnetic sharing', () => {
         view.ws.close();
     });
 
-    it("should let whoever may open an app read its files by /paths, with the session or the page's grant, and no one else", async () => {
+    it("should let whoever may open an app read its files by /paths, with the session or the page's token, and no one else once the link is revoked", async () => {
         // Arrange
         const appId = await createApp('photos');
         const form = new FormData();
@@ -267,13 +267,16 @@ describe('Magnetic sharing', () => {
         const bare = await fetch(`${magnetic.origin}${file}`);
         await post(`/edit/${appId}/share/${link.id}/revoke`, alice, {});
         const revoked = await get(file, bob);
+        const revokedGrant = await fetch(`${magnetic.origin}${file}?g=${grant}`);
+        const claims = JSON.parse(Buffer.from(grant.split('.')[0] as string, 'base64url').toString('utf8')) as { subject: string; pattern: string; owner: string };
 
         // Assert
         expect(paths).toMatch(new RegExp(`^/paths/\\d+/apps/${appId}$`));
         expect([owner.status, await owner.text()]).toEqual([200, 'hello']);
         expect([viewer.status, await viewer.text()]).toEqual([200, 'hello']);
         expect([withGrant.status, await withGrant.text()]).toEqual([200, 'hello']);
-        expect([stranger.status, bare.status, revoked.status]).toEqual([404, 404, 404]);
+        expect([stranger.status, bare.status, revoked.status, revokedGrant.status]).toEqual([404, 404, 404, 404]);
+        expect(claims).toMatchObject({ subject: magnetic.owners.of(bobId), owner: paths.split('/')[2], pattern: `$.apps.${appId}.files` });
     });
 
     it('should close the socket of a use link when it is revoked, telling the browser to delete what it kept', async () => {

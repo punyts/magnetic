@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, pathGrantKey, requestHostName, SharedChromium, startHttpServer } from '@punyts/stateui-mcp';
-import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, ServicesStorage, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, MemoryGrantKeys, requestHostName, SharedChromium, startHttpServer } from '@punyts/stateui-mcp';
+import type { AppLogicLimits, GrantKeys, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, ServicesStorage, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import { isReported, report } from '@punyts/core';
 import type { Report } from '@punyts/core';
@@ -87,6 +87,7 @@ import { SharedData } from '../sharing/SharedData.js';
 import { sharedDataFacts, sharedWithWorkspace } from '../sharing/facts.js';
 import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
+import { Permissions } from '../permissions/Permissions.js';
 import { Orgs } from '../orgs/Orgs.js';
 import { AppInstances } from '../orgs/Instances.js';
 import { OwnerNumbers } from '../statenet/OwnerNumbers.js';
@@ -1054,6 +1055,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     instances: place.services.instanceViews,
                     persona: who.user.id,
                     access: allows(place.permission, 'edit') ? 'owner' : place.permission === 'use' ? 'use' : 'view',
+                    reader: { subject: await owners.nameOf(who.user.id) },
                     retain: (close) => {
                         const release = workspaces.retain(place.workspaceId);
                         const untrackSession = track(sessionSockets, key, close);
@@ -1077,7 +1079,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             if (shared !== undefined) {
                 // An org that keeps its links to members: someone who left it, or never joined, no longer reaches its apps
                 if (!(await linkAllowed(shared.live.ownerId, who.user.id))) return { refuse: 404 };
-                return { tenant: await sharedTenant(shared.live, who.user.id, key, shared.usedBefore === true) };
+                return { tenant: { ...(await sharedTenant(shared.live, who.user.id, key, shared.usedBefore === true)), reader: { subject: await owners.nameOf(who.user.id), entry: shared.live.entry } } };
             }
         }
         const answer: HttpTenant = {
@@ -2018,6 +2020,16 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         throw new HttpError(405, 'Not allowed', 'method_not_allowed');
     }
 
+    function pathTokenKeys(): GrantKeys {
+        const memory = keys.available ? undefined : new MemoryGrantKeys();
+        const permissions = new Permissions(db);
+        return {
+            signing: (owner) => (memory === undefined ? keys.signing(owner) : memory.signing(owner)),
+            keyOf: (kid) => (memory === undefined ? keys.find(kid) : memory.keyOf(kid)),
+            revoked: (_owner, entries) => permissions.revokedAmong(entries)
+        };
+    }
+
     const http = await startHttpServer({
         host: options.host,
         port: options.port,
@@ -2032,8 +2044,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const services = await workspaces.get(workspaceId);
             return { useCases: services.useCases, hub: services.hub, liveViews: services.liveViews, instances: services.instanceViews };
         },
-        // Both servers of a host accept each other's grants
-        ...(options.secretKey !== undefined && { pathGrantKey: pathGrantKey(options.secretKey) }),
+        // The tokens of /paths are signed with the owners' keys, so both servers of a host accept each other's (without a
+        // secret key, with keys this server keeps in memory), and checked against the permission table
+        grantKeys: pathTokenKeys(),
         // An org's SAML provider posts its answer from its own page
         crossOriginPost: (path) => SAML_ROUTE.test(path),
         routes: async (request, response) => {

@@ -31,7 +31,7 @@ export interface Grant {
 /** What a person may do with an app that is not theirs, through the links they opened */
 export type SharedAccess =
     /** `usedBefore`: a live `view` of a person whose `use` link of the app was revoked, so their browser deletes what it kept of their own instance */
-    | { readonly live: Grant & { readonly right: 'view' | 'use' }; readonly usedBefore?: true }
+    | { readonly live: Grant & { readonly right: 'view' | 'use'; readonly entry: string }; readonly usedBefore?: true }
     | { readonly revoked: Grant & { readonly right: 'view' | 'use' } };
 
 const TOKEN = /^[A-Za-z0-9_-]{32}$/;
@@ -154,12 +154,12 @@ export class Grants {
         );
         const links = new Map((await this.find("p.id = ANY($1::uuid[]) AND p.kind IN ('link.view', 'link.use')", [opened.map((entry) => entry.parent)])).map((grant) => [grant.id, grant] as const));
         // each opening as the person holds it: revoked when it or its link was
-        const held = opened.flatMap((entry): Array<Grant & { readonly right: 'view' | 'use' }> => {
+        const held = opened.flatMap((entry): Array<Grant & { readonly right: 'view' | 'use'; readonly entry: string }> => {
             const link = entry.parent === undefined ? undefined : links.get(entry.parent);
             if (link === undefined || !shows(link)) return [];
             const revokedAt = entry.revokedAt ?? link.revokedAt;
             const { revokedAt: _ignored, ...rest } = link;
-            return [revokedAt === undefined ? rest : { ...rest, revokedAt }];
+            return [revokedAt === undefined ? { ...rest, entry: entry.id } : { ...rest, entry: entry.id, revokedAt }];
         });
         const live = held.filter((grant) => grant.revokedAt === undefined);
         const best = live.find((grant) => grant.right === 'use') ?? live[0];

@@ -172,6 +172,13 @@ export class Permissions {
         return row === undefined ? undefined : permissionOf(row);
     }
 
+    /** Which of these entries are revoked (revoking an entry revokes everything passed on from it) */
+    async revokedAmong(ids: readonly string[], tx: Queryable = this.db): Promise<ReadonlySet<string>> {
+        const valid = ids.filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+        if (valid.length === 0) return new Set();
+        return new Set((await tx.query<{ id: string }>('SELECT id::text AS id FROM permission WHERE id = ANY($1::uuid[]) AND revoked_at IS NOT NULL', [valid])).rows.map((row) => row.id));
+    }
+
     /** Entries matching a condition on `p` */
     async find(where: string, params: readonly unknown[], tx: Queryable = this.db): Promise<Permission[]> {
         return (await tx.query<PermissionRow>(`SELECT ${PERMISSION_COLUMNS} FROM permission p WHERE ${where}`, params)).rows.map(permissionOf);

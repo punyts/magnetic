@@ -50,10 +50,20 @@ export class OwnerKeys {
         return this.known.get(kid);
     }
 
+    /** The public key of a key id, read when the cache does not have it */
+    async find(kid: string): Promise<GrantKey | undefined> {
+        if (!this.known.has(kid)) await this.loadKids([kid]);
+        return this.known.get(kid);
+    }
+
     /** Loads the public keys a token and the chain it embeds were signed with, so `keyOf` knows them */
     async load(token: string): Promise<void> {
         const kids: string[] = [];
         for (let claims = readGrant(token); claims !== undefined && kids.length < 16; claims = claims.parent === undefined ? undefined : readGrant(claims.parent)) kids.push(claims.kid);
+        await this.loadKids(kids);
+    }
+
+    private async loadKids(kids: readonly string[]): Promise<void> {
         const missing = kids.filter((kid) => !this.known.has(kid));
         if (missing.length === 0) return;
         const rows = (await this.db.query<{ kid: string; owner_id: string; public_key: string; retired_at: Date | null }>('SELECT kid, owner_id, public_key, retired_at FROM owner_key WHERE kid = ANY($1::text[])', [missing])).rows;
