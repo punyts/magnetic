@@ -222,13 +222,39 @@ export class Permissions {
         return permissionOf(row);
     }
 
-    /** Revokes an entry and everything passed on from it that still holds; answers the ids revoked */
+    /**
+     * Revokes an entry and everything passed on from it that still holds; answers the ids revoked. A person's access to
+     * an owner's apps ending (an `opened` or `access.*` entry) ends their `bound` entries under that owner too
+     * (`endBound`)
+     */
     async revoke(id: string, by: string | undefined, tx: Queryable = this.db): Promise<string[]> {
+        const rows = (
+            await tx.query<{ id: string; owner: string; subject: string; kind: string }>(
+                `WITH RECURSIVE tree AS (SELECT id FROM permission WHERE id = $1 UNION SELECT p.id FROM permission p JOIN tree ON p.parent = tree.id)
+                 UPDATE permission SET revoked_at = $2, revoked_by = $3 WHERE id IN (SELECT id FROM tree) AND revoked_at IS NULL RETURNING id::text, owner::text, subject, kind`,
+                [id, this.now(), by ?? null]
+            )
+        ).rows;
+        const revoked = rows.map((row) => row.id);
+        const access = new Map(rows.filter((row) => row.kind === 'opened' || row.kind.startsWith('access.')).map((row) => [`${row.owner} ${row.subject}`, row]));
+        for (const { owner, subject } of access.values()) revoked.push(...(await this.endBound(owner, subject, by, tx)));
+        return revoked;
+    }
+
+    /**
+     * Revokes a person's `bound` entries under an owner (docs/design/statenet-requests.md) unless they still hold an
+     * `opened` or `access.*` entry there: they write the owner's datasets only while they can open its apps. Answers
+     * the ids revoked
+     */
+    async endBound(owner: string, subject: string, by: string | undefined, tx: Queryable = this.db): Promise<string[]> {
         return (
             await tx.query<{ id: string }>(
-                `WITH RECURSIVE tree AS (SELECT id FROM permission WHERE id = $1 UNION SELECT p.id FROM permission p JOIN tree ON p.parent = tree.id)
-                 UPDATE permission SET revoked_at = $2, revoked_by = $3 WHERE id IN (SELECT id FROM tree) AND revoked_at IS NULL RETURNING id::text`,
-                [id, this.now(), by ?? null]
+                `UPDATE permission b SET revoked_at = $3, revoked_by = $4
+                 WHERE b.kind = 'bound' AND b.owner = $1::numeric AND b.subject = $2 AND b.revoked_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM permission k WHERE k.owner = b.owner AND k.subject = b.subject AND (k.kind = 'opened' OR k.kind LIKE 'access.%')
+                                   AND k.revoked_at IS NULL AND (k.until IS NULL OR k.until > $3))
+                 RETURNING b.id::text`,
+                [owner, subject, this.now(), by ?? null]
             )
         ).rows.map((row) => row.id);
     }

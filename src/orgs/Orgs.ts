@@ -85,7 +85,8 @@ export async function scimHolds(tx: Queryable, orgId: string, userId: string): P
 
 /**
  * Takes a member out of an org in an open transaction: their groups of the org, the app access given to them there,
- * the membership, and the org's read of their state (the entries are revoked). The caller checks who may and keeps an
+ * the membership, the org's read of their state, and their `bound` entries on its datasets unless a link they opened
+ * still gives them an app (the entries are revoked). The caller checks who may and keeps an
  * owner
  */
 export async function dropMember(tx: Queryable, orgId: string, userId: string): Promise<void> {
@@ -95,6 +96,8 @@ export async function dropMember(tx: Queryable, orgId: string, userId: string): 
     if (numbers === undefined) return;
     const permissions = new Permissions(tx as Database);
     await permissions.revokeWhere("p.owner = $1::numeric AND p.subject = $2 AND p.kind LIKE 'access.%'", [numbers.org, ownerSubject(numbers.user)], undefined, tx);
+    // membership gave them the org's apps with no entry of its own
+    await permissions.endBound(numbers.org, ownerSubject(numbers.user), undefined, tx);
     // The org reads a member's state only while they are one
     await permissions.revokeWhere("p.owner = $1::numeric AND p.subject = $2 AND p.kind = 'org-read'", [numbers.user, membersSubject(numbers.org, 'admin')], undefined, tx);
 }

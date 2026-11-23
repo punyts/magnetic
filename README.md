@@ -489,7 +489,8 @@ People can share part of their own state with someone else, read or write, and s
   or wait 1 to 30 days for approval (`dataset_setting`); changing it revokes the entries. `/requests` lists the
   changes waiting on the datasets of every workspace the person manages, and `/requests/<workspace>/<dataset>/<id>`
   shows one beside the record as it is, with Approve and Reject and an optional note. Your apps shows an alert while
-  some wait.
+  some wait. A person's `bound` entries end when their last link to the owner's apps or their app access there is
+  revoked, or they leave the org.
 
 ## Several servers
 
@@ -509,8 +510,9 @@ magnetic --mesh-port 4310 --mesh-url ws://magnetic-2:4310 --node-id magnetic-2
 - **A view anywhere.** A view's socket at a server that doesn't run the instance gets a session tunnelled to the
   server that does, over the mesh, with its writes and events both ways. When the instance moves or restarts, the
   view connects again.
-- **Part changes reach every server** on Postgres's `stateui_part` channel, so views, the usage index, shared datasets
-  and running instances catch up with a change another server made.
+- **Part changes reach every server** on Postgres's `stateui_part` channel, so views, the usage index and running
+  instances catch up with a change another server made. Shared datasets are read through a session with the
+  dataset's namespace, wherever it is held.
 - **One writer of people's state** (`docs/design/statenet-network.md`, S11). Every load, save and removal of an
   instance goes to the aggregate: in the server's own process when it runs alone, or up through relays
   (`--relays ws://relay-1:4310`, `--group magnetic`) to `magnetic aggregate`. The aggregate connects as its own role
@@ -619,6 +621,7 @@ The org settings, Shared by me, Data, Agent use and privacy pages are plain HTML
 | `admin.spec.ts` | No Admin on Your apps for someone who is not one; an admin (a verified email listed in `admins`) reading a bug sent from the editor, marking it done and opening it again, and giving another person $3 of agent use |
 | `pages.spec.ts` | (Publish at desktop only) An admin editing sign-in, publishing it, a stranger seeing it and Magnetic's own at `?page=default`, a draft without the development sign-in refused, and Reset; a person editing Your apps, keeping the change in German, and resetting it |
 | `data.spec.ts` | The Data page from Your apps; a dataset shared by email, listed under Shared with this workspace for the other person with the `uses.external` that reads it, then stopped and gone from their page; the editor's Shared data panel listing a dataset shared with the workspace and asking the agent; an email nobody has refused with the reason |
+| `requests.spec.ts` | A dataset set to wait for approval; Bob's change in Alice's app sent for approval; the alert on Your apps, the request beside the record, approved and shown in Bob's app; a rejection with a note not saved and no longer waiting |
 | `billing.spec.ts` | The Agent use page from Your apps; $10 bought through the stand-in Stripe's checkout page (the API port) and its signed webhook, then refunded; a cancelled checkout charging nothing |
 | `share.spec.ts` | What each right means; a `use` link opened by another person, on their Your apps, then revoked; a remix becoming the other person's copy |
 | `orgs.spec.ts` | Making an org; a group; an invite accepted by the person with that verified email, with its role; an invite refused for another email; an app made in the org. Invites emailed (the test server's memory mailer, `GET /mail` on the control port), joined and declined from Your apps; orgs listed there |

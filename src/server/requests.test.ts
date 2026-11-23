@@ -2,7 +2,7 @@ import { readGrant } from '@punyts/state-sync/authority';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser, Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { StateGrants } from '../grants/StateGrants.js';
 import { PendingRequests } from '../requests/PendingRequests.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
@@ -140,7 +140,8 @@ describe('Requests of people using your apps (docs/design/statenet-requests.md, 
         expect(detail.html).toContain('<td><code>price</code></td><td><code>3</code></td><td><code>4</code></td>');
         expect(decided.html).toContain('The change to menu is saved.');
         expect((await services.hostInstance(address()))?.get('$.data.records.tea')).toEqual({ name: 'Tea', price: 4 });
-        expect((await page('/settings/data', alice)).html).not.toContain('wait for your approval.');
+        // pending_request is written by the save that follows the decision's answer
+        await vi.waitFor(async () => expect((await page('/settings/data', alice)).html).not.toContain('wait for your approval.'), { timeout: 10_000 });
     }, 30_000);
 
     it('should reject a change with a note, and refuse the page to someone who does not manage the workspace', async () => {

@@ -92,7 +92,7 @@ describe("An app reading another owner's dataset through a share", () => {
         expect(notTheirs.text).toContain('You do not manage the data of that workspace.');
     });
 
-    it("should show the shared records in bob's app, live, and nothing of a dataset not shared with him", async () => {
+    it("should show the shared records in bob's app, live from the dataset's namespace, and nothing of a dataset not shared with him", async () => {
         // Arrange: bob's app reads alice's price list, and her secret list that is not shared
         const created = await tool(people['bob']?.tools ?? [], 'ui_app_create', { name: 'menu', home: { component: 'panel' } });
         await tool(people['bob']?.tools ?? [], 'ui_app_configure', {
@@ -105,6 +105,10 @@ describe("An app reading another owner's dataset through a share", () => {
         await expect.poll(external, { timeout: 10_000 }).toEqual({ prices: { tea: { name: 'Tea', price: 3 } } });
         await tool(people['alice']?.tools ?? [], 'ui_data_write', { dataset: 'price-list', operations: [{ op: 'set', path: 'coffee', value: { name: 'Coffee', price: 4 } }] });
         await expect.poll(external, { timeout: 10_000 }).toEqual({ prices: { tea: { name: 'Tea', price: 3 }, coffee: { name: 'Coffee', price: 4 } } });
+        // a write to the namespace itself, as an instance of alice's apps makes it, leaves the part row as it is
+        const namespace = await (await magnetic.workspaces.get(people['alice']?.id ?? '')).hostInstance(`${magnetic.owners.of(people['alice']?.id ?? '')}/data/price-list`);
+        namespace?.write({ path: '$.data.records.tea.price', op: 'set', value: 5 });
+        await expect.poll(external, { timeout: 10_000 }).toEqual({ prices: { tea: { name: 'Tea', price: 5 }, coffee: { name: 'Coffee', price: 4 } } });
     });
 
     it("should tell bob's agent what it can read, with the fields, and tell carol's nothing", async () => {

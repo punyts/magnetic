@@ -108,4 +108,40 @@ describe('Permissions', () => {
         expect(after).toBe(false);
         expect((await permissions.get(passed.id))?.revokedBy).toBe(ana);
     });
+
+    it("should end a person's bound entries under an owner when the last link they opened there is revoked", async () => {
+        // Arrange: Ben opened two of Ana's links and writes her menu through a bound entry; Cai has one of his own
+        const owner = await number(ana);
+        const benSubject = ownerSubject(await number(ben));
+        const links = await Promise.all(['$.apps.a1', '$.apps.a2'].map((pattern) => permissions.make({ owner, pattern, subject: 'everyone', rights: ['read'], kind: 'link.use' })));
+        for (const link of links) await permissions.make({ owner, pattern: link.pattern, subject: benSubject, rights: ['read'], kind: 'opened', parent: link.id });
+        const caiLink = await permissions.make({ owner, pattern: '$.apps.a3', subject: 'everyone', rights: ['read'], kind: 'link.use' });
+        await permissions.make({ owner, pattern: '$.apps.a3', subject: ownerSubject(await number(cai)), rights: ['read'], kind: 'opened', parent: caiLink.id });
+        const bound = await permissions.make({ owner, pattern: '$.data.menu', subject: benSubject, rights: ['read', 'write'], kind: 'bound' });
+        const caiBound = await permissions.make({ owner, pattern: '$.data.menu', subject: ownerSubject(await number(cai)), rights: ['read', 'write'], kind: 'bound' });
+
+        // Act
+        const first = await permissions.revoke(links[0]?.id ?? '', ana);
+        const second = await permissions.revoke(links[1]?.id ?? '', ana);
+
+        // Assert
+        expect(first).not.toContain(bound.id);
+        expect(second).toContain(bound.id);
+        expect((await permissions.get(bound.id))?.revokedBy).toBe(ana);
+        expect((await permissions.get(caiBound.id))?.revokedAt).toBeUndefined();
+    });
+
+    it("should end a member's bound entries on the org's datasets when they leave it", async () => {
+        // Arrange: Ben, a member of Ana's org Acme, writes its catalog through a bound entry
+        const org = await new Orgs(test.db).create(ana, { name: 'Acme', slug: 'acme' });
+        await test.db.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'member')", [org.id, ben]);
+        const acme = (await permissions.numberOf(org.id)) as string;
+        const bound = await permissions.make({ owner: acme, pattern: '$.data.catalog', subject: ownerSubject(await number(ben)), rights: ['read', 'write'], kind: 'bound' });
+
+        // Act
+        await new Orgs(test.db).remove(ana, org.id, ben);
+
+        // Assert
+        expect((await permissions.get(bound.id))?.revokedAt).toBeDefined();
+    });
 });

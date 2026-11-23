@@ -15,16 +15,12 @@ interface Read {
     readonly listener: SharedDataListener;
 }
 
-const recordsOf = (body: unknown): Record<string, unknown> => {
-    const records = (body as { records?: unknown } | undefined)?.records;
-    return records !== null && typeof records === 'object' && !Array.isArray(records) ? (records as Record<string, unknown>) : {};
-};
-
 /**
  * Datasets owners shared with other workspaces, read by those workspaces' apps (docs/design/magnetic-shared-data.md).
  * A read finds the share the reading workspace holds, signs a token for it and checks it as a relay would, then
- * follows the owner's data part, keeping the owner's workspace open while it reads. Every delivery checks the share
- * again, and revoking a share ends every read through it at once
+ * follows the dataset's namespace as the owner, wherever it is held (`Services.datasetSessions.follow`), keeping the
+ * owner's workspace open while it reads. Every delivery checks the share again, and revoking a share ends every read
+ * through it at once
  */
 export class SharedData {
     private readonly byGrant = new Map<string, Set<Read>>();
@@ -80,7 +76,7 @@ export class SharedData {
         if (read.closed) return;
         read.stops.push(this.owners.retain(owner));
         let queue = Promise.resolve();
-        const send = (): void => {
+        const send = (records: Record<string, unknown>): void => {
             queue = queue
                 .then(async () => {
                     if (read.closed) return;
@@ -89,17 +85,20 @@ export class SharedData {
                         this.end(read, 'The share ended.');
                         return;
                     }
-                    const part = await services.parts.findByName('data', dataset);
-                    if (!read.closed) read.listener.records(recordsOf(part?.body));
+                    if (!read.closed) read.listener.records(records);
                 })
                 .catch((error: unknown) => this.report('A shared dataset could not be read', { owner, dataset, error: error instanceof Error ? error.message : String(error) }));
         };
-        read.stops.push(
-            services.onPartChange((kind, name) => {
-                if (kind === 'data' && name === dataset) send();
-            })
-        );
-        send();
+        const followed = await services.datasetSessions.follow(dataset, () => this.grants.boundAccess('default', owner, dataset), send);
+        if (followed === undefined) {
+            this.end(read, `No dataset ${dataset} is shared with this workspace by that owner.`);
+            return;
+        }
+        if (read.closed) {
+            followed.close();
+            return;
+        }
+        read.stops.push(() => followed.close());
     }
 
     private end(read: Read, reason: string): void {

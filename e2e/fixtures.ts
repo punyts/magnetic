@@ -55,6 +55,16 @@ export async function seedDataset(seed: { user: string; email: string; dataset: 
     expect(response.status, await response.text()).toBe(204);
 }
 
+/**
+ * Makes a dev user an app on one of their datasets (seedDataset), bound as $.data.menu: a heading shows the record
+ * `key`'s `field` and the button "Change it" sets it to `value`. Answers the app's id
+ */
+export async function seedDataApp(seed: { user: string; app: string; dataset: string; key: string; field: string; value: string }): Promise<string> {
+    const response = await fetch(`${CONTROL}/data-app`, { method: 'POST', body: JSON.stringify(seed) });
+    expect(response.status, response.status === 200 ? '' : await response.text()).toBe(200);
+    return ((await response.json()) as { id: string }).id;
+}
+
 /** Gives a dev user's app a logic module working on one of their datasets (seedDataset), as the agent would make it */
 export async function seedModule(seed: { user: string; app: string; module: string; dataset: string }): Promise<void> {
     const response = await fetch(`${CONTROL}/module`, { method: 'POST', body: JSON.stringify(seed) });

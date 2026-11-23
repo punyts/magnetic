@@ -121,6 +121,33 @@ async function seedModule({ user, app, module, dataset }) {
 }
 
 /**
+ * POST /data-app: a dev user's app on one of their datasets (POST /dataset), as the agent would make it: { user, app,
+ * dataset, key, field, value } makes the app `app` with the dataset bound as $.data.menu, a heading showing the
+ * record `key`'s `field`, a button "Change it" that sets it to `value`, and the toasts that tell of a request.
+ * Answers { id }
+ */
+async function seedDataApp({ user, app, dataset, key, field, value }) {
+    const id = await devUserId(user);
+    if (id === undefined) throw new Error(`${user} has not signed in`);
+    const run = await toolsOf(id);
+    const created = await run('ui_app_create', {
+        name: app,
+        title: app,
+        data: { menu: { dataset } },
+        home: {
+            component: 'panel',
+            layout: { type: 'column', gap: 'md' },
+            children: {
+                shown: { component: 'text', textRole: 'heading', element: 'h2', '<-_text': `$.data.menu.${key}.${field}` },
+                change: { component: 'button', _title: 'Change it', on: { press: { command: 'set', target: `$.data.menu.${key}.${field}`, value } } },
+                toasts: { component: 'toastRegion' }
+            }
+        }
+    });
+    return { id: created.id };
+}
+
+/**
  * POST /editor-node: a dev user changes a node of their own copy of the editor, as they would in the editor: { user,
  * path, value } with the node path below the editor's home screen. They must have opened the editor once, which made
  * the copy
@@ -199,6 +226,11 @@ const control = createServer((request, response) => {
         } else if (request.method === 'POST' && request.url === '/dataset') {
             seedDataset(JSON.parse(body)).then(
                 () => response.writeHead(204).end(),
+                (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
+            );
+        } else if (request.method === 'POST' && request.url === '/data-app') {
+            seedDataApp(JSON.parse(body)).then(
+                (made) => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(made)),
                 (error) => response.writeHead(400, { 'Content-Type': 'text/plain' }).end(String(error))
             );
         } else if (request.method === 'POST' && request.url === '/editor-node') {
