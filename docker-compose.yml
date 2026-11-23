@@ -11,5 +11,7 @@ services:
       - '127.0.0.1:5433:5432'
     volumes:
       - magnetic-db:/var/lib/postgresql/data
+      # The extensions the migrations need, made when the volume is new (the workspace's docker/initdb).
+      - ../docker/initdb/extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
 volumes:
   magnetic-db:
