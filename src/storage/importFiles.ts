@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PART_KINDS } from '@punyts/stateui-mcp';
-import { txInstances } from '@punyts/stateui-pg';
+import { txInstances, txSeedDataset } from '@punyts/stateui-pg';
 import type { Database, Queryable } from '@punyts/stateui-pg';
 
 /** What an import wrote, for the command's report */
@@ -113,16 +113,19 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
         for (const name of (await files(join(dir, kind))).filter((file) => file.endsWith('.json')).sort()) {
             const part = await readJson<{ id: string; name: string; revision: number; createdAt: string; updatedAt: string; body: object }>(join(dir, kind, name));
             if (part === undefined || !UUID.test(part.id)) continue;
-            await tx.query('INSERT INTO part (workspace_id, kind, id, name, revision, body, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING', [
+            // A dataset's records go in its namespace, the rest of it in the part (docs/design/statenet-requests.md, R3a)
+            const { records, ...rest } = part.body as { records?: object };
+            const inserted = await tx.query('INSERT INTO part (workspace_id, kind, id, name, revision, body, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING', [
                 workspaceId,
                 kind,
                 part.id.toLowerCase(),
                 part.name,
                 part.revision,
-                JSON.stringify(part.body),
+                JSON.stringify(kind === 'data' ? rest : part.body),
                 part.createdAt,
                 part.updatedAt
             ]);
+            if (kind === 'data' && (inserted.rowCount ?? 0) > 0) await txSeedDataset(tx, workspaceId, part.name, records ?? (await namespaceRecords(dir, part.name)));
             report.parts++;
             copied = true;
         }
@@ -176,6 +179,18 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
         }
     }
     if (copied) report.workspaces++;
+}
+
+/**
+ * The records of a dataset a newer data folder keeps in its namespace file (`namespaces/<address>.json`, the address
+ * ending in `/data/<dataset>`), `{}` when it has none
+ */
+async function namespaceRecords(dir: string, dataset: string): Promise<object> {
+    const suffix = `/data/${dataset}`;
+    const file = (await files(join(dir, 'namespaces'))).find((name) => name.endsWith('.json') && decodeURIComponent(name.slice(0, -'.json'.length)).endsWith(suffix));
+    if (file === undefined) return {};
+    const stored = await readJson<{ state?: { data?: { records?: object } } }>(join(dir, 'namespaces', file)).catch(() => undefined);
+    return stored?.state?.data?.records ?? {};
 }
 
 async function importAccounts(tx: Queryable, dataDir: string, report: ImportReport): Promise<void> {
