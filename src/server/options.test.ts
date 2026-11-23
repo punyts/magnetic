@@ -97,6 +97,13 @@ describe('parseOptions', () => {
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
     });
 
+    it('should turn the agent\'s browser on by default, and off by flag or environment', () => {
+        expect(parseOptions([], {}).agentBrowser).toBe(true);
+        expect(parseOptions(['--agent-browser', 'off'], {}).agentBrowser).toBe(false);
+        expect(parseOptions([], { MAGNETIC_AGENT_BROWSER: 'off' }).agentBrowser).toBe(false);
+        expect(() => parseOptions(['--agent-browser', 'maybe'], {})).toThrow('Invalid agent browser');
+    });
+
     it('should take Stripe from the environment, both keys or none, and the amounts to buy', () => {
         expect(parseOptions([], {})).toMatchObject({ stripe: undefined, topUps: undefined });
         expect(parseOptions([], { MAGNETIC_STRIPE_SECRET_KEY: 'sk_test_x', MAGNETIC_STRIPE_WEBHOOK_SECRET: 'whsec_x' }).stripe).toEqual({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' });

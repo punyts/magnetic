@@ -25,6 +25,8 @@ export interface CliOptions {
     runtimePort: number | undefined;
     devUsers: string[];
     starter: 'showcase' | 'none';
+    /** The agent's headless browser: ui_preview, ui_screenshot and ui_interact (docs/design/magnetic-agent-browser.md) */
+    agentBrowser: boolean;
     /** Seeds the beta's people on a development server, to sign in as each (src/testing/betaPersonas.ts) */
     seed: 'beta' | 'beta-full' | undefined;
     runtimeDir: string | undefined;
@@ -132,6 +134,8 @@ Options:
                          left) or beta-full (env MAGNETIC_SEED). Needs --beta-org. Loopback hosts only
   --starter <kind>       What a new workspace holds: showcase or none
                          (env MAGNETIC_STARTER, default showcase)
+  --agent-browser <on|off>  Whether the agent sees the app in a headless Chromium (ui_preview,
+                         ui_screenshot, ui_interact) (env MAGNETIC_AGENT_BROWSER, default on)
   --runtime-dir <dir>    The built StateUI runtime bundle (env MAGNETIC_RUNTIME_DIR)
   --public-origin <url>  The origin people reach the server at, such as https://magnetic.example
                          (env MAGNETIC_PUBLIC_ORIGIN, default the address it listens on). Redirect
@@ -307,6 +311,11 @@ const parseEmbedding = (text: string): 'local' | 'hash' | 'off' => {
     return text;
 };
 
+const parseSwitch = (name: string, text: string): boolean => {
+    if (text !== 'on' && text !== 'off') throw new UsageError(`Invalid ${name}: ${text} (on or off)`);
+    return text === 'on';
+};
+
 const parseStarter = (text: string): 'showcase' | 'none' => {
     if (text !== 'showcase' && text !== 'none') throw new UsageError(`Invalid starter: ${text}`);
     return text;
@@ -341,6 +350,7 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let port = env['MAGNETIC_PORT'] !== undefined ? parsePort(env['MAGNETIC_PORT']) : DEFAULT_PORT;
     let runtimePort = env['MAGNETIC_RUNTIME_PORT'] !== undefined ? parsePort(env['MAGNETIC_RUNTIME_PORT']) : undefined;
     let starter = env['MAGNETIC_STARTER'] !== undefined ? parseStarter(env['MAGNETIC_STARTER']) : 'showcase';
+    let agentBrowser = env['MAGNETIC_AGENT_BROWSER'] !== undefined ? parseSwitch('agent browser', env['MAGNETIC_AGENT_BROWSER']) : true;
     let seed = env['MAGNETIC_SEED'] !== undefined && env['MAGNETIC_SEED'] !== '' ? parseSeed(env['MAGNETIC_SEED']) : undefined;
     let runtimeDir = env['MAGNETIC_RUNTIME_DIR'];
     let publicOrigin = env['MAGNETIC_PUBLIC_ORIGIN'] !== undefined ? parseOrigin(env['MAGNETIC_PUBLIC_ORIGIN']) : undefined;
@@ -449,6 +459,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--starter':
                 starter = parseStarter(value());
                 break;
+            case '--agent-browser':
+                agentBrowser = parseSwitch('agent browser', value());
+                break;
             case '--runtime-dir':
                 runtimeDir = value();
                 break;
@@ -553,5 +566,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     const network = networkHost === undefined ? undefined : { host: networkHost, ...(tlsCert !== undefined && { tlsCert }), ...(tlsKey !== undefined && { tlsKey }) };
     const relay = { ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(meshUrl !== undefined && { endpoint: meshUrl }) };
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(relays !== undefined && { relays }) };
-    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, relay, report, help };
+    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, agentBrowser, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, relay, report, help };
 }

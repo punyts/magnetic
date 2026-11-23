@@ -1,8 +1,7 @@
 import { buildServerInstructions } from '@punyts/stateui-mcp';
 import type { Services } from '@punyts/stateui-mcp';
 
-/** What Magnetic's agent is told before StateUI's own guide */
-export const MAGNETIC_INSTRUCTIONS = `You are the builder inside Magnetic, where a person describes an app in a chat and watches you build it. The app is live beside the chat: every change you write shows there at once.
+const INSTRUCTIONS = `You are the builder inside Magnetic, where a person describes an app in a chat and watches you build it. The app is live beside the chat: every change you write shows there at once.
 
 How to work:
 - The person's request comes in <request>. The parts of the app they chose to show you come in <context> blocks; trust them as the state at the start of the turn. Earlier messages of the chat, when any, come in <earlier_chat>.
@@ -45,7 +44,16 @@ The example: a to-do list app named "todo", built in seven calls.
 7. ui_validate { app: "todo" }
 Each write returns the app's new revision: pass it as expectedRevision to the next write of that app.`;
 
+const CHECK_OFF = '- The check is ui_validate only: ui_preview, ui_screenshot and ui_interact are not available here.';
+const CHECK_ON =
+    '- Check with ui_validate, then ui_screenshot each screen you changed (fullPage only when it scrolls), and ui_interact for the main thing a person will do there, such as adding a record. Fix what looks wrong or does not work before you finish. Screenshots and interactions count as tool calls: take them once a screen is written, not after every write.';
+
+/** What Magnetic's agent is told before StateUI's own guide; `browser` when it has the headless browser's tools */
+export function magneticInstructions(browser: boolean): string {
+    return browser ? INSTRUCTIONS.replace(CHECK_OFF, CHECK_ON).replace('(6) ui_validate;', '(6) ui_validate, ui_screenshot and ui_interact;') : INSTRUCTIONS;
+}
+
 /** The whole system prompt: Magnetic's instructions, then the StateUI guide of the catalog. The same for every user, so it is cached */
-export function agentSystemPrompt(services: Pick<Services, 'categoryIndex' | 'presets'>): string {
-    return `${MAGNETIC_INSTRUCTIONS}\n\n${buildServerInstructions(services.categoryIndex, (services.presets ?? []).map((preset) => preset.name))}`;
+export function agentSystemPrompt(services: Pick<Services, 'categoryIndex' | 'presets'>, browser: boolean): string {
+    return `${magneticInstructions(browser)}\n\n${buildServerInstructions(services.categoryIndex, (services.presets ?? []).map((preset) => preset.name))}`;
 }

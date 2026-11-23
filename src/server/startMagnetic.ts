@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, pathGrantKey, requestHostName, startHttpServer } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, pathGrantKey, requestHostName, SharedChromium, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, ServicesStorage, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import { isReported, report } from '@punyts/core';
@@ -10,7 +10,8 @@ import { Stamps } from '../storage/Stamps.js';
 import { Accounts } from '../accounts/Accounts.js';
 import { ClaudeModel } from '../agent/AgentModel.js';
 import type { AgentModel } from '../agent/AgentModel.js';
-import { AgentTurns, CONTEXT_TOGGLES, WITHHELD_TOOLS } from '../agent/AgentTurns.js';
+import { AGENT_COOKIE, AgentSessions, fromThisMachine } from '../agent/AgentSessions.js';
+import { AgentTurns, CONTEXT_TOGGLES, withheldTools } from '../agent/AgentTurns.js';
 import { agentRoutes } from '../agent/agentRoutes.js';
 import type { SignInButton } from '../agent/agentRoutes.js';
 import { AgentTokens } from '../accounts/AgentTokens.js';
@@ -241,6 +242,11 @@ export interface MagneticOptions {
     readonly chunk3dDir?: string;
     /** Replaces each workspace's headless browser, for tests */
     readonly browser?: PreviewBrowser;
+    /**
+     * Whether the agent gets the headless browser's tools: one Chromium for the server, a context per workspace that
+     * signs in with an agent session (docs/design/magnetic-agent-browser.md). Default off; the CLI turns it on
+     */
+    readonly agentBrowser?: boolean;
     readonly logicLimits?: AppLogicLimits;
     readonly socketMessagesPerSecond?: number;
     readonly workspaces?: WorkspacesOptions;
@@ -594,6 +600,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         statenet?.mesh.uplink ??
         createAggregate(aggregateStorage(db, { embedRecords: index !== undefined }));
     const stateWriter = new StateWriter(db, namespaceWorkspaces, aggregateLink, statenet?.nodeId);
+    const agentBrowser = options.agentBrowser === true;
+    /** The sessions of the agent's headless browser, one per workspace, in this server's memory only */
+    const agentSessions = new AgentSessions();
+    /** One headless Chromium for the agent, a context per workspace, closed when idle */
+    const sharedChromium = agentBrowser && options.browser === undefined ? new SharedChromium() : undefined;
     const workspaces = new Workspaces(
         {
             open: async (workspaceId) => {
@@ -630,6 +641,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     ...(catalogMeanings !== undefined && { catalogMeanings }),
                     ...(similarity !== undefined && { procedures: { [SIMILAR_PROCEDURE]: similarProcedure(similarity, workspaceId, () => storage.parts) } }),
                     ...(options.browser !== undefined && { browser: options.browser }),
+                    // The agent's pages load this server over loopback (`origin`), signed in with the workspace's agent session
+                    ...(sharedChromium !== undefined && {
+                        pages: sharedChromium.source(workspaceId, async (context) => {
+                            await context.addCookies([{ name: AGENT_COOKIE, value: agentSessions.mint(workspaceId), url: origin, httpOnly: true, sameSite: 'Strict' }]);
+                        })
+                    }),
                     ...(statenet !== undefined && { placement: statenet.placement }),
                     // Datasets other owners shared with this workspace, read by its apps' `uses.external`
                     ...(sharedData !== undefined && { sharedData: sharedData.forReader(workspaceId) })
@@ -711,13 +728,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return (await budgets.workspaceSpent(workspaceId)) >= limit ? ORG_BUDGET_SPENT : undefined;
         },
         chats: new Chats(db, { embed: index !== undefined }),
+        browser: agentBrowser,
         ...(options.agent?.limits !== undefined && { limits: options.agent.limits }),
         report: options.report,
         workspace: async (userId, workspaceId) => {
             const release = workspaces.retain(workspaceId);
             try {
                 const services = await workspaces.get(workspaceId);
-                system ??= agentSystemPrompt(services);
+                system ??= agentSystemPrompt(services, agentBrowser);
                 return { tools: [...toolsOf(services), ...(search?.tools(userId, workspaceId) ?? []), ...(similarity === undefined ? [] : [similarTool(similarity, userId, workspaceId, services.parts)])], system, release };
             } catch (error) {
                 release();
@@ -990,7 +1008,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             try {
                 const services = await workspaces.get(userId);
                 return {
-                    tools: toolsOf(services).filter((tool) => !WITHHELD_TOOLS.has(tool.name)),
+                    tools: toolsOf(services).filter((tool) => !withheldTools(agentBrowser).has(tool.name)),
                     instructions: buildServerInstructions(services.categoryIndex, (services.presets ?? []).map((preset) => preset.name)),
                     release
                 };
@@ -1001,9 +1019,24 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
     });
 
+    /**
+     * The tenant of the agent's headless browser: the views of its own workspace's apps, from this machine only. No
+     * other route reads its cookie (docs/design/magnetic-agent-browser.md)
+     */
+    async function agentTenant(request: IncomingMessage): Promise<TenantAnswer | undefined> {
+        const workspaceId = agentSessions.workspaceOf(readCookie(request, AGENT_COOKIE));
+        if (workspaceId === undefined || !fromThisMachine(request)) return undefined;
+        const appId = APP_PATH.exec(new URL(request.url ?? '/', 'http://localhost').pathname)?.[1]?.toLowerCase();
+        const services = await workspaces.get(workspaceId);
+        if (appId === undefined || (await services.instanceViews.find(appId)) === undefined) return { refuse: 404 };
+        return { tenant: { useCases: services.useCases, hub: services.hub, liveViews: services.liveViews, instances: services.instanceViews, retain: () => workspaces.retain(workspaceId) } };
+    }
+
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
         if (who === undefined) {
+            const agent = await agentTenant(request);
+            if (agent !== undefined) return agent;
             const next = safeNext(request.url);
             return { refuse: 401, location: next === '/' ? '/signin' : `/signin?next=${encodeURIComponent(next)}` };
         }
@@ -2090,6 +2123,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             // what this server owns is saved and let go first, so another server takes it at once
             await statenet?.stop();
             await workspaces.close();
+            await sharedChromium?.close();
         }
     };
 }
