@@ -184,7 +184,8 @@ export class EditorPage {
         this.app = page.locator(`${BOARD} ui-embedded-app[live]`);
     }
     get appId(): string {
-        return new URL(this.page.url()).pathname.split('/').pop() as string;
+        // /edit/<id> or /apps/<id>, with /screens/<name> after it once the screen changed
+        return new URL(this.page.url()).pathname.split('/')[2] as string;
     }
     async goto(appId: string): Promise<void> {
         await this.page.goto(`/edit/${appId}`);

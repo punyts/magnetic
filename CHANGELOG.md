@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The URL follows the screen, the board's view and what is open, so Back works** (docs/design/magnetic-zoom.md,
+  stage 1). The screen is `/screens/<name>` after `/edit/<id>` or `/apps/<id>`, and choosing one pushes an entry; the
+  board's view is `#x,y,zoom` while it is not the fit; `?open=` names the open panel and sheet, and opening one pushes an
+  entry. Ctrl+Shift+E pushes instead of replacing. A link opens on the screen, view and sheet it names. Someone else's
+  `/apps/<id>/screens/<name>` goes to the host's `?screen=` (`e2e/address.spec.ts`; `e2e/screens.spec.ts` keeps the
+  panel open across a reload).
 - **Views sync over state-sync's protocol 4** (docs/design/statenet-wire-format.md, W2): a view's socket carries its
   sync messages as binary frames after a text `hello`, and a tab opened before the deploy stops syncing until it
   reloads. Magnetic's code is unchanged; its socket tests speak the wire through `src/testing/syncWire.ts`

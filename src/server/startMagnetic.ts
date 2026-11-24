@@ -1656,9 +1656,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         // An app of the person's own opens with the editor hidden; any other falls through to the app page of the host
-        const own = method === 'GET' ? /^\/apps\/([^/]+)$/.exec(path) : null;
+        // `/screens/<name>` after either is the screen the page opens on (docs/design/magnetic-zoom.md); the page reads it
+        const own = method === 'GET' ? /^\/apps\/([^/]+)(\/screens\/[a-z][a-z0-9-]*)?$/.exec(path) : null;
         if (own !== null && (await ownAppPage(request, response, decodeURIComponent(own[1] as string)))) return true;
-        const edit = /^\/edit\/([^/]+)(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget|\/views\/[a-z]+)?$/.exec(path);
+        // Anyone else's app page is the host's, which takes the screen as `?screen=`
+        if (own !== null && own[2] !== undefined) {
+            redirect(response, `/apps/${encodeURIComponent(decodeURIComponent(own[1] as string))}?screen=${own[2].slice('/screens/'.length)}`);
+            return true;
+        }
+        const edit = /^\/edit\/([^/]+)(?:\/screens\/[a-z][a-z0-9-]*|(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget|\/views\/[a-z]+))?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;

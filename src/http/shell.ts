@@ -544,20 +544,24 @@ let screensOpen = false;
 let connectionsOpen = false;
 let sharedOpen = false;
 function showLibraryPanel(open, remember) {
+    const before = openStart();
     libraryOpen = open;
     if (open && screensOpen) showScreensPanel(false);
     if (open && connectionsOpen) showConnectionsPanel(false);
     if (open && sharedOpen) showSharedPanel(false);
     ed({ libraryHidden: !open, libraryLook: open ? 'soft' : 'ghost', libraryTone: open ? 'accent' : 'neutral' });
     if (remember) { try { localStorage.setItem('magnetic.library', open ? '1' : '0'); } catch { /* storage may be blocked */ } }
+    openEnd(before);
 }
 /** The Screens panel takes the library's place beside the rail: opening one closes the other */
 function showScreensPanel(open) {
+    const before = openStart();
     screensOpen = open;
     if (open && libraryOpen) showLibraryPanel(false, false);
     if (open && connectionsOpen) showConnectionsPanel(false);
     if (open && sharedOpen) showSharedPanel(false);
     ed({ screensHidden: !open, screensLook: open ? 'soft' : 'ghost', screensTone: open ? 'accent' : 'neutral' });
+    openEnd(before);
 }
 /**
  * The Connections panel, in the library's place too: the outside APIs the app's workspace has and their endpoints, from
@@ -565,12 +569,14 @@ function showScreensPanel(open) {
  * the app; Manage opens the Connections page of the workspace, for those who manage it
  */
 function showConnectionsPanel(open) {
+    const before = openStart();
     connectionsOpen = open;
     if (open && libraryOpen) showLibraryPanel(false, false);
     if (open && screensOpen) showScreensPanel(false);
     if (open && sharedOpen) showSharedPanel(false);
     ed({ connectionsHidden: !open, connectionsLook: open ? 'soft' : 'ghost', connectionsTone: open ? 'accent' : 'neutral' });
     if (open) void loadConnections();
+    openEnd(before);
 }
 let connectionsManage = null;
 const endpointsById = new Map();
@@ -601,12 +607,14 @@ async function loadConnections() {
  * GET /edit/<id>/shared-data. Pressing one asks the agent to show it in the app; Manage data opens the Data page
  */
 function showSharedPanel(open) {
+    const before = openStart();
     sharedOpen = open;
     if (open && libraryOpen) showLibraryPanel(false, false);
     if (open && screensOpen) showScreensPanel(false);
     if (open && connectionsOpen) showConnectionsPanel(false);
     ed({ sharedHidden: !open, sharedLook: open ? 'soft' : 'ghost', sharedTone: open ? 'accent' : 'neutral' });
     if (open) void loadShared();
+    openEnd(before);
 }
 let sharedManage = null;
 const sharedById = new Map();
@@ -637,9 +645,106 @@ function libraryAtFirst() {
 }
 
 /** The Share, choices and feedback sheets open under their buttons, one at a time */
+let sheet = null;
 function showSheet(name, open) {
+    const before = openStart();
+    sheet = open ? name : sheet === name ? null : sheet;
     ed({ shareHidden: name === 'share' ? !open : true, prefsHidden: name === 'prefs' ? !open : true, feedbackHidden: name === 'feedback' ? !open : true });
+    openEnd(before);
 }
+/** Opens or closes a sheet or a panel the address names, as its button would */
+function openNamed(name, open) {
+    switch (name) {
+        case 'share': showSheet('share', open); if (open) { shareSays(''); void loadLinks(); } return;
+        case 'prefs': ed({ prefsStatus: '' }); showSheet('prefs', open); return;
+        case 'feedback': ed({ feedbackStatus: '' }); showSheet('feedback', open); return;
+        case 'screens': showScreensPanel(open); return;
+        case 'connections': showConnectionsPanel(open); return;
+        case 'shared': showSharedPanel(open); return;
+    }
+}
+
+/*
+ * Where the person is, in the address (docs/design/magnetic-zoom.md, "Where you are is in the URL"), so Back, Forward,
+ * a reload and a shared link go there:
+ * - the editor or the app alone: /edit/<id> or /apps/<id>; Ctrl+Shift+E pushes an entry;
+ * - the screen: /screens/<name> after it, once it changes (a bare /edit/<id> is the screen the app is on); a screen
+ *   chosen pushes an entry, the board following the view replaces it (screens.js);
+ * - the board's view in the editor: #x,y,zoom while it is the person's own and not the board's fit, replaced as it rests;
+ * - what is open in the editor: ?open= with the panel beside the rail (screens, connections, shared) and the sheet
+ *   (share, prefs, feedback). Opening one pushes an entry; closing it right after goes back to the entry before it.
+ * The library, the inspector and the views are not in it: the library is a layout kept in this browser, the
+ * inspector follows the selection, and a view is kept per app.
+ */
+const SCREEN_NAME = /^[a-z][a-z0-9-]*$/;
+const OPEN_NAMES = ['screens', 'connections', 'shared', 'share', 'prefs', 'feedback'];
+/** The address read: { editing, screen, view, open } */
+function addressNow() {
+    const parts = location.pathname.split('/');
+    const screen = parts[3] === 'screens' && SCREEN_NAME.test(parts[4] || '') ? parts[4] : null;
+    const numbers = location.hash.slice(1).split(',').map((part) => (part.trim() === '' ? NaN : Number(part)));
+    const view = numbers.length === 3 && numbers.every(Number.isFinite) && numbers[2] > 0 ? { x: numbers[0], y: numbers[1], zoom: numbers[2] } : null;
+    const asked = (new URLSearchParams(location.search).get('open') || '').split(',');
+    return { editing: parts[1] === 'edit', screen, view, open: OPEN_NAMES.filter((name) => asked.includes(name)) };
+}
+/** The address of a place: the view and what is open only with the editor, other query parameters kept */
+function addressOf(at) {
+    const query = new URLSearchParams(location.search);
+    if (at.editing && at.open.length > 0) query.set('open', at.open.join(','));
+    else query.delete('open');
+    const search = query.toString().replace(/%2C/g, ',');
+    const view = at.editing && at.view ? '#' + Math.round(at.view.x) + ',' + Math.round(at.view.y) + ',' + Number(at.view.zoom.toFixed(3)) : '';
+    return (at.editing ? '/edit/' : '/apps/') + encodeURIComponent(appId) + (at.screen ? '/screens/' + at.screen : '') + (search ? '?' + search : '') + view;
+}
+let address = addressNow();
+/** Who hears Back and Forward: (address, the address before) */
+const addressListeners = [];
+/** Moves the address to a place: a new entry (push, with state as the entry's), or this one replaced */
+function go(change, how = {}) {
+    address = { ...address, ...change };
+    const url = addressOf(address);
+    if (url === location.pathname + location.search + location.hash) return;
+    if (how.push) history.pushState(how.state || null, '', url);
+    else history.replaceState(history.state, '', url);
+}
+/** What is open now, as the address names it */
+function openNow() {
+    return OPEN_NAMES.filter((name) => (name === 'screens' ? screensOpen : name === 'connections' ? connectionsOpen : name === 'shared' ? sharedOpen : sheet === name));
+}
+/** A panel or sheet opening closes others: only the outermost change is remembered, once, and none made from the address */
+let openDepth = 0;
+let applying = false;
+function openStart() { openDepth += 1; return openNow(); }
+function openEnd(before) {
+    openDepth -= 1;
+    if (openDepth > 0 || applying) return;
+    const after = openNow();
+    if (after.join() === before.join()) return;
+    const opened = after.find((name) => !before.includes(name));
+    if (opened) { go({ open: after }, { push: true, state: { opened, before: location.pathname + location.search + location.hash } }); return; }
+    // Closing what the last entry opened, with nothing else changed since, goes back to the entry before it
+    const entry = history.state;
+    if (entry && before.includes(entry.opened) && !after.includes(entry.opened) && entry.before === addressOf({ ...address, open: after })) {
+        address = { ...address, open: after };
+        history.back();
+        return;
+    }
+    go({ open: after });
+}
+/** Opens and closes what the address names, without remembering it again */
+function applyOpen(names) {
+    applying = true;
+    try {
+        for (const name of OPEN_NAMES) if (names.includes(name) !== openNow().includes(name)) openNamed(name, names.includes(name));
+    } finally { applying = false; }
+}
+addEventListener('popstate', () => {
+    const was = address;
+    address = addressNow();
+    if (address.editing !== editing()) setEditing(address.editing, true);
+    if (editing()) applyOpen(address.open);
+    for (const listener of addressListeners) listener(address, was);
+});
 
 // Feedback from the bug button: what kind and what was typed, sent to the server with where it was sent from
 let feedbackKind = 'bug';
@@ -689,6 +794,8 @@ async function choose(change) {
     try {
         const response = await fetch('/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
         if (!response.ok) throw new Error('refused');
+        // The choice is made: the page loads again without the choices sheet open
+        go({ open: address.open.filter((name) => name !== 'prefs') });
         location.reload();
     } catch { ed({ prefsStatus: T['prefs.failed'] }); }
 }
@@ -697,7 +804,7 @@ emitListeners.push((name, payload) => {
     const value = valueOf(payload);
     switch (name) {
         case 'home': location.assign('/'); return;
-        case 'open': window.open('/apps/' + encodeURIComponent(appId), '_blank', 'noopener'); return;
+        case 'open': window.open(addressOf({ ...address, editing: false }), '_blank', 'noopener'); return;
         case 'size': setSize(String(value)); return;
         case 'turn': turned = !turned; setSize(size); return;
         case 'zoomIn': case 'zoomOut': case 'zoomReset': case 'zoomFit': zoom(name); return;
@@ -939,9 +1046,10 @@ function watchStage() {
 // The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app or the editor
 function editing() { return document.body.classList.contains('editing'); }
 
-function setEditing(on) {
+/** Shows or hides the editor; fromHistory: the address already says so (Back or Forward), so no entry is pushed */
+function setEditing(on, fromHistory = false) {
     document.body.classList.toggle('editing', on);
-    history.replaceState(null, '', (on ? '/edit/' : '/apps/') + encodeURIComponent(appId) + location.search);
+    if (!fromHistory) go({ editing: on }, { push: true });
     if (on) {
         hideHint();
         if (panel && ready) watchStage();
@@ -1032,6 +1140,15 @@ const magneticShell = {
             if ((from === 'base') === !driver) ed({ zoom: Math.round(value * 100) + '%' });
         }
     },
+    /**
+     * The address (screens.js): now() is { editing, screen, view, open }; go(change, { push }) moves it; onChange(listener)
+     * hears Back and Forward with the address and the one before
+     */
+    address: {
+        now: () => address,
+        go,
+        onChange: (listener) => addressListeners.push(listener)
+    },
     editorChanged,
     appChanged,
     onEscape: (listener) => escapeListeners.push(listener),
@@ -1107,7 +1224,7 @@ function showAll() {
     showChat(chatOpen);
     showWidth();
     showLibraryPanel(libraryOpen === null ? libraryAtFirst() : libraryOpen, false);
-    if (editing()) watchStage();
+    if (editing()) { applyOpen(address.open); watchStage(); }
 }
 
 (function startCanvas() {

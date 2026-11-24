@@ -127,8 +127,8 @@ test.describe('Screens', () => {
         await expect.poll(async () => { const now = await boxes(page); return Math.abs(now['two']!.x - now['home']!.x); }).toBeLessThan(4);
         at = await boxes(page);
         near(at['two']!.y, at['three']!.y);
+        // The address keeps the Screens panel open (?open=screens) across the reload
         await page.reload();
-        await editor.button('Screens (P)').click();
         await expect(editor.editor.getByRole('combobox', { name: 'Screens in a row', exact: true })).toHaveValue('n2');
     });
 
@@ -257,7 +257,7 @@ test.describe('Screens', () => {
         // Assert: both gone, and the app opens on the next screen
         await expect(panel(editor).getByText('Two', { exact: true })).toBeHidden();
         await expect(panel(editor).getByText('Home', { exact: true })).toBeHidden();
-        const answer = await page.evaluate(async () => (await fetch(location.pathname + '/screens')).json());
+        const answer = await page.evaluate(async () => (await fetch(location.pathname.split('/').slice(0, 3).join('/') + '/screens')).json());
         expect(answer.start).toBe('one');
     });
 
@@ -273,7 +273,7 @@ test.describe('Screens', () => {
         await add.click();
         await expect(liveFrame(page, 'Home')).toBeVisible();
         await expect(add).toBeHidden();
-        const answer = await page.evaluate(async () => (await fetch(location.pathname + '/screens')).json());
+        const answer = await page.evaluate(async () => (await fetch(location.pathname.split('/').slice(0, 3).join('/') + '/screens')).json());
         expect(answer.start).toBe('home');
     });
 });

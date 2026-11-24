@@ -36,6 +36,11 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **Without the editor** the live app fills the window, attached in `#alone`; the editor showing attaches it on its
  *   card again.
  * - The live app moving to another screen itself (`navigated`) makes that screen the one worked on.
+ * - **The address** (the shell's `address`): the screen worked on is `/screens/<name>` after the app's path, and the
+ *   board's view `#x,y,zoom` while it is not the fit. A screen chosen, or the live app moving after the person pressed
+ *   or typed, pushes an entry; the board following the view replaces it. Back and Forward choose the screen and set
+ *   the view of their entry; an entry with no screen is the one the page opened on, with no view the fit. The page
+ *   opens on the screen and view the address names, before the one the app is on and the view kept on the server.
  * - A new document (the body's `data-revision`) reloads the list.
  * - `window.magneticScreens.choose(name)` makes a screen the one worked on, for the views (`/assets/views.js`).
  *
@@ -83,6 +88,8 @@ const NAME = /^[a-z][a-z0-9-]*$/;
 let screens = [];
 let start = null;
 let current = null;
+/** The screen worked on when the page opened: where an entry of the address without a screen goes back to */
+let firstScreen;
 let typedNew = '';
 let typedRename = '';
 /** The screen typedRename was typed for: a list reloaded under it (a new revision) keeps what was typed */
@@ -107,7 +114,10 @@ const places = new Map();
 let aloneApp = null;
 /** Where the pointer last went down, where a menu opened from a card goes */
 const pointer = { x: innerWidth / 2, y: innerHeight / 3 };
-addEventListener('pointerdown', (event) => { pointer.x = event.clientX; pointer.y = event.clientY; }, true);
+addEventListener('pointerdown', (event) => { pointer.x = event.clientX; pointer.y = event.clientY; touched = true; }, true);
+/** The person has pressed or typed: before that, the live app moving screen is it opening where it was, not a step to go back from */
+let touched = false;
+addEventListener('keydown', () => { touched = true; }, true);
 
 function says(message) {
     editor.set({ screensStatus: message || '', noScreensStatus: !message });
@@ -137,10 +147,17 @@ function apply(answer) {
     start = typeof answer.start === 'string' ? answer.start : null;
     const has = (name) => screens.some((screen) => screen.name === name);
     if (!current || !has(current)) {
+        // The screen the address names, else the one the app is on, else the one it opens on
+        const asked = shell.address.now().screen;
         const route = routeScreen();
-        current = route && has(route) ? route : start || (screens[0] ? screens[0].name : null);
+        current = asked && has(asked) ? asked : route && has(route) ? route : start || (screens[0] ? screens[0].name : null);
+        if (current === asked && asked !== route && host && host.navigate) host.navigate(asked);
     }
     if (screens.length === 0) current = null;
+    if (firstScreen === undefined) firstScreen = current;
+    // A screen the address names that is gone (deleted, renamed, never there) gives way to the one worked on
+    const named = shell.address.now().screen;
+    if (named !== null && named !== current) shell.address.go({ screen: current });
     if (selected !== null && !has(selected)) selected = null;
     shell.noScreens(screens.length === 0);
     show();
@@ -190,7 +207,7 @@ function areaInView(box) {
 /** Out of names, makes the screen with the most in view the one worked on */
 function followView() {
     const most = names ? null : mostInView();
-    if (most !== null && most !== current) choose(most);
+    if (most !== null && most !== current) choose(most, 'follow');
 }
 
 /** The screen whose card has the most in view, or null when none is in view; the current screen keeps a tie */
@@ -353,6 +370,8 @@ function fit() {
     Object.assign(view, { x: free.left + (free.width - box.width * zoom) / 2 - box.x * zoom, y: free.top + (free.height - box.height * zoom) / 2 - box.y * zoom, zoom });
     pageWrite({ view: { ...view } });
     fitted = true;
+    // The board's fit is no place of the person's: the address has no view, and opens on the fit again
+    shell.address.go({ view: null });
     shell.canvas.showZoom(view.zoom, 'base');
     settle();
 }
@@ -380,13 +399,14 @@ function settle() {
     page.panel.write([{ path: S + '.tiles', value: next }, { path: S + '.names', value: names }, { path: page.board + '.theme', value: theme }]);
 }
 
-/** The view kept on the server, read once: the board opens on it */
+/** The view kept on the server, read once: the board opens on it, or on the view the address names */
 const keptLoaded = fetch(base + '/views/kept?view=screens')
     .then((answer) => (answer.ok ? answer.json() : {}))
     .then((answer) => {
         const kept = answer.place;
         keptView = kept && [kept.x, kept.y, kept.zoom].every(Number.isFinite) ? { x: kept.x, y: kept.y, zoom: kept.zoom } : null;
-    }, () => undefined);
+    }, () => undefined)
+    .then(() => { if (shell && shell.address.now().view) keptView = { ...shell.address.now().view }; });
 
 function boardEmit(event) {
     const { name, payload } = event.detail || {};
@@ -486,9 +506,30 @@ function followed(screen) {
     if (!screen || screen === current || !screens.some((candidate) => candidate.name === screen)) return;
     if (selected !== null) selected = screen;
     current = screen;
+    if (touched) shell.address.go({ screen }, { push: true });
+    else if (shell.address.now().screen === null) firstScreen = screen;
+    else shell.address.go({ screen });
     show();
     settle();
 }
+
+/** Back or Forward: the screen, and in the editor the view, the address names */
+function addressMoved(address) {
+    const screen = address.screen || firstScreen;
+    if (screen && screen !== current && screens.some((candidate) => candidate.name === screen)) choose(screen, 'history');
+    if (!shell.editing() || !page) return;
+    if (address.view) {
+        if (address.view.x === Math.round(view.x) && address.view.y === Math.round(view.y) && address.view.zoom === Number(view.zoom.toFixed(3))) return;
+        Object.assign(view, address.view);
+        pageWrite({ view: { ...view } });
+        fitted = false;
+        shell.canvas.showZoom(view.zoom, 'base');
+        settle();
+    } else if (!fitted) fit();
+}
+
+/** The view rested where the person left it: the address keeps it */
+function viewInAddress() { shell.address.go({ view: { ...view } }); }
 
 /** Pressing a card: in names it selects the screen, so it shows; otherwise the screen becomes the one worked on */
 function press(name) {
@@ -647,12 +688,17 @@ function openMenu(name, x, y, confirming = false) {
     addEventListener('keydown', escape, true);
 }
 
-/** Makes a screen the one the editor works on: the live app goes there */
-function choose(name) {
+/**
+ * Makes a screen the one the editor works on: the live app goes there. A screen chosen pushes an entry of the address;
+ * how 'follow' (the board following the view) replaces it, and 'history' (Back or Forward) leaves it as it is
+ */
+function choose(name, how) {
     if (!screens.some((screen) => screen.name === name)) return;
     says('');
     if (host && host.navigate) host.navigate(name);
+    const moved = name !== current;
     current = name;
+    if (moved && how !== 'history') shell.address.go({ screen: name }, { push: how !== 'follow' });
     show();
     settle();
 }
@@ -712,6 +758,7 @@ async function onBoard(name, payload) {
             Object.assign(view, { x: payload.x, y: payload.y, zoom: payload.zoom });
             fitted = false;
             keepView();
+            viewInAddress();
             shell.canvas.showZoom(view.zoom, 'base');
             settle();
             followView();
@@ -822,6 +869,7 @@ function panBy(dx, dy) {
     fitted = false;
     pageWrite({ view: { ...view } });
     keepView();
+    viewInAddress();
     settle();
 }
 
@@ -843,6 +891,7 @@ if (shell && editor && host) {
     addEventListener('resize', () => { pageWrite({ inset: insetOf() }); settle(); });
     shell.onEscape(() => deselect());
     shell.onEditing((on) => placeLive(on));
+    shell.address.onChange((address) => addressMoved(address));
     // A new document: the list again
     new MutationObserver(() => {
         const next = document.body.dataset.revision || '';
