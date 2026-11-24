@@ -1226,11 +1226,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     }
 
     /**
-     * `GET /orgs/<org>` and `GET /orgs/me`: the apps of a workspace the person may open, as a board
-     * (docs/design/magnetic-zoom.md, stage 3). Their own space holds their own apps and the apps shared with them by
-     * link; an org's holds the apps of its workspace they may open. Anyone not in the org gets 404
+     * The levels of boards (docs/design/magnetic-zoom.md). `GET /orgs`: the person's own space and each org they are
+     * in (stage 4). `GET /orgs/<org>` and `GET /orgs/me`: the apps of a workspace the person may open (stage 3). Their
+     * own space holds their own apps and the apps shared with them by link; an org's holds the apps of its workspace they
+     * may open. Anyone not in the org gets 404
      */
-    async function appsBoardRoute(request: IncomingMessage, response: ServerResponse, which: string): Promise<void> {
+    async function appsBoardRoute(request: IncomingMessage, response: ServerResponse, which: string | undefined): Promise<void> {
         const who = await signedIn(request);
         if (who === undefined) {
             redirect(response, `/signin?next=${encodeURIComponent(safeNext(request.url))}`);
@@ -1241,6 +1242,17 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const t = textsOf(look.language);
         const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
         const newest = (a: { readonly updatedAt: Date }, b: { readonly updatedAt: Date }): number => b.updatedAt.getTime() - a.updatedAt.getTime();
+        const page = { runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, look };
+        if (which === undefined) {
+            const orgWords = orgTextsOf(look.language);
+            const roleWords = (role: string): string => orgWords[`orgs.role.${role}` as keyof typeof orgWords] ?? role;
+            const spaces: AppTile[] = [
+                { id: 'me', title: t['shell.ownWorkspace'], note: t['apps.ownSpace'], href: '/orgs/me' },
+                ...(await orgs.of(user.id)).map((org) => ({ id: org.id, title: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }), href: `/orgs/${encodeURIComponent(org.id)}` }))
+            ];
+            sendAppPage(request, response, appsPage({ ...page, name: t['apps.orgs'], label: t['apps.orgsBoard'], pick: 'org', levels: [{ label: t['apps.yourApps'], href: '/' }, { label: t['apps.orgs'] }], tiles: spaces }));
+            return;
+        }
         let name: string;
         let tiles: AppTile[];
         if (which === 'me') {
@@ -1272,7 +1284,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     return { id: app.id, title: app.name, note: changed(app.updatedAt), href: `/${edits ? 'edit' : 'apps'}/${encodeURIComponent(app.id)}` };
                 });
         }
-        sendAppPage(request, response, appsPage({ name, tiles, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, look }));
+        const out = `/orgs?org=${encodeURIComponent(which)}`;
+        sendAppPage(request, response, appsPage({ ...page, name, label: t['apps.board'], pick: 'app', out, levels: [{ label: t['apps.orgs'], href: out }, { label: name }], tiles }));
     }
 
     /** `GET /`: the person's "Your apps", with the lists written into its data first */
@@ -1796,9 +1809,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (await handleScim(request, response, method, path, url.searchParams)) return true;
-        const board = /^\/orgs\/(me|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(path);
+        const board = /^\/orgs(?:\/(me|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/.exec(path);
         if (board !== null && method === 'GET') {
-            await appsBoardRoute(request, response, board[1] as string);
+            await appsBoardRoute(request, response, board[1]);
             return true;
         }
         if (await handleOrgRoute(request, response, method, path)) return true;

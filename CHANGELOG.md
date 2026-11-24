@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The Orgs level at `/orgs`: the person's own space and each org they are in, as tiles** (docs/design/magnetic-zoom.md,
+  stage 4). It is the same board page as a workspace's apps; a press or Ctrl+Shift+= opens that workspace's board, and
+  `?org=<id>` (`?org=me`) selects a tile. A workspace's board now zooms out to `/orgs?org=<id>`, and its bar reads
+  Orgs › the workspace. Breaking: `GET /orgs` no longer answers the JSON list of orgs; `POST /orgs` still makes one.
+  Tests: `src/apps/AppsPage.test.ts`, `e2e/apps.spec.ts`.
 - **A workspace's apps are a board at `/orgs/<org>` and `/orgs/me`, and zooming out of the editor goes there**
   (docs/design/magnetic-zoom.md, stage 3). The page `magnetic-apps` (`src/apps/AppsPage.ts`, `/assets/apps.json`)
   shows the apps the person may open as cards in rows of five on a canvas, under a level bar; the server writes the

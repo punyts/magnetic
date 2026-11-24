@@ -260,9 +260,13 @@ workspace, and stops when you sign out of that browser.
   a board of cards under a level bar (Your apps › the workspace), in rows of five on a canvas that pans and zooms. An
   org's are the apps of its workspace the person may open; their own are their own apps and those shared with them by
   link. A press on a card, or Ctrl+Shift+= on the selected card or else the one most in view, opens the editor (for
-  `manage`, `edit` and their own) or the running app; Ctrl+Shift+- goes to `/`. `?app=<id>` selects and centers
-  that app's card, where zooming out of the editor arrives. Anyone not in the org gets 404. The page is Magnetic's
+  `manage`, `edit` and their own) or the running app; `?app=<id>` selects and centers
+  that app's card, where zooming out of the editor arrives; Ctrl+Shift+- goes to the Orgs level. Anyone not in the org
+  gets 404. The page is Magnetic's
   `magnetic-apps` (`/assets/apps.json`), driven by `/assets/apps.js`; the server writes the cards into the page.
+- **The Orgs level** (`/orgs`; docs/design/magnetic-zoom.md, stage 4) is the same board with the person's own space
+  (Yours) and each org they are in as cards; a card opens that workspace's board, and `?org=<id>` (`?org=me`) selects
+  one. Its bar links back to Your apps.
 - **The address** (docs/design/magnetic-zoom.md, stage 1) says where the person is, so Back, Forward, a reload and a
   link go there: the screen as `/screens/<name>` after the app's path (choosing one pushes an entry; the board following
   the view replaces it), the board's view as `#x,y,zoom` while it is not the fit, and `?open=` with the open panel
@@ -436,7 +440,7 @@ The same is there as JSON routes:
 
 | Route | What |
 |---|---|
-| `GET`, `POST /orgs` | Your orgs; make one (`{ name, slug }`) |
+| `POST /orgs` | Make an org (`{ name, slug }`); `GET /orgs` is the Orgs page |
 | `GET /orgs/<id>/members`, `POST`, `DELETE /orgs/<id>/members/<userId>` | Members; change a role (`{ role }`); remove |
 | `GET`, `POST /orgs/<id>/groups`, `POST`, `DELETE /orgs/<id>/groups/<groupId>/members/<userId>` | Groups and their members |
 | `POST /orgs/<id>/invites` | Invite an email (`{ email, role, groups }`); answers the link |
@@ -634,7 +638,7 @@ The org settings, Shared by me, Data, Agent use and privacy pages are plain HTML
 | `editor.spec.ts` | The bars and tools; the ideas of a blank app; a turn of the agent and the chat; frame sizes; zoom and fit; selecting a part, its properties, and editing its text by hand; zooming into the app and out again; going home. The library: shown and hidden (button, `A`, phone), narrowed by letter and category, a component pressed then placed, dragged and dropped onto the app, and dropped outside it. Layout and placement: a column made a grid, a part spanning two columns, a setting kept across types |
 | `address.spec.ts` | (Desktop only) The address: opening on the screen it names and Back to the screen before one chosen; a sheet in `?open=`, closed by Back and opened from a link; Ctrl+Shift+= and Ctrl+Shift+- each pushing an entry, and zooming out of the editor to its workspace's board |
 | `levels.spec.ts` | The level bar over the running app: the workspace, the app and the screen named, the app zooming out to the editor and Back |
-| `apps.spec.ts` | A workspace's board of apps: zooming out of the editor to it, on the app's card, and back in with the chord; Back; a press on a card opening the app |
+| `apps.spec.ts` | A workspace's board of apps: zooming out of the editor to it, on the app's card, and back in with the chord; Back; a press on a card opening the app; zooming out of a workspace to the Orgs level and back in |
 | `screens.spec.ts` | (Desktop only) The Screens panel and a frame per screen in order; pressing a preview to work on it in its place; copy, rename, open-on and delete; a bad name refused; previews out of view not running |
 | `connections.spec.ts` | The Connections page from Your apps; a key connection made, its endpoint added and tried, with the key never on the page; a URL that is not https refused; an OAuth connection connected through the stand-in provider (port + 3) and called with its token; deleting only with the box ticked; the page in German for someone who chose no language; the editor's Connections panel listing an endpoint and asking the agent, with "Yours" in the top bar; an org with connections turned off: its page says so with no Try, and its app's editor names the org and says so too |
 | `feedback.spec.ts` | The editor's bug button: a feature request sent and emailed to the operator with the frame size, the box cleared; an empty one refused, and the sheet closed by its button |

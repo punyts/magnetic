@@ -32,7 +32,7 @@ test.describe("A workspace's apps", () => {
         await expect(page).toHaveURL(new RegExp(`/edit/${appId}$`));
         await page.goBack();
         await expect(page).toHaveURL(boardUrl(appId));
-        await expect(levels.getByRole('link', { name: 'Your apps' })).toHaveAttribute('href', '/');
+        await expect(levels.getByRole('link', { name: 'Orgs' })).toHaveAttribute('href', '/orgs?org=me');
     });
 
     test('should open the app a tile names when it is pressed', async ({ page }) => {
@@ -46,5 +46,21 @@ test.describe("A workspace's apps", () => {
 
         // Assert
         await expect(page).toHaveURL(new RegExp(`/edit/${appId}$`));
+    });
+
+    test('should zoom out of a workspace to the Orgs level, on its tile, and back in', async ({ page }) => {
+        // Arrange
+        await page.goto(`/orgs/me?app=${appId}`);
+        await expect(page.locator('#apps').getByText(name, { exact: true })).toBeVisible();
+
+        // Act
+        await page.keyboard.press('Control+Shift+Minus');
+        await expect(page).toHaveURL(/\/orgs\?org=me$/);
+        await expect(page.locator('#apps').getByText('Yours', { exact: true })).toBeVisible();
+        await page.keyboard.press('Control+Shift+Equal');
+
+        // Assert
+        await expect(page).toHaveURL(/\/orgs\/me$/);
+        await expect(page.locator('#apps').getByText(name, { exact: true })).toBeVisible();
     });
 });

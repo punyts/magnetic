@@ -184,8 +184,7 @@ export function orgRoutes(context: OrgRouteContext): (request: IncomingMessage, 
     async function handle(request: IncomingMessage, response: ServerResponse, method: string, path: string, user: User): Promise<boolean> {
         let match: RegExpExecArray | null;
         if (ROUTES.orgs.test(path)) {
-            if (method === 'GET') sendJson(response, 200, { orgs: await orgs.of(user.id) });
-            else if (method === 'POST') {
+            if (method === 'POST') {
                 if (context.makeOrgs === false) throw new OrgError(403, MAKING_ORGS_CLOSED);
                 const body = await context.readJson(request);
                 sendJson(response, 201, await orgs.create(user.id, { name: text(body, 'name'), slug: text(body, 'slug') }));

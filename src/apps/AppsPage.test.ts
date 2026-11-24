@@ -100,4 +100,27 @@ describe("A workspace's board of apps", () => {
         expect(tiles.every((tile) => tile.href === `/edit/${tile.id}`)).toBe(true);
         expect(made.status).toBeLessThan(400);
     }, 60_000);
+
+    it("should show the Orgs level with the person's own space first and each org they are in, each zooming in to its board", async () => {
+        // Arrange
+        const bobId = await idOf(bob);
+        const org = await magnetic.orgs.create(bobId, { name: 'Bobco', slug: 'bobco-levels' });
+
+        // Act
+        const forBob = await send('/orgs', bob);
+        const board = await (await send(`/orgs/${org.id}`, bob)).text();
+        const signedOut = await send('/orgs', undefined);
+
+        // Assert
+        expect(forBob.status).toBe(200);
+        const page = await forBob.text();
+        expect(page).toContain('data-pick="org"');
+        expect(page).not.toContain('data-out=');
+        const tiles = tilesOf(page);
+        expect(tiles[0]).toEqual(expect.objectContaining({ id: 'me', href: '/orgs/me' }));
+        expect(tiles).toContainEqual(expect.objectContaining({ id: org.id, title: 'Bobco', href: `/orgs/${org.id}` }));
+        expect(board).toContain(`data-out="/orgs?org=${org.id}"`);
+        expect(board).toContain(`<a class="level" href="/orgs?org=${org.id}">Orgs</a>`);
+        expect(signedOut.status).toBe(303);
+    }, 60_000);
 });

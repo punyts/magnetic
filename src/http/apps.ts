@@ -4,19 +4,33 @@ import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
-/** One app on the board of a workspace's apps */
+/** One tile on a board: an app on a workspace's board, or a workspace on the Orgs level */
 export interface AppTile {
     readonly id: string;
     readonly title: string;
-    /** When it changed, or who shared it */
+    /** When it changed, who shared it, or the person's role in an org */
     readonly note: string;
-    /** Where zooming in on it goes: its editor, or the running app for someone who may only use or view it */
+    /** Where zooming in on it goes: an app's editor, or the running app for someone who may only use or view it; a workspace's board */
     readonly href: string;
 }
 
+/** One level in the bar over a board: a link out, or (no `href`) the level shown */
+export interface BoardLevel {
+    readonly label: string;
+    readonly href?: string;
+}
+
 export interface AppsPageOptions {
-    /** The workspace's name: the org's, or "Yours" */
+    /** What the page is called: the workspace's name, or "Orgs" */
     readonly name: string;
+    /** The bar over the board, outermost first, ending with the level shown */
+    readonly levels: readonly BoardLevel[];
+    /** Where Ctrl+Shift+- goes; none on the outermost level */
+    readonly out?: string;
+    /** The query parameter that names the tile to select: `app` on a workspace's board, `org` on the Orgs level */
+    readonly pick: 'app' | 'org';
+    /** The panel's label for a screen reader */
+    readonly label: string;
     readonly tiles: readonly AppTile[];
     /** The runtime page, on the runtime origin, which the host script is given */
     readonly runtimeUrl: string;
@@ -29,8 +43,8 @@ export interface AppsPageOptions {
 export const APPS_BOARD = { columns: 5, width: 320, height: 120, gap: 48 } as const;
 
 /**
- * `GET /orgs/<org>` and `GET /orgs/me`: the apps of a workspace as a board (docs/design/magnetic-zoom.md, stage 3),
- * under a level bar. The page has no app of its own: `/assets/apps.js` mounts Magnetic's page `magnetic-apps`
+ * A level of boards (docs/design/magnetic-zoom.md): `GET /orgs`, the person's own space and their orgs (stage 4), and
+ * `GET /orgs/<org>` and `GET /orgs/me`, the apps of a workspace (stage 3), under a level bar. The page has no app of its own: `/assets/apps.js` mounts Magnetic's page `magnetic-apps`
  * (`/assets/apps.json`) and writes the tiles, which the server gives in the page, into its data
  */
 export function appsPage(options: AppsPageOptions): string {
@@ -46,11 +60,11 @@ export function appsPage(options: AppsPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/apps.css">',
         '</head>',
-        `<body class="view apps-board" data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page" data-view-kind="browser" data-mode="${options.look.mode}" data-locale="${options.look.language}">`,
+        `<body class="view apps-board" data-pick="${options.pick}" data-label="${escapeHtml(options.label)}"${options.out === undefined ? '' : ` data-out="${escapeHtml(options.out)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page" data-view-kind="browser" data-mode="${options.look.mode}" data-locale="${options.look.language}">`,
         `<nav class="levels" id="levels" aria-label="${escapeHtml(t['shell.levels'])}">`
-            + `<a class="level" id="level-home" href="/">${escapeHtml(t['apps.yourApps'])}</a>`
-            + '<span class="level-gap" aria-hidden="true">›</span>'
-            + `<span class="level here" aria-current="page">${escapeHtml(options.name)}</span>`
+            + options.levels.map((level) => level.href === undefined
+                ? `<span class="level here" aria-current="page">${escapeHtml(level.label)}</span>`
+                : `<a class="level" href="${escapeHtml(level.href)}">${escapeHtml(level.label)}</a>`).join('<span class="level-gap" aria-hidden="true">›</span>')
             + '</nav>',
         '<div class="apps" id="apps"></div>',
         `<script type="application/json" id="apps-tiles">${JSON.stringify(options.tiles).replace(/</g, '\\u003c')}</script>`,
@@ -79,13 +93,13 @@ body.view.apps-board { display: block; font-family: system-ui, sans-serif; color
 `;
 
 /**
- * \`/assets/apps.js\`: the board of a workspace's apps. It mounts the board's page, writes the tiles in rows of five, and
- * acts on what the board emits and on the zoom chords:
+ * \`/assets/apps.js\`: a board of tiles, a workspace's apps or the Orgs level. It mounts the board's page, writes the tiles
+ * in rows of five, and acts on what the board emits and on the zoom chords:
  * - a press on a card, or Ctrl+Shift+= (Cmd on a Mac) on the selected card or else the one most in view, zooms in: it
- *   goes to the card's app (its editor, or the running app);
- * - Ctrl+Shift+- zooms out to Your apps (\`/\`), until the Orgs level is built;
- * - \`?app=<id>\` selects that app's card and brings it into view, where zooming out of its editor arrives; a press on
- *   the empty canvas lets it go. The view fits every card when no card is selected.
+ *   goes where the card's \`href\` says (an app's editor or the running app, or a workspace's board);
+ * - Ctrl+Shift+- zooms out to the page's \`data-out\`, the level outside; the Orgs level has none;
+ * - \`?app=<id>\` (\`?org=<id>\` on the Orgs level, \`data-pick\`) selects that card and brings it into view, where zooming
+ *   out of the level inside arrives; a press on the empty canvas lets it go. The view fits every card when none is selected.
  */
 export const APPS_JS = String.raw`${SCRIPT_TEXTS}const host = window.stateuiHost;
 const holder = document.getElementById('apps');
@@ -94,7 +108,8 @@ const BOARD = ${JSON.stringify(APPS_BOARD)};
 const A = '$.data.apps';
 /** Room left around the cards when the view fits them, in the window's pixels */
 const MARGIN = 48;
-let selected = new URLSearchParams(location.search).get('app');
+const OUT = document.body.dataset.out || null;
+let selected = new URLSearchParams(location.search).get(document.body.dataset.pick || 'app');
 if (!TILES.some((tile) => tile.id === selected)) selected = null;
 /** The board's view, as the canvas last reported it */
 const view = { x: 0, y: 0, zoom: 1 };
@@ -201,7 +216,7 @@ document.addEventListener('keydown', (event) => {
     const level = zoomChord(event);
     if (!level) return;
     event.preventDefault();
-    if (level === 'out') { location.assign('/'); return; }
+    if (level === 'out') { if (OUT) location.assign(OUT); return; }
     const id = selected ?? mostInView();
     if (id) zoomInto(id);
 });
@@ -211,7 +226,7 @@ document.addEventListener('keydown', (event) => {
     if (!response.ok) return;
     const served = await response.json();
     const canvas = keyPath(served.document, 'canvas');
-    panel = host.mount(holder, { document: served.document, icons: served.icons, inPage: true }, T['apps.board']);
+    panel = host.mount(holder, { document: served.document, icons: served.icons, inPage: true }, document.body.dataset.label || T['apps.board']);
     holder.addEventListener('stateui:ready', () => {
         Object.assign(view, startView());
         panel.write([{ path: A + '.view', value: { ...view } }, ...(canvas ? [{ path: canvas + '.content.theme', value: theme() }] : [])]);
