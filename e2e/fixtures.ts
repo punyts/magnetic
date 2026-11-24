@@ -235,6 +235,11 @@ export class EditorPage {
         if (!(await this.librarySearch.isVisible())) await this.button('Components (A)').click();
         await expect(this.librarySearch).toBeVisible();
     }
+    /** Hides the library if it is showing: on a wide window it opens over the app's left side */
+    async closeLibrary(): Promise<void> {
+        if (await this.librarySearch.isVisible()) await this.button('Close the components').click();
+        await expect(this.librarySearch).toBeHidden();
+    }
     /** The tool the page is on: use, move, select or place */
     tool(): Promise<unknown> {
         return this.page.evaluate('window.magneticShell.tool()');

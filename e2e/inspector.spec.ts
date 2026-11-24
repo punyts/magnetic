@@ -11,6 +11,7 @@ test.describe('The inspector', () => {
         await editor.ask('One');
         await editor.ask('Two');
         await editor.button('Close the chat').click();
+        await editor.closeLibrary();
     });
 
     /** Selects a part of the app by its text with the Select tool */

@@ -40,27 +40,37 @@ test.describe('The editor', () => {
         await expect(editor.editor.getByRole('img', { name: 'You' })).toBeVisible();
     });
 
-    test('the frame starts at the size of the screen, and takes the desktop, tablet and phone sizes', async ({ page }) => {
+    /** The Desktop frame's size: the stage area (the canvas less the rail, the corners and the chat bar) less a card's head */
+    const desktopSize = async (page: Page): Promise<RegExp> => {
+        const stage = (await page.evaluate('window.magneticShell.canvas.stageArea()')) as { width: number; height: number };
+        return new RegExp(`^\\s*${Math.max(320, Math.floor(stage.width))}\\s*×\\s*${Math.max(240, Math.floor(stage.height - 40))}\\s*$`);
+    };
+
+    test('the frame starts at the size of the screen, Desktop filling the stage, and takes the tablet and phone sizes', async ({ page }) => {
         // A phone opens the frame at Phone size, a wider screen at Desktop
         const narrow = (page.viewportSize()?.width ?? 1440) < 760;
-        await expect(editor.artboardSize).toHaveText(narrow ? /390\s*×\s*844/ : /1280\s*×\s*800/);
-        for (const [label, size] of [['Tablet', /834\s*×\s*1112/], ['Phone', /390\s*×\s*844/], ['Desktop', /1280\s*×\s*800/]] as const) {
+        await expect(editor.artboardSize).toHaveText(narrow ? /390\s*×\s*844/ : await desktopSize(page));
+        for (const [label, size] of [['Tablet', /834\s*×\s*1112/], ['Phone', /390\s*×\s*844/]] as const) {
             await editor.sizeSelect.selectOption({ label });
             await expect(editor.artboardSize).toHaveText(size);
         }
+        await editor.sizeSelect.selectOption({ label: 'Desktop' });
+        await expect(editor.artboardSize).toHaveText(await desktopSize(page));
     });
 
     test('the frame turns between landscape and portrait, and stays turned for the next editor', async ({ page }) => {
         test.skip((page.viewportSize()?.width ?? 1440) < 760, 'Below 760px the corner has no room for the turn button');
         // Arrange
-        await editor.sizeSelect.selectOption({ label: 'Desktop' });
+        await editor.sizeSelect.selectOption({ label: 'Tablet' });
         const turn = editor.button('Turn the frame: landscape or portrait');
 
         // Act
         await turn.click();
 
-        // Assert: the width and height swap, for every size, until it is turned back
-        await expect(editor.artboardSize).toHaveText(/800\s*×\s*1280/);
+        // Assert: the width and height swap, for every fixed size, until it is turned back; Desktop fills the stage either way
+        await expect(editor.artboardSize).toHaveText(/1112\s*×\s*834/);
+        await editor.sizeSelect.selectOption({ label: 'Desktop' });
+        await expect(editor.artboardSize).toHaveText(await desktopSize(page));
         await editor.sizeSelect.selectOption({ label: 'Phone' });
         await expect(editor.artboardSize).toHaveText(/844\s*×\s*390/);
         await page.reload();
@@ -85,6 +95,7 @@ test.describe('The editor', () => {
 
     test('Select opens the inspector, and a part of the app shows its properties', async ({ page }) => {
         await editor.ask('Select me');
+        await editor.closeLibrary();
         await editor.button('Select a part of the app (S)').click();
         for (const tab of ['Properties', 'State']) await expect(editor.editor.getByRole('tab', { name: tab })).toBeVisible();
         // The library is a panel of its own now, not a tab of the inspector
@@ -183,6 +194,9 @@ test.describe('The component library', () => {
         await editor.librarySearch.fill('button');
         await editor.card('button').click();
         await expect.poll(() => editor.tool()).toBe('place');
+        // The library opens over the app's left side; closed, the placing goes on
+        await editor.closeLibrary();
+        await expect.poll(() => editor.tool()).toBe('place');
         // While it is placed, the screen's layout sections are outlined with their names, the screen's root first
         await expect(page.locator('.inspect-layer .overlay .box.section').first()).toBeVisible();
         await expect(page.locator('.inspect-layer .overlay .box.section .tag').first()).toContainText('home');
@@ -244,16 +258,17 @@ test.describe('Layout and placement', () => {
         await editor.ask('One');
         await editor.ask('Two');
         await editor.button('Close the chat').click();
+        await editor.closeLibrary();
     });
 
-    /** Selects a part of the app by its text, then (with `up`) its parent from the breadcrumb */
+    /** Selects a part of the app by its text, then (with `up`) its parent from the breadcrumb: the starter screen's body */
     async function selectText(page: Page, text: string, up = false): Promise<void> {
         if ((await editor.tool()) !== 'select') await editor.button('Select a part of the app (S)').click();
         const box = await editor.app.getByText(text, { exact: true }).boundingBox();
         expect(box).not.toBeNull();
         if (box !== null) await page.mouse.click(box.x + 4, box.y + box.height / 2);
         await expect(page.locator('.inspect-layer .overlay .box.selected')).toBeVisible();
-        if (up) await editor.editor.getByRole('tabpanel').getByText('home screen').click();
+        if (up) await editor.editor.getByRole('tabpanel').getByRole('navigation', { name: 'Breadcrumb' }).getByRole('listitem').nth(-2).click();
     }
     const field = (name: string) => editor.editor.getByRole('tabpanel').getByRole('combobox', { name, exact: true });
     const number = (name: string) => editor.editor.getByRole('tabpanel').getByRole('spinbutton', { name, exact: true });

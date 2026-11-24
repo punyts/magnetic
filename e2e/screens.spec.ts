@@ -133,13 +133,16 @@ test.describe('Screens', () => {
     });
 
     test('a pan that leaves another card with the most in view works on its screen', async ({ page }) => {
-        // Arrange: home and one side by side, home fitted and live, the panel closed so the canvas beside it is free
+        // Arrange: home and one side by side, home fitted and live, the panel closed so the canvas beside it is free. The
+        // Desktop frame fills the stage, so the board is zoomed out a step to bring the gap between the cards into view
         await addScreen(editor, 'one');
         await preview(page, 'Home').click();
         await expect(liveFrame(page, 'Home')).toBeVisible();
         await editor.button('Close the screens').click();
         await editor.button('Fit the app (1)').click();
+        await editor.button('Zoom out (-)').click();
         await page.waitForTimeout(600);
+        await expect(liveFrame(page, 'Home')).toBeVisible();
         const at = await boxes(page);
         const x = (at['home']!.x + at['home']!.width + at['one']!.x) / 2;
         const y = at['home']!.y + at['home']!.height / 2;
@@ -266,10 +269,12 @@ test.describe('Screens', () => {
         await editor.button('Delete').click();
         await page.getByRole('dialog', { name: 'Screen Home' }).getByRole('button', { name: 'Delete' }).click();
 
-        // Assert: no live app, only the card; pressed, it adds home, the screen the app opens on
+        // Assert: no live app, only the card; pressed, it adds home, the screen the app opens on. The Screens panel opens
+        // over the board, so it is closed first
         const add = page.getByRole('button', { name: 'Add a screen' });
         await expect(add).toBeVisible();
         await expect(live(page)).toHaveCount(0);
+        await editor.button('Close the screens').click();
         await add.click();
         await expect(liveFrame(page, 'Home')).toBeVisible();
         await expect(add).toBeHidden();

@@ -14,6 +14,11 @@
   entry. Ctrl+Shift+E pushes instead of replacing. A link opens on the screen, view and sheet it names. Someone else's
   `/apps/<id>/screens/<name>` goes to the host's `?screen=` (`e2e/address.spec.ts`; `e2e/screens.spec.ts` keeps the
   panel open across a reload).
+- **The e2e suite follows the starter screen and the overlay panels.** The mock agent writes a request's words into a
+  starter screen's body, where they show at the top, instead of after its footer (`src/testing/mockAgentModel.ts`).
+  The specs close the library (`EditorPage.closeLibrary`) and the Screens panel where they open over the app, take the
+  breadcrumb's parent as the body, expect the Desktop frame at the stage area less its head, and zoom out a step before
+  panning between cards (`e2e/editor.spec.ts`, `inspector.spec.ts`, `screens.spec.ts`).
 - **The server makes the company org and the beta org, and invites its admins as owners** (docs/design/magnetic-orgs-and-invites.md). `--internal-org`/`MAGNETIC_INTERNAL_ORG` (with `--internal-budget`) and `--beta-org` (with the new `--beta-budget`) are made at start when missing, with personal workspaces off and their monthly budget (`src/orgs/ServerOrgs.ts`); each `MAGNETIC_ADMIN_EMAILS` address is invited as owner of each, from "Magnetic" (`org.created_by` and `org_invite.created_by` may be null), once, and emailed. Breaking: Start the beta (`POST /admin/beta`, `Beta.start`) is gone. Tests: `src/mail/mail.test.ts`, `src/server/beta.test.ts`, `src/server/options.test.ts`.
 - **Opening the beta link signed in joins the beta**; signing in elsewhere joins nobody. Breaking: the beta page's Join button and joining at sign-in or on Your apps are gone. Test: `src/server/beta.test.ts`.
 - **An invite link works signed out** (`src/server/inviteRoutes.ts`). `/invites/<token>` shows the org, the role, who invited them and a name field; Join signs in as the account of the invited address (`Accounts.signInByEmail`, made now and verified when there is none), accepts the invite and starts a new session. A provider's first sign-in with a verified email joins the account that has that email verified. Tests: `src/server/orgSettings.test.ts`, `src/accounts/accounts.test.ts`.

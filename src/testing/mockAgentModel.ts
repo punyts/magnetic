@@ -65,19 +65,21 @@ export class MockAgentModel implements AgentModel {
             return message([{ type: 'tool_use', id: `toolu_mock_tree_${Date.now()}`, name: 'ui_tree', input: { app } }], 'tool_use');
         }
         if (step === 1) {
-            const tree = JSON.parse(results[0]?.content?.[0]?.text ?? '{}') as { revision?: number; screens?: string[] };
+            const tree = JSON.parse(results[0]?.content?.[0]?.text ?? '{}') as { revision?: number; screens?: string[]; text?: string };
             const screen = tree.screens?.[0];
             if (screen === undefined || tree.revision === undefined) {
                 await say('I could not read this app.', listener, signal);
                 return message([{ type: 'text', text: 'I could not read this app.' }], 'end_turn');
             }
+            // A starter screen (header, body, footer) takes the words in its body, where they show at the top
+            const into = tree.text?.includes(`$.screens.${screen}.children.body`) === true ? 'root.children.body' : 'root';
             return message(
                 [
                     {
                         type: 'tool_use',
                         id: `toolu_mock_write_${Date.now()}`,
                         name: 'ui_nodes_write',
-                        input: { app, screen, expectedRevision: tree.revision, operations: [{ op: 'add', path: 'root', key: `note${Date.now().toString(36)}`, value: { component: 'text', _text: request.slice(0, 200) } }] }
+                        input: { app, screen, expectedRevision: tree.revision, operations: [{ op: 'add', path: into, key: `note${Date.now().toString(36)}`, value: { component: 'text', _text: request.slice(0, 200) } }] }
                     }
                 ],
                 'tool_use'
