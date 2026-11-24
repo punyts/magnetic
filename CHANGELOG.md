@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Magnetic is the first tile of a person's own space** (docs/design/magnetic-starter-apps.md). `/orgs/me` shows the
+  person's own copy of the editor first, titled Magnetic, and zooming into it opens it in the editor. Your apps still
+  leaves it out. Test: `src/apps/AppsPage.test.ts`.
 - **The beta link takes no place from someone the beta org invited.** Fix: an owner invited by `MAGNETIC_ADMIN_EMAILS`
   who opened the link before accepting joined as a builder and took a place. `Beta.join` answers `invited` while an
   invite to the org waits for the person's verified email, and the link goes to Your apps, where the invite is

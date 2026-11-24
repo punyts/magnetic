@@ -1260,10 +1260,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const services = await workspaces.get(user.id);
             const homeId = await homes.id(services, user.id);
             name = t['shell.ownWorkspace'];
-            tiles = [...(await services.instanceViews.list())]
+            // Magnetic itself first: the person's own copy of the editor, which they may change like any app of theirs
+            const editorId = await editors.id(services, user.id);
+            tiles = [{ id: editorId, title: 'Magnetic', note: t['apps.editorNote'], href: `/edit/${encodeURIComponent(editorId)}` }];
+            tiles.push(...[...(await services.instanceViews.list())]
                 .filter((app) => app.id !== homeId && app.name !== EDITOR_APP && app.name !== HOME_APP)
                 .sort(newest)
-                .map((app) => ({ id: app.id, title: app.name, note: changed(app.updatedAt), href: `/edit/${encodeURIComponent(app.id)}` }));
+                .map((app) => ({ id: app.id, title: app.name, note: changed(app.updatedAt), href: `/edit/${encodeURIComponent(app.id)}` })));
             // The apps shared with them by link, but not those they rejected
             const answers = await shareAnswers.of(user.id);
             for (const grant of await grants.sharedWith(user.id)) {

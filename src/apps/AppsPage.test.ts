@@ -85,7 +85,7 @@ describe("A workspace's board of apps", () => {
         expect(signedOut.headers.get('location')).toBe(`/signin?next=${encodeURIComponent(`/orgs/${org.id}`)}`);
     }, 60_000);
 
-    it("should show a person's own space with their own apps and not Your apps or the editor", async () => {
+    it("should show a person's own space with Magnetic first, then their own apps, and not Your apps", async () => {
         // Arrange
         const made = await fetch(magnetic.origin + '/new', { method: 'POST', redirect: 'manual', headers: { Cookie: carol, Origin: magnetic.origin, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Field+notes' });
 
@@ -95,7 +95,9 @@ describe("A workspace's board of apps", () => {
         // Assert
         expect(response.status).toBe(200);
         const tiles = tilesOf(await response.text());
-        expect(tiles.length).toBeGreaterThan(0);
+        expect(tiles.length).toBeGreaterThan(1);
+        expect(tiles[0]).toEqual(expect.objectContaining({ title: 'Magnetic', href: `/edit/${tiles[0]?.id}` }));
+        expect(tiles.filter((tile) => tile.title === 'Magnetic')).toHaveLength(1);
         expect(tiles.map((tile) => tile.title)).not.toContain('Your apps');
         expect(tiles.every((tile) => tile.href === `/edit/${tile.id}`)).toBe(true);
         expect(made.status).toBeLessThan(400);

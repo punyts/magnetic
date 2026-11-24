@@ -267,6 +267,8 @@ workspace, and stops when you sign out of that browser.
 - **The Orgs level** (`/orgs`; docs/design/magnetic-zoom.md, stage 4) is the same board with the person's own space
   (Yours) and each org they are in as cards; a card opens that workspace's board, and `?org=<id>` (`?org=me`) selects
   one. Its bar links back to Your apps.
+- **Magnetic on the own space** (docs/design/magnetic-starter-apps.md): the person's copy of the editor is the first
+  tile on `/orgs/me`.
 - **Zooming is a scale transition** (docs/design/magnetic-zoom.md, stage 5): a view transition grows the next level's
   page out of the tile, or shrinks the page into its tile on the level outside (`src/http/zoom.ts`). Reduced motion
   skips it.
