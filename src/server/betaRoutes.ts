@@ -47,7 +47,13 @@ export function betaRoutes(context: BetaRouteContext) {
         }
         if (method !== 'GET') return false;
         // Opening the link signed in joins: the link is the invitation (docs/design/magnetic-orgs-and-invites.md)
-        if ((await beta.join(who.user.id)) === 'joined') context.report('Joined the beta', { userId: who.user.id });
+        const joined = await beta.join(who.user.id);
+        if (joined === 'joined') context.report('Joined the beta', { userId: who.user.id });
+        // An invite to the org waits for them: Your apps shows it, to accept for its role
+        if (joined === 'invited') {
+            context.redirect(response, '/');
+            return true;
+        }
         context.sendPage(response, betaPage(await context.lookOf(request, who.user.id), await viewOf(who.user.id)));
         return true;
     };

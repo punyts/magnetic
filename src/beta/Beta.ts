@@ -39,7 +39,8 @@ export interface BetaStatus {
 }
 
 /** What opening the beta link did: joined now, was already in the org, found it full, or found no beta org */
-export type BetaJoin = 'joined' | 'member' | 'full' | 'closed';
+/** What opening the link did: `invited` takes no place, since an invite to the org waits for the person's verified email */
+export type BetaJoin = 'joined' | 'member' | 'invited' | 'full' | 'closed';
 
 export const BETA_ORG_NAME = 'Magnetic beta';
 
@@ -80,6 +81,13 @@ export class Beta {
             const org = (await tx.query<{ id: string }>('SELECT id::text AS id FROM org WHERE slug = $1 FOR UPDATE', [this.slug])).rows[0];
             if (org === undefined) return 'closed';
             if ((await tx.query('SELECT 1 FROM org_member WHERE org_id = $1 AND user_id::text = $2', [org.id, userId])).rows.length > 0) return 'member';
+            // Someone the org invited (its owners are) accepts the invite for their role, rather than taking a place as a builder
+            const invited = await tx.query(
+                `SELECT 1 FROM org_invite i JOIN app_user u ON lower(u.email) = i.email AND u.email_verified
+                  WHERE i.org_id = $1 AND u.id::text = $2 AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.expires_at > now()`,
+                [org.id, userId]
+            );
+            if (invited.rows.length > 0) return 'invited';
             const taken = await betaTaken(tx, this.slug);
             if (this.places !== undefined && taken >= this.places) return 'full';
             await tx.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'builder')", [org.id, userId]);

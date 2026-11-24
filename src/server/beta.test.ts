@@ -46,7 +46,7 @@ describe('The beta link', () => {
             host: '127.0.0.1',
             port: 0,
             report: { info: () => undefined },
-            devUsers: ['alice', 'bob', 'carol', 'dan'],
+            devUsers: ['alice', 'bob', 'carol', 'dan', 'gina'],
             starter: 'none',
             browser: noBrowser,
             secretKey: 'beta-test-secret-key-of-enough-length',
@@ -54,7 +54,7 @@ describe('The beta link', () => {
             serverOrgs: [{ slug: 'beta', name: 'Magnetic beta', monthlyBudget: 500 }],
             agent: { budgets: LIMITS }
         });
-        for (const name of ['alice', 'bob', 'carol', 'dan']) users[name] = await signIn(name);
+        for (const name of ['alice', 'bob', 'carol', 'dan', 'gina']) users[name] = await signIn(name);
         const aliceId = users['alice']?.id as string;
         await magnetic.database.query("UPDATE app_user SET email = 'ops@example.com', email_verified = true WHERE id = $1", [aliceId]);
         // the server invited the admin's address as the beta org's owner when it started
@@ -86,6 +86,26 @@ describe('The beta link', () => {
         expect((await post('/admin/beta', 'alice')).status).toBe(404);
         expect((await get(link)).headers.get('location')).toBe(`/signin?next=${encodeURIComponent(link)}`);
         expect(await page(link, 'alice')).toContain('You run the beta org');
+    });
+
+    it('should take no place from someone the org invited, and leave the invite to accept for its role', async () => {
+        // Arrange
+        const gina = users['gina']?.id as string;
+        const org = await magnetic.orgs.bySlug('beta');
+        await magnetic.database.query("UPDATE app_user SET email = 'gina@example.com', email_verified = true WHERE id = $1", [gina]);
+        await magnetic.orgs.invite(users['alice']?.id as string, org?.id as string, { email: 'gina@example.com', role: 'admin' });
+
+        // Act
+        const opened = await get(link, 'gina');
+        const before = (await magnetic.database.query('SELECT role FROM org_member WHERE org_id = $1 AND user_id = $2', [org?.id, gina])).rows;
+        for (const invite of await magnetic.orgs.pendingFor(gina)) await magnetic.orgs.acceptInvite(invite.id, gina);
+        const after = (await magnetic.database.query<{ role: string }>('SELECT role FROM org_member WHERE org_id = $1 AND user_id = $2', [org?.id, gina])).rows;
+
+        // Assert
+        expect(opened.status).toBe(303);
+        expect(opened.headers.get('location')).toBe('/');
+        expect(before).toEqual([]);
+        expect(after).toEqual([{ role: 'admin' }]);
     });
 
     it('should give the first people to open the link a place and the allowance, and tell those after that the beta is full', async () => {

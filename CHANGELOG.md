@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The beta link takes no place from someone the beta org invited.** Fix: an owner invited by `MAGNETIC_ADMIN_EMAILS`
+  who opened the link before accepting joined as a builder and took a place. `Beta.join` answers `invited` while an
+  invite to the org waits for the person's verified email, and the link goes to Your apps, where the invite is
+  accepted for its role. Test: `src/server/beta.test.ts`.
 - **Zooming between levels is a scale transition** (docs/design/magnetic-zoom.md, stage 5). Between pages the browser's
   cross-document view transition grows the next page out of the tile zoomed into, or shrinks the page into its tile on
   the level outside (`src/http/zoom.ts`, a `#zoom-mark` on the board pages, the shell's body named `zoom`); between the
