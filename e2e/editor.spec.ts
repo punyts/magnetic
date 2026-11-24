@@ -106,15 +106,15 @@ test.describe('The editor', () => {
         await expect(editor.editor.getByRole('tab', { name: 'Properties' })).toBeHidden();
     });
 
-    test('Ctrl+Shift+E leaves the editor for the app, and brings it back', async ({ page }) => {
+    test('Ctrl+Shift+= zooms into the app, and Ctrl+Shift+- out to the editor again', async ({ page }) => {
         const appId = editor.appId;
         // A press on the board's corner, beside every panel, takes the focus out of the chat
         await page.locator(BOARD).click({ position: { x: 5, y: 5 } });
-        await page.keyboard.press('Control+Shift+E');
-        await page.waitForURL(new RegExp(`/apps/${appId}$`));
+        await page.keyboard.press('Control+Shift+Equal');
+        await page.waitForURL(new RegExp(`/apps/${appId}/screens/[a-z][a-z0-9-]*$`));
         await expect(page.locator('body')).not.toHaveClass(/(^| )editing( |$)/);
-        await page.keyboard.press('Control+Shift+E');
-        await page.waitForURL(new RegExp(`/edit/${appId}$`));
+        await page.keyboard.press('Control+Shift+Minus');
+        await page.waitForURL(new RegExp(`/edit/${appId}/screens/[a-z][a-z0-9-]*$`));
         await expect(page.locator('body')).toHaveClass(/(^| )editing( |$)/);
     });
 

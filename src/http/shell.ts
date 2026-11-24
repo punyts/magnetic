@@ -22,7 +22,7 @@ export interface ShellPageOptions {
     readonly namespace: string;
     /** The models the person may pick, the default first; no menu when there is one or none */
     readonly models?: readonly { readonly id: string; readonly label: string }[];
-    /** True: the editor shows (`/edit/<appId>`); false: the app fills the window (`/apps/<appId>`) until Ctrl+Shift+E */
+    /** True: the editor shows (`/edit/<appId>`); false: the app fills the window (`/apps/<appId>`) until Ctrl+Shift+- */
     readonly editing: boolean;
     /** True: the app has nothing on its screens yet, and the editor offers ideas to start from */
     readonly blank?: boolean;
@@ -32,12 +32,17 @@ export interface ShellPageOptions {
     readonly workspace?: string;
 }
 
-/** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
-export const EDIT_KEY = 'mod+shift+e';
+/**
+ * The chords that zoom between levels, as the runtime names them (`mod` is Ctrl, or Cmd on a Mac): Ctrl+Shift+= in,
+ * from the editor to the running app, and Ctrl+Shift+- out, from the running app to the editor and from the editor to
+ * the person's apps
+ */
+export const ZOOM_KEYS = { in: 'mod+shift+=', out: 'mod+shift+-' } as const;
 
 /**
- * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window, and Ctrl+Shift+E (Cmd+Shift+E on
- * a Mac) brings the editor around it, and takes it away again, without loading the page again. The address follows.
+ * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window under the level bar, Ctrl+Shift+-
+ * (Cmd on a Mac) zooms out to the editor around it and Ctrl+Shift+= back in to the app, without loading the page
+ * again. The address follows.
  *
  * The app runs in the page (`data-surface="page"` and the page bundle): without the editor in `#alone`, which fills the
  * window, and with it on the screens board (`/assets/screens.js`). The editor is a StateUI app of the person's own
@@ -61,10 +66,11 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${EDIT_KEY}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${ZOOM_KEYS.in} ${ZOOM_KEYS.out}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="editor" id="editor"></div>',
+        levelBar(options, t),
         '<div class="alone" id="alone"></div>',
-        `<p class="hint" id="hint" role="status" hidden>${escapeHtml(t['shell.hintBefore'])} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> ${escapeHtml(t['shell.hintAfter'])}</p>`,
+        `<p class="hint" id="hint" role="status" hidden>${escapeHtml(t['shell.hintBefore'])} <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>-</kbd> ${escapeHtml(t['shell.hintAfter'])}</p>`,
         `<script type="application/json" id="magnetic-models">${JSON.stringify(models).replace(/</g, '\\u003c')}</script>`,
         textBlock(options.look.language),
         `<script src="/assets/page/${escapeHtml(options.pageBundle)}.js"></script>`,
@@ -77,6 +83,23 @@ export function shellPage(options: ShellPageOptions): string {
         '</html>',
         ''
     ].join('\n');
+}
+
+/**
+ * The level bar over the running app: the workspace (to the person's apps), the app (out to the editor) and the screen
+ * showing, which `/assets/screens.js` names (`magneticShell.levelScreen`). On a phone it is the way out, with no keys
+ */
+function levelBar(options: ShellPageOptions, t: ReturnType<typeof textsOf>): string {
+    const app = '/edit/' + encodeURIComponent(options.appId);
+    return [
+        `<nav class="levels" id="levels" aria-label="${escapeHtml(t['shell.levels'])}">`,
+        `<a class="level" id="level-workspace" href="/">${escapeHtml(options.workspace ?? t['shell.ownWorkspace'])}</a>`,
+        '<span class="level-gap" aria-hidden="true">›</span>',
+        `<a class="level" id="level-app" href="${escapeHtml(app)}">${escapeHtml(options.name)}</a>`,
+        '<span class="level-gap" aria-hidden="true">›</span>',
+        '<span class="level here" id="level-screen" aria-current="page"></span>',
+        '</nav>'
+    ].join('');
 }
 
 /** `/assets/shell.css`, after the host's `page.css`: the canvas, and the editor's frame around it */
@@ -93,9 +116,15 @@ body.view.shell { display: block; font-family: system-ui, sans-serif; color: var
 .editor > .stateui-panel { position: absolute; inset: 0; overflow: hidden; }
 body.shell:not(.editing) .editor { visibility: hidden; }
 body.shell:not(.editing) .editor * { pointer-events: none !important; }
-/* Without the editor the app fills the window */
-.alone { position: fixed; inset: 0; z-index: 1; overflow: auto; background: var(--paper); }
+/* Without the editor the app fills the window under the level bar */
+.alone { position: fixed; inset: 2.25rem 0 0; z-index: 1; overflow: auto; background: var(--paper); }
 body.shell.editing .alone { display: none; }
+.levels { position: fixed; top: 0; left: 0; right: 0; z-index: 2; box-sizing: border-box; height: 2.25rem; display: flex; align-items: center; gap: 0.4rem; padding: 0 0.75rem; overflow: hidden; white-space: nowrap; border-bottom: 1px solid var(--dot); background: var(--soft); color: var(--muted); font: 0.85rem system-ui, sans-serif; }
+body.shell.editing .levels { display: none; }
+.levels .level { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: inherit; text-decoration: none; border-radius: 0.3rem; padding: 0.15rem 0.3rem; }
+.levels a.level:hover, .levels a.level:focus-visible { color: var(--accent); background: var(--paper); outline: none; }
+.levels .here { color: var(--ink); font-weight: 600; }
+.levels .level-gap:has(+ .here:empty), .levels .here:empty { display: none; }
 /* A screen's menu, opened from its tile */
 .screen-menu { position: fixed; z-index: 5; display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 280px; padding: 6px; border-radius: 10px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); border: 1px solid var(--dot); font: 13px system-ui, sans-serif; }
 .screen-menu > button { text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
@@ -670,7 +699,7 @@ function openNamed(name, open) {
 /*
  * Where the person is, in the address (docs/design/magnetic-zoom.md, "Where you are is in the URL"), so Back, Forward,
  * a reload and a shared link go there:
- * - the editor or the app alone: /edit/<id> or /apps/<id>; Ctrl+Shift+E pushes an entry;
+ * - the editor or the app alone: /edit/<id> or /apps/<id>; zooming between them pushes an entry;
  * - the screen: /screens/<name> after it, once it changes (a bare /edit/<id> is the screen the app is on); a screen
  *   chosen pushes an entry, the board following the view replaces it (screens.js);
  * - the board's view in the editor: #x,y,zoom while it is the person's own and not the board's fit, replaced as it rests;
@@ -1016,7 +1045,8 @@ const escapeListeners = [];
 function typing(event) { const target = event.composedPath()[0]; return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); }
 
 document.addEventListener('keydown', (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') { event.preventDefault(); setEditing(!editing()); return; }
+    const level = zoomChord(event);
+    if (level) { event.preventDefault(); if (level === 'in') zoomIn(); else zoomOut(); return; }
     if (!editing() || event.ctrlKey || event.metaKey || event.altKey || typing(event)) return;
     if (event.key === ' ') { event.preventDefault(); if (!spaceHeld) { spaceHeld = true; showTool(); } return; }
     // Escape on the page is inspect.js's
@@ -1053,13 +1083,41 @@ function watchStage() {
     panel.watch(children, placePanels);
 }
 
-// The editor shows and hides with Ctrl+Shift+E, from the page or, through the runtime, from the app or the editor
+// The editor shows and hides by zooming (Ctrl+Shift+= and Ctrl+Shift+-), from the page or, through the runtime, from
+// the app or the editor, and by the level bar
 function editing() { return document.body.classList.contains('editing'); }
 
-/** Shows or hides the editor; fromHistory: the address already says so (Back or Forward), so no entry is pushed */
-function setEditing(on, fromHistory = false) {
+/** 'in' for Ctrl+Shift+= (Ctrl+Shift++ on the keypad), 'out' for Ctrl+Shift+-, else null; Cmd on a Mac */
+function zoomChord(event) {
+    if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) return null;
+    if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') return 'in';
+    if (event.key === '_' || event.key === '-' || event.code === 'NumpadSubtract') return 'out';
+    return null;
+}
+
+/** What screens.js picks to zoom into: the selected screen, else the one most in view; null leaves the screen as it is */
+let zoomPick = () => null;
+
+/** Zooming in: from the editor to the running app, on the screen picked, in one entry; the running app goes no further */
+function zoomIn() {
+    if (!editing()) return;
+    const screen = zoomPick();
+    setEditing(false, false, screen ? { screen } : {});
+}
+
+/** Zooming out: from the running app to the editor, on the screen that was showing; from the editor to the person's apps */
+function zoomOut() {
+    if (!editing()) setEditing(true);
+    else location.assign('/');
+}
+
+/**
+ * Shows or hides the editor; fromHistory: the address already says so (Back or Forward), so no entry is pushed; also:
+ * more of the address to change in the same entry (the screen zoomed into)
+ */
+function setEditing(on, fromHistory = false, also = {}) {
     document.body.classList.toggle('editing', on);
-    if (!fromHistory) go({ editing: on }, { push: true });
+    if (!fromHistory) go({ ...also, editing: on }, { push: true });
     if (on) {
         hideHint();
         if (panel && ready) watchStage();
@@ -1070,10 +1128,11 @@ function setEditing(on, fromHistory = false) {
     for (const listener of editingListeners) listener(on);
 }
 
-// A chord an app in the page names comes as stateui:key: the live app's Ctrl+Shift+E (data-host-keys), the board's Escape
+// A chord an app in the page names comes as stateui:key: the live app's zoom chords (data-host-keys), the board's Escape
 addEventListener('stateui:key', (event) => {
     const key = event.detail && event.detail.key;
-    if (key === 'mod+shift+e') setEditing(!editing());
+    if (key === ${JSON.stringify(ZOOM_KEYS.in)}) zoomIn();
+    else if (key === ${JSON.stringify(ZOOM_KEYS.out)}) zoomOut();
     else if (editing() && TOOL_KEYS[key]) TOOL_KEYS[key]();
 });
 
@@ -1127,6 +1186,10 @@ const magneticShell = {
     },
     /** The editor shows (true) or goes (false): screens.js moves the live app between the board and the window */
     onEditing: (listener) => editingListeners.push(listener),
+    /** screens.js: picks the screen to zoom into from the editor and makes it the one worked on; returns its name */
+    onZoomIn: (pick) => { zoomPick = pick; },
+    /** screens.js: the title of the screen showing, last in the level bar */
+    levelScreen: (title) => { document.getElementById('level-screen').textContent = title || ''; },
     canvas: {
         /** The size of the app's screens, in their own pixels */
         size: frameSize,
@@ -1191,6 +1254,17 @@ const magneticShell = {
     }
 };
 window.magneticShell = magneticShell;
+
+// The level bar's app zooms out to the editor in the page; its link is where the editor would open
+const levelApp = document.getElementById('level-app');
+levelApp.addEventListener('click', (event) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    zoomOut();
+});
+function showLevels() { levelApp.href = addressOf({ ...address, editing: true, open: [], view: null }); }
+addressListeners.push(showLevels);
+showLevels();
 
 // Without the editor, a hint says once in this browser how to open it
 const hint = document.getElementById('hint');

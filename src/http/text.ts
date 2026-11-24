@@ -355,6 +355,7 @@ const EN = {
     'shell.sendKey': 'Send (Enter)',
     'shell.hintBefore': 'Press',
     'shell.hintAfter': 'to edit',
+    'shell.levels': 'Where you are',
 
     // The editor's script
     'chat.stopped': 'Stopped.',
@@ -880,6 +881,7 @@ const DE: Texts = {
     'shell.sendKey': 'Senden (Eingabetaste)',
     'shell.hintBefore': 'Drück',
     'shell.hintAfter': 'zum Bearbeiten',
+    'shell.levels': 'Wo du bist',
     'chat.stopped': 'Gestoppt.',
     'chat.limit': 'Ein Limit wurde erreicht.',
     'chat.refused': 'Das Modell hat abgelehnt.',
@@ -1396,6 +1398,7 @@ const FR: Texts = {
     'shell.sendKey': 'Envoyer (Entrée)',
     'shell.hintBefore': 'Appuyez sur',
     'shell.hintAfter': 'pour modifier',
+    'shell.levels': 'Où vous êtes',
     'chat.stopped': 'Arrêté.',
     'chat.limit': 'Une limite a été atteinte.',
     'chat.refused': 'Le modèle a refusé.',
@@ -1912,6 +1915,7 @@ const ES: Texts = {
     'shell.sendKey': 'Enviar (Intro)',
     'shell.hintBefore': 'Pulsa',
     'shell.hintAfter': 'para editar',
+    'shell.levels': 'Dónde estás',
     'chat.stopped': 'Detenido.',
     'chat.limit': 'Se alcanzó un límite.',
     'chat.refused': 'El modelo se negó.',

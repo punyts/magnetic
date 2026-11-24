@@ -64,19 +64,38 @@ test.describe('The address', () => {
         await expect(sheet).toBeVisible();
     });
 
-    test('should push the app alone on Ctrl+Shift+E, so Back returns to the editor on the same screen', async ({ page }) => {
+    test('should zoom into the running app on the screen worked on, and out again, each an entry Back undoes', async ({ page }) => {
         // Arrange
         await page.goto(`/edit/${appId}/screens/about`);
         await editor.ready();
         await expect(liveFrame(page, 'About')).toBeVisible();
 
         // Act
-        await page.keyboard.press('Control+Shift+E');
+        await page.keyboard.press('Control+Shift+Equal');
         await expect(page).toHaveURL(new RegExp(`/apps/${appId}/screens/about$`));
+        await expect(page.getByRole('navigation', { name: 'Where you are' })).toContainText('About');
+        await page.keyboard.press('Control+Shift+Minus');
+        await expect(page).toHaveURL(new RegExp(`/edit/${appId}/screens/about$`));
         await page.goBack();
 
         // Assert
+        await expect(page).toHaveURL(new RegExp(`/apps/${appId}/screens/about$`));
+        await expect(page.locator('body')).not.toHaveClass(/(^| )editing( |$)/);
+        await page.goBack();
         await expect(page).toHaveURL(new RegExp(`/edit/${appId}/screens/about$`));
         await expect(liveFrame(page, 'About')).toBeVisible();
+    });
+
+    test('should zoom out of the editor to the person\'s apps', async ({ page }) => {
+        // Arrange
+        await page.goto(`/edit/${appId}`);
+        await editor.ready();
+
+        // Act
+        await page.locator(BOARD).click({ position: { x: 5, y: 5 } });
+        await page.keyboard.press('Control+Shift+Minus');
+
+        // Assert
+        await expect(page).toHaveURL(/\/$/);
     });
 });

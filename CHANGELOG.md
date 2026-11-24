@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Ctrl+Shift+= and Ctrl+Shift+- zoom between the editor and the running app, under a level bar**
+  (docs/design/magnetic-zoom.md, stage 2). Breaking: Ctrl+Shift+E is removed. Zooming in from the editor goes to the
+  running app on the selected screen, or else the one most in view, in one history entry; zooming out of the running
+  app goes to the editor on the screen showing, and out of the editor to Your apps (`/`). The page names both chords in
+  `data-host-keys`, so they work while the app has focus. Over the running app a bar names the workspace (to `/`), the
+  app (out to the editor, in the page) and the screen, which is the way out on a phone (`e2e/address.spec.ts`,
+  `e2e/levels.spec.ts`, `e2e/editor.spec.ts`).
 - **The URL follows the screen, the board's view and what is open, so Back works** (docs/design/magnetic-zoom.md,
   stage 1). The screen is `/screens/<name>` after `/edit/<id>` or `/apps/<id>`, and choosing one pushes an entry; the
   board's view is `#x,y,zoom` while it is not the fit; `?open=` names the open panel and sheet, and opening one pushes an

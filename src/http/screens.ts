@@ -34,7 +34,9 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **No screens:** with the last one deleted the board holds one card, Add a screen, which adds `home` (the app opens
  *   on it) and works on it.
  * - **Without the editor** the live app fills the window, attached in `#alone`; the editor showing attaches it on its
- *   card again.
+ *   card again. The level bar over it names the screen showing (`magneticShell.levelScreen`).
+ * - **Zooming in** (Ctrl+Shift+=, the shell's `onZoomIn`) goes to the running app on the selected screen, or else the
+ *   one with the most in view, which becomes the one worked on, in the same entry of the address.
  * - The live app moving to another screen itself (`navigated`) makes that screen the one worked on.
  * - **The address** (the shell's `address`): the screen worked on is `/screens/<name>` after the app's path, and the
  *   board's view `#x,y,zoom` while it is not the fit. A screen chosen, or the live app moving after the person pressed
@@ -175,6 +177,14 @@ function show() {
     })));
     if (current !== renameFor) { renameFor = current; typedRename = current || ''; }
     editor.set({ screenName: current || '', screenRename: current || '', isHome: current === start, notHome: current !== start, screenColumns: 'n' + columns });
+    shell.levelScreen(current ? titleOf(current) : '');
+}
+
+/** The screen to zoom into from the editor: the selected one, else the one most in view, else the one worked on */
+function zoomPick() {
+    const name = selected ?? mostInView() ?? current;
+    if (name !== null) choose(name, 'zoom');
+    return name;
 }
 
 function slotOf(name) { return Math.max(0, screens.findIndex((screen) => screen.name === name)); }
@@ -690,7 +700,8 @@ function openMenu(name, x, y, confirming = false) {
 
 /**
  * Makes a screen the one the editor works on: the live app goes there. A screen chosen pushes an entry of the address;
- * how 'follow' (the board following the view) replaces it, and 'history' (Back or Forward) leaves it as it is
+ * how 'follow' (the board following the view) replaces it, and 'history' (Back or Forward) and 'zoom' (the shell
+ * pushes the entry with the zoom) leave it as it is
  */
 function choose(name, how) {
     if (!screens.some((screen) => screen.name === name)) return;
@@ -698,7 +709,7 @@ function choose(name, how) {
     if (host && host.navigate) host.navigate(name);
     const moved = name !== current;
     current = name;
-    if (moved && how !== 'history') shell.address.go({ screen: name }, { push: how !== 'follow' });
+    if (moved && how !== 'history' && how !== 'zoom') shell.address.go({ screen: name }, { push: how !== 'follow' });
     show();
     settle();
 }
@@ -891,6 +902,7 @@ if (shell && editor && host) {
     addEventListener('resize', () => { pageWrite({ inset: insetOf() }); settle(); });
     shell.onEscape(() => deselect());
     shell.onEditing((on) => placeLive(on));
+    shell.onZoomIn(zoomPick);
     shell.address.onChange((address) => addressMoved(address));
     // A new document: the list again
     new MutationObserver(() => {

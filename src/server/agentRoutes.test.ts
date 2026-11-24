@@ -188,15 +188,15 @@ describe('Agent turns', () => {
         expect(signIn).toContain('Se connecter à Magnetic');
     });
 
-    it('should open an own app with the editor hidden and the editor chord named, and the editor with it shown', async () => {
+    it('should open an own app with the editor hidden and the zoom chords named, and the editor with it shown', async () => {
         // Act
         const app = await (await fetch(`${magnetic.origin}/apps/${appId}`, { headers: { Cookie: alice } })).text();
         const editor = await (await fetch(`${magnetic.origin}/edit/${appId}`, { headers: { Cookie: alice } })).text();
 
         // Assert
-        expect(app).toContain('<body class="view shell" data-host-keys="mod+shift+e"');
+        expect(app).toContain('<body class="view shell" data-host-keys="mod+shift+= mod+shift+-"');
         expect(app).toContain(`data-app-id="${appId}"`);
-        expect(editor).toContain('<body class="view shell editing" data-host-keys="mod+shift+e"');
+        expect(editor).toContain('<body class="view shell editing" data-host-keys="mod+shift+= mod+shift+-"');
     });
 
     it('should make an app for the home page with a JSON answer, refuse a bad name and open Your apps in the editor', async () => {
