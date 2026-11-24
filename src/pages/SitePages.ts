@@ -3,7 +3,6 @@ import { copyAppParts } from '@punyts/stateui-mcp';
 import type { CreateUiPartInput, Services, UiPart, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { Database } from '@punyts/stateui-pg';
 import { LANGUAGES } from '../prefs/Preferences.js';
-import { PAGES_WORKSPACE_ID } from '../inspector/constants.js';
 import { localeOperations } from '../stateui/localize.js';
 import { run } from '../stateui/run.js';
 import type { Stamps } from '../storage/Stamps.js';
@@ -120,6 +119,8 @@ export class SitePages implements PageSource {
 
     constructor(
         private readonly db: Database,
+        /** The id of the pages workspace: the company org's, or Magnetic's own without one */
+        readonly workspaceId: string,
         /** The pages workspace, where the drafts are */
         private readonly workspace: () => Promise<{ readonly services: Services; readonly release: () => void }>,
         private readonly toolsOf: (services: Services) => readonly UiToolDefinition[],
@@ -187,7 +188,7 @@ export class SitePages implements PageSource {
     async draft(spec: PageSpec): Promise<string> {
         return this.inPages(async (services, tools) => {
             const found = await this.findDraft(services, spec);
-            const kept = await this.stamps.get<DraftStamp>(PAGES_WORKSPACE_ID, `draft:${spec.name}`);
+            const kept = await this.stamps.get<DraftStamp>(this.workspaceId, `draft:${spec.name}`);
             if (found !== undefined && (kept === undefined || kept.base === pageStamp(spec) || kept.revision !== found.revision)) return found.id;
             return this.exclusive(PAGES_LOCK, async () => {
                 services.resyncParts();
@@ -214,7 +215,7 @@ export class SitePages implements PageSource {
                 let document = await this.assembled(services, draft.id);
                 const gaps = contractGaps(spec, document.document);
                 if (gaps.length > 0) return { refused: gaps };
-                const kept = await this.stamps.get<DraftStamp>(PAGES_WORKSPACE_ID, `draft:${spec.name}`);
+                const kept = await this.stamps.get<DraftStamp>(this.workspaceId, `draft:${spec.name}`);
                 const before = (await this.published(spec.name))?.english ?? kept?.english ?? {};
                 const now = englishOf(document.document);
                 let revision = await this.retranslate(tools, spec, document.document, before, now, draft.revision);
@@ -232,7 +233,7 @@ export class SitePages implements PageSource {
                     [spec.name, stamp, kept?.base ?? pageStamp(spec), JSON.stringify(document.document), JSON.stringify(document.icons), JSON.stringify(bundle.parts), JSON.stringify(now), userId]
                 );
                 revision = (await this.findDraft(services, spec))?.revision ?? revision;
-                await this.stamps.set(PAGES_WORKSPACE_ID, `draft:${spec.name}`, { ...(kept ?? { base: pageStamp(spec), english: now }), revision: kept?.revision ?? revision, publishedRevision: revision });
+                await this.stamps.set(this.workspaceId, `draft:${spec.name}`, { ...(kept ?? { base: pageStamp(spec), english: now }), revision: kept?.revision ?? revision, publishedRevision: revision });
                 this.cache.delete(spec.name);
                 return { published: true as const };
             })
@@ -259,7 +260,7 @@ export class SitePages implements PageSource {
             const statuses: PageStatus[] = [];
             for (const spec of this.pages) {
                 const draft = await this.findDraft(services, spec);
-                const kept = await this.stamps.get<DraftStamp>(PAGES_WORKSPACE_ID, `draft:${spec.name}`);
+                const kept = await this.stamps.get<DraftStamp>(this.workspaceId, `draft:${spec.name}`);
                 const published = await this.published(spec.name);
                 const changed = draft !== undefined && kept !== undefined && kept.revision !== draft.revision;
                 statuses.push({
@@ -298,7 +299,7 @@ export class SitePages implements PageSource {
         for (const [path, value] of Object.entries(spec.sample ?? {})) await run(tools, 'ui_state_set', { app: spec.name, path, value, logic: false });
         const revision = (await this.findDraft(services, spec))?.revision ?? made.revision;
         const document = await this.assembled(services, made.id);
-        await this.stamps.set(PAGES_WORKSPACE_ID, `draft:${spec.name}`, { base: pageStamp(spec), revision, english: englishOf(document.document) });
+        await this.stamps.set(this.workspaceId, `draft:${spec.name}`, { base: pageStamp(spec), revision, english: englishOf(document.document) });
         return { id: made.id, revision };
     }
 

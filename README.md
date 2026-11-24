@@ -134,7 +134,10 @@ The commands are:
 | `--daily-budget <usd>` | `MAGNETIC_DAILY_BUDGET` | `1` | Dollars each person may spend per UTC day, or `off` |
 | `--user-allowance <usd>` | `MAGNETIC_USER_ALLOWANCE` | none | Dollars each person may spend ever, a one-time allowance such as the beta's |
 | `--allowance-users <n>` | `MAGNETIC_ALLOWANCE_USERS` | everyone | Only the first n people (by first sign-in) get the allowance; the others may buy agent use |
-| `--beta-org <slug>` | `MAGNETIC_BETA_ORG` | none | The beta org: people join it through the beta link on Admin, and only its first `--allowance-users` members get the allowance |
+| `--beta-org <slug>` | `MAGNETIC_BETA_ORG` | none | The beta org, made at start: signed-in people join it by opening the beta link on Admin, and only its first `--allowance-users` members get the allowance |
+| `--beta-budget <usd>` | `MAGNETIC_BETA_BUDGET` | none | The beta org's agent budget per UTC month, set when the server makes the org |
+| `--internal-org <slug>` | `MAGNETIC_INTERNAL_ORG` | none | The company's own org, made at start with apps kept in the org; it holds the drafts of Magnetic's own pages, and people join it by invite |
+| `--internal-budget <usd>` | `MAGNETIC_INTERNAL_BUDGET` | none | The company org's agent budget per UTC month, set when the server makes the org |
 | `--monthly-budget <usd>` | `MAGNETIC_MONTHLY_BUDGET` | `100` | Dollars the server may spend per UTC month |
 | `--top-ups <usd,...>` | `MAGNETIC_TOP_UPS` | `10,25,50` | The amounts of agent use people may buy after their allowance |
 | `--mesh-port <n>` | `MAGNETIC_MESH_PORT` | none: the server runs alone | Runs as one of several servers on one database, linking to the others and to relays on this port (`0` for any free port). The servers share one `MAGNETIC_SECRET_KEY` |
@@ -153,7 +156,7 @@ The commands are:
 | | `MAGNETIC_MAIL_FROM` | none | A verified Amazon SES address that invites and feedback are emailed from. Without it, an invite's link is only shown to the person who made it |
 | | `MAGNETIC_MAIL_REGION` | `us-east-2` | The SES region; credentials come from the machine |
 | | `MAGNETIC_OPERATOR`, `MAGNETIC_CONTACT_EMAIL` | none | Who runs the server and where privacy requests go; both or neither. Both set: `/privacy` says, without a sign-in, what Magnetic keeps, why, who else sees it and how to have it deleted |
-| | `MAGNETIC_ADMIN_EMAILS` (comma-separated) | none | People whose verified email is listed are admins (`/admin`) |
+| | `MAGNETIC_ADMIN_EMAILS` (comma-separated) | none | People whose verified email is listed are admins (`/admin`), and are invited as owners of the server's orgs at start |
 | | `MAGNETIC_STRIPE_SECRET_KEY`, `MAGNETIC_STRIPE_WEBHOOK_SECRET` | none | Stripe's secret key and the signing secret of the webhook `<origin>/billing/stripe`; both, or no buying of agent use |
 
 

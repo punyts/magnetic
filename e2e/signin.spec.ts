@@ -4,7 +4,7 @@ test.describe('Signing in and out', () => {
     test('offers the providers and the development users', async ({ signInPage }) => {
         await signInPage.goto();
         await expect(signInPage.button('Sign in with the mock provider')).toBeVisible();
-        await expect(signInPage.app.getByPlaceholder('Work email')).toBeVisible();
+        await expect(signInPage.app.getByPlaceholder('Email', { exact: true })).toBeVisible();
         for (const name of ['alice', 'bob', 'carol']) await expect(signInPage.button(`Sign in as ${name}`)).toBeVisible();
     });
 

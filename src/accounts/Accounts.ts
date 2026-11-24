@@ -16,6 +16,9 @@ export interface Identity {
     readonly subject: string;
 }
 
+/** The identity of an account that signs in with links sent to its address; its subject is the address, lower case */
+export const EMAIL_PROVIDER = 'email';
+
 /** What a provider tells about the person when they sign in */
 export interface Profile {
     readonly name: string;
@@ -86,8 +89,56 @@ export class Accounts {
                 ).rows[0];
                 if (row !== undefined) return userOf(row);
             }
+            // A first sign-in whose provider checked the email joins the account that has it verified already, such as
+            // one made by an invite: one person, one account (docs/design/magnetic-orgs-and-invites.md)
+            const same = !verified || email === null ? undefined : (await tx.query<UserRow>('SELECT id, name, email, picture, created_at FROM app_user WHERE lower(email) = lower($1) AND email_verified ORDER BY created_at, id LIMIT 1', [email])).rows[0];
+            if (same !== undefined) {
+                await tx.query('INSERT INTO identity (provider, subject, user_id, org_id) VALUES ($1, $2, $3, $4)', [identity.provider, identity.subject, same.id, orgId ?? null]);
+                return userOf(same);
+            }
             return this.create(tx, identity, { name, email, verified, picture }, orgId);
         });
+    }
+
+    /**
+     * The account an email address signs in as, once the person proved they hold the address (an invite or sign-in link
+     * that came to it): the account of its `email` identity; else the oldest account that has the address verified,
+     * which gets that identity; else a new account with the address verified. Never one that has it unverified
+     * (docs/design/magnetic-orgs-and-invites.md). `name` names a new account, and renames one when given
+     */
+    async signInByEmail(email: string, name?: string): Promise<User> {
+        const address = email.trim().toLowerCase().slice(0, 320);
+        const given = name?.trim().slice(0, 200) ?? '';
+        const identity: Identity = { provider: EMAIL_PROVIDER, subject: address };
+        return this.db.transaction(async (tx) => {
+            await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`identity:${identity.provider}:${identity.subject}`]);
+            const userId =
+                (await tx.query<{ user_id: string }>('SELECT user_id FROM identity WHERE provider = $1 AND subject = $2', [identity.provider, identity.subject])).rows[0]?.user_id ??
+                (await tx.query<{ id: string }>('SELECT id FROM app_user WHERE lower(email) = $1 AND email_verified ORDER BY created_at, id LIMIT 1', [address])).rows[0]?.id;
+            if (userId === undefined) return this.create(tx, identity, { name: given === '' ? (address.split('@')[0] as string) : given, email: address, verified: true, picture: null });
+            await tx.query('INSERT INTO identity (provider, subject, user_id) VALUES ($1, $2, $3) ON CONFLICT (provider, subject) DO NOTHING', [identity.provider, identity.subject, userId]);
+            const row = (
+                await tx.query<UserRow>(
+                    'UPDATE app_user SET email = $2, email_verified = true, name = CASE WHEN $3 = \'\' THEN name ELSE $3 END WHERE id = $1 RETURNING id, name, email, picture, created_at',
+                    [userId, address, given]
+                )
+            ).rows[0] as UserRow;
+            return userOf(row);
+        });
+    }
+
+    /** The account whose verified email this is, for a sign-in link; the same account `signInByEmail` would find */
+    async byVerifiedEmail(email: string): Promise<User | undefined> {
+        const address = email.trim().toLowerCase();
+        const row = (
+            await this.db.query<UserRow>(
+                `SELECT u.id, u.name, u.email, u.picture, u.created_at FROM app_user u
+                  WHERE u.id = coalesce((SELECT user_id FROM identity WHERE provider = $2 AND subject = $1),
+                                        (SELECT id FROM app_user WHERE lower(email) = $1 AND email_verified ORDER BY created_at, id LIMIT 1))`,
+                [address, EMAIL_PROVIDER]
+            )
+        ).rows[0];
+        return row === undefined ? undefined : userOf(row);
     }
 
     private async create(tx: Queryable, identity: Identity, profile: { name: string; email: string | null; verified: boolean; picture: string | null }, orgId?: string): Promise<User> {

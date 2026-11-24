@@ -61,6 +61,12 @@ export interface CliOptions {
     allowanceUsers: number | undefined;
     /** The slug of the beta org, whose first `allowanceUsers` members get the allowance (docs/design/magnetic-beta.md) */
     betaOrg: string | undefined;
+    /** The beta org's agent budget per UTC month, given when the server makes the org */
+    betaBudget: number | undefined;
+    /** The slug of the company's own org, made at start and joined by invite (docs/design/magnetic-orgs-and-invites.md) */
+    internalOrg: string | undefined;
+    /** The company org's agent budget per UTC month, given when the server makes the org */
+    internalBudget: number | undefined;
     /** The verified emails of the people who reach the admin pages */
     admins: string[];
     /** Stripe, for people to buy agent use after their allowance (environment only); undefined without both keys */
@@ -178,12 +184,20 @@ The agent (the API key comes from ANTHROPIC_API_KEY):
   --beta-org <slug>      The beta org: people join it through the beta link on Admin, and only its first
                          --allowance-users members get the allowance. Needs MAGNETIC_SECRET_KEY
                          (env MAGNETIC_BETA_ORG, default none)
+  --beta-budget <usd>    The beta org's agent budget per UTC month, set when the server makes the org
+                         (env MAGNETIC_BETA_BUDGET, default none)
+  --internal-org <slug>  The company's own org, made at start with apps kept in the org; people join
+                         it by invite, and MAGNETIC_ADMIN_EMAILS are invited as its owners
+                         (env MAGNETIC_INTERNAL_ORG, default none)
+  --internal-budget <usd> The company org's agent budget per UTC month, set when the server makes the org
+                         (env MAGNETIC_INTERNAL_BUDGET, default none)
   --monthly-budget <usd> Dollars the server may spend per UTC month (env MAGNETIC_MONTHLY_BUDGET, default 100)
   --top-ups <usd,...>    The amounts of agent use people may buy after their allowance
                          (env MAGNETIC_TOP_UPS, default 10,25,50)
 
 Admin pages, /admin: feedback, people and giving agent use (environment only):
-  MAGNETIC_ADMIN_EMAILS            Comma-separated; a person whose verified email is listed is an admin
+  MAGNETIC_ADMIN_EMAILS            Comma-separated; a person whose verified email is listed is an admin, and
+                                   each is invited as an owner of the beta and company orgs
 
 Buying agent use after the allowance (environment only; both, or no buying):
   MAGNETIC_STRIPE_SECRET_KEY       The Stripe secret key (sk_live_... or sk_test_...)
@@ -375,6 +389,9 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     let userAllowance = env['MAGNETIC_USER_ALLOWANCE'] !== undefined && env['MAGNETIC_USER_ALLOWANCE'] !== '' ? parseOptionalDollars('user allowance', env['MAGNETIC_USER_ALLOWANCE']) : undefined;
     let allowanceUsers = env['MAGNETIC_ALLOWANCE_USERS'] !== undefined && env['MAGNETIC_ALLOWANCE_USERS'] !== '' ? parseCount('allowance users', env['MAGNETIC_ALLOWANCE_USERS']) : undefined;
     let betaOrg = env['MAGNETIC_BETA_ORG']?.trim() || undefined;
+    let betaBudget = env['MAGNETIC_BETA_BUDGET'] !== undefined && env['MAGNETIC_BETA_BUDGET'] !== '' ? parseDollars('beta budget', env['MAGNETIC_BETA_BUDGET']) : undefined;
+    let internalOrg = env['MAGNETIC_INTERNAL_ORG']?.trim() || undefined;
+    let internalBudget = env['MAGNETIC_INTERNAL_BUDGET'] !== undefined && env['MAGNETIC_INTERNAL_BUDGET'] !== '' ? parseDollars('internal budget', env['MAGNETIC_INTERNAL_BUDGET']) : undefined;
     let monthlyBudget = env['MAGNETIC_MONTHLY_BUDGET'] !== undefined ? parseDollars('monthly budget', env['MAGNETIC_MONTHLY_BUDGET']) : 100;
     let topUps = env['MAGNETIC_TOP_UPS'] !== undefined && env['MAGNETIC_TOP_UPS'] !== '' ? parseTopUps(env['MAGNETIC_TOP_UPS']) : undefined;
     const admins = (env['MAGNETIC_ADMIN_EMAILS'] ?? '').split(',').map((email) => email.trim().toLowerCase()).filter((email) => email !== '');
@@ -498,6 +515,15 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
             case '--beta-org':
                 betaOrg = value();
                 break;
+            case '--beta-budget':
+                betaBudget = parseDollars('beta budget', value());
+                break;
+            case '--internal-org':
+                internalOrg = value();
+                break;
+            case '--internal-budget':
+                internalBudget = parseDollars('internal budget', value());
+                break;
             case '--monthly-budget':
                 monthlyBudget = parseDollars('monthly budget', value());
                 break;
@@ -554,6 +580,10 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     if (command === 'aggregate' && meshPort === undefined) throw new UsageError('The aggregate needs --mesh-port');
     if (aggregateRole !== undefined && appRole === undefined) throw new UsageError('--aggregate-role takes the writing of state from the app role: give --app-role too');
     if (betaOrg !== undefined && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(betaOrg)) throw new UsageError(`Invalid beta org: ${betaOrg} (an org slug: lower-case letters, digits and dashes)`);
+    if (internalOrg !== undefined && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(internalOrg)) throw new UsageError(`Invalid internal org: ${internalOrg} (an org slug: lower-case letters, digits and dashes)`);
+    if (internalOrg !== undefined && internalOrg === betaOrg) throw new UsageError('The internal org and the beta org are two orgs: give them different slugs');
+    if (betaBudget !== undefined && betaOrg === undefined) throw new UsageError('--beta-budget is for --beta-org');
+    if (internalBudget !== undefined && internalOrg === undefined) throw new UsageError('--internal-budget is for --internal-org');
     if (seed !== undefined && betaOrg === undefined) throw new UsageError('Seeding the beta (--seed) needs --beta-org');
     if ((tlsCert === undefined) !== (tlsKey === undefined)) throw new UsageError('--tls-cert and --tls-key go together');
     if (tlsCert !== undefined && networkHost === undefined) throw new UsageError('--tls-cert and --tls-key are for --network-host');
@@ -566,5 +596,5 @@ export function parseOptions(argv: readonly string[], env: Readonly<Record<strin
     const network = networkHost === undefined ? undefined : { host: networkHost, ...(tlsCert !== undefined && { tlsCert }), ...(tlsKey !== undefined && { tlsKey }) };
     const relay = { ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(meshUrl !== undefined && { endpoint: meshUrl }) };
     const statenet = meshPort === undefined ? undefined : { meshPort, ...(meshHost !== undefined && { meshHost }), ...(meshUrl !== undefined && { meshUrl }), ...(nodeId !== undefined && { nodeId }), ...(region !== undefined && { region }), ...(group !== undefined && { group }), ...(relays !== undefined && { relays }) };
-    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, agentBrowser, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, relay, report, help };
+    return { command, databaseUrl, migrate, appRole, aggregateRole, embedding, modelCache, dataDir, host, network, port, runtimePort, devUsers: flagUsers ?? envUsers, starter, agentBrowser, seed, runtimeDir, publicOrigin, runtimeOrigin, privacy, linkedIn, secretKey, mail, mockProvider, mockAgent, model, models, effort, dailyBudget, userAllowance, allowanceUsers, betaOrg, betaBudget, internalOrg, internalBudget, admins, stripe, topUps, monthlyBudget, statenet, nodeId, out, relay, report, help };
 }

@@ -214,7 +214,7 @@ describe('Enterprise controls', () => {
         // The org's provider vouches only for its own domains: an email elsewhere is kept, unverified
         const mallory = await userIdOf(outsider.done as Response);
         expect((await magnetic.database.query('SELECT email_verified FROM app_user WHERE id = $1', [mallory])).rows[0]).toEqual({ email_verified: false });
-        expect(signInPage).toContain('Sign in with your work email');
+        expect(signInPage).toContain('Sign in with your email');
         await magnetic.policies.set(aliceId, orgId, { requireSso: false, autoJoin: false });
     });
 
@@ -275,16 +275,24 @@ describe('Enterprise controls', () => {
         await magnetic.policies.set(aliceId, orgId, { monthlyBudget: null, agentModels: null });
     });
 
-    it('should keep members from making apps of their own when the org keeps apps in the org', async () => {
+    it('should make a new app in the org when the org keeps apps in the org, and refuse one to a member who may not build', async () => {
         // Arrange
         await magnetic.policies.set(aliceId, orgId, { personalWorkspaces: false });
+        const make = (): Promise<Response> => fetch(`${magnetic.origin}/new`, { method: 'POST', headers: { Cookie: bob, Origin: magnetic.origin, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=side-project' });
+        const workspaceId = (await magnetic.orgs.of(bobId)).find((org) => org.id === orgId)?.workspaceId as string;
 
         // Act
-        const made = await fetch(`${magnetic.origin}/new`, { method: 'POST', headers: { Cookie: bob, Origin: magnetic.origin, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=side-project' });
+        const made = await make();
+        const madeId = ((await made.json()) as { id: string }).id;
+        await magnetic.database.query("UPDATE org_member SET role = 'member' WHERE org_id = $1 AND user_id = $2", [orgId, bobId]);
+        const refused = await make();
+        await magnetic.database.query("UPDATE org_member SET role = 'admin' WHERE org_id = $1 AND user_id = $2", [orgId, bobId]);
 
         // Assert
-        expect(made.status).toBe(403);
-        expect(await made.json()).toEqual({ message: NO_PERSONAL_APPS });
+        expect(made.status).toBe(201);
+        expect((await magnetic.access.visibleApps(bobId, workspaceId)).get(madeId)).toBe('manage');
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toEqual({ message: NO_PERSONAL_APPS });
         await magnetic.policies.set(aliceId, orgId, { personalWorkspaces: true });
     });
 

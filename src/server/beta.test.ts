@@ -3,7 +3,6 @@ import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Budgets } from '../agent/Budgets.js';
 import { Beta } from '../beta/Beta.js';
-import { Orgs } from '../orgs/Orgs.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
 import { startMagnetic } from './startMagnetic.js';
 import type { RunningMagnetic } from './startMagnetic.js';
@@ -52,10 +51,14 @@ describe('The beta link', () => {
             browser: noBrowser,
             secretKey: 'beta-test-secret-key-of-enough-length',
             admins: ['ops@example.com'],
+            serverOrgs: [{ slug: 'beta', name: 'Magnetic beta', monthlyBudget: 500 }],
             agent: { budgets: LIMITS }
         });
         for (const name of ['alice', 'bob', 'carol', 'dan']) users[name] = await signIn(name);
-        await magnetic.database.query("UPDATE app_user SET email = 'ops@example.com', email_verified = true WHERE id = $1", [users['alice']?.id]);
+        const aliceId = users['alice']?.id as string;
+        await magnetic.database.query("UPDATE app_user SET email = 'ops@example.com', email_verified = true WHERE id = $1", [aliceId]);
+        // the server invited the admin's address as the beta org's owner when it started
+        for (const invite of await magnetic.orgs.pendingFor(aliceId)) await magnetic.orgs.acceptInvite(invite.id, aliceId);
     }, 60_000);
 
     afterAll(async () => {
@@ -63,45 +66,44 @@ describe('The beta link', () => {
         await test.drop();
     });
 
-    it('should be no page until an admin starts the beta, then give the admin its link', async () => {
-        // Arrange: the link the server will sign
-        const code = new Beta(magnetic.database, new Orgs(magnetic.database), 'beta', 2, 'beta-test-secret-key-of-enough-length').code;
-        expect((await get(`/beta/${code}`, 'bob')).status).toBe(404);
-        expect(await page('/admin', 'alice')).toContain('Start the beta');
+    it('should make the beta org at start with its budget, invite the admin as its owner, and give the admin its link', async () => {
+        // Arrange: the link the server signs
+        const code = new Beta(magnetic.database, 'beta', 2, 'beta-test-secret-key-of-enough-length').code;
 
         // Act
-        const started = await post('/admin/beta', 'alice');
-        const overview = await page('/admin?started=1', 'alice');
+        const org = await magnetic.orgs.bySlug('beta');
+        const overview = await page('/admin', 'alice');
+        link = /value="https?:\/\/[^/]+(\/beta\/[A-Za-z0-9_-]+)"/.exec(overview)?.[1] as string;
 
         // Assert
-        expect(started.headers.get('location')).toBe('/admin?started=1');
-        expect(overview).toContain('The beta has started. Hand out its link.');
+        expect(org?.name).toBe('Magnetic beta');
+        expect(await magnetic.policies.get(org?.id as string)).toMatchObject({ personalWorkspaces: false, monthlyBudget: 500 });
+        expect(await magnetic.orgs.role(org?.id as string, users['alice']?.id as string)).toBe('owner');
         expect(overview).toContain('0 of 2 places taken');
-        link = /value="https?:\/\/[^/]+(\/beta\/[A-Za-z0-9_-]+)"/.exec(overview)?.[1] as string;
+        expect(overview).not.toContain('Start the beta');
         expect(link).toBe(`/beta/${code}`);
         expect((await get(`/beta/${code.slice(0, -1)}x`, 'bob')).status).toBe(404);
-        expect((await post('/admin/beta', 'bob')).status).toBe(404);
+        expect((await post('/admin/beta', 'alice')).status).toBe(404);
         expect((await get(link)).headers.get('location')).toBe(`/signin?next=${encodeURIComponent(link)}`);
         expect(await page(link, 'alice')).toContain('You run the beta org');
     });
 
-    it('should give the first people to join a place and the allowance, and tell those after that the beta is full', async () => {
+    it('should give the first people to open the link a place and the allowance, and tell those after that the beta is full', async () => {
         // Arrange
         const budgets = new Budgets(magnetic.database, LIMITS);
-        expect(await page(link, 'bob')).toContain('2 of its 2 places are left.');
         expect(await budgets.check(users['dan']?.id as string)).toMatch(/^The free agent use of this beta comes with a place in it\./);
 
         // Act
-        const joined = await post(link, 'bob');
-        await post(link, 'carol');
-        const late = await post(link, 'dan');
+        const bobPage = await page(link, 'bob');
+        await page(link, 'carol');
+        const danPage = await page(link, 'dan');
+        const bobAgain = await page(link, 'bob');
 
         // Assert
-        expect(joined.headers.get('location')).toBe(link);
-        expect(await page(link, 'bob')).toContain('You have $5.00 of agent use, on us.');
+        expect(bobPage).toContain('You have $5.00 of agent use, on us.');
+        expect(bobAgain).toContain('You have $5.00 of agent use, on us.');
         expect(await budgets.check(users['bob']?.id as string)).toBeUndefined();
-        expect(late.headers.get('location')).toBe(link);
-        expect(await page(link, 'dan')).toContain('It has reached its 2 people. We’ll contact you when we run the next beta test.');
+        expect(danPage).toContain('It has reached its 2 people. We’ll contact you when we run the next beta test.');
         expect(await budgets.allowanceOf(users['dan']?.id as string)).toBe(0);
         expect(await budgets.check(users['dan']?.id as string)).toMatch(/^The beta has reached its 2 people, who each got \$5 of free agent use\. We’ll contact you when we run the next beta test\./);
         expect(await page('/admin', 'alice')).toContain('2 of 2 places taken');
@@ -113,7 +115,7 @@ describe('The beta link', () => {
 
     it('should let only one of two people take the last place at once', async () => {
         // Arrange: a beta of 3 places, two taken
-        const beta = new Beta(magnetic.database, new Orgs(magnetic.database), 'beta', 3, 'beta-test-secret-key-of-enough-length');
+        const beta = new Beta(magnetic.database, 'beta', 3, 'beta-test-secret-key-of-enough-length');
         const erin = (await magnetic.database.query<{ id: string }>("INSERT INTO app_user (id, name) VALUES (gen_random_uuid(), 'erin') RETURNING id::text AS id")).rows[0]?.id as string;
 
         // Act
@@ -150,6 +152,7 @@ describe('Signing up in the beta', () => {
             browser: noBrowser,
             secretKey: 'beta-test-secret-key-of-enough-length',
             admins: ['ops@example.com'],
+            serverOrgs: [{ slug: 'beta', name: 'Magnetic beta' }],
             agent: { budgets: LIMITS }
         });
     }, 60_000);
@@ -177,23 +180,20 @@ describe('Signing up in the beta', () => {
         expect(await (await get('/settings/orgs', bob.cookie)).text()).not.toContain('Make an org');
     });
 
-    it("should put everyone who signs up in the admin's org with the allowance, until it is full, and say so on the sign-in page", async () => {
-        // Arrange: bob signed in before the org was there; the admin's sign-in makes it
+    it('should leave people out of the beta org when they sign in, let the link put them in, and say on the sign-in page when it is full', async () => {
+        // Arrange
+        const link = `/beta/${new Beta(magnetic.database, 'beta', 2, 'beta-test-secret-key-of-enough-length').code}`;
         const bob = await signIn('bob');
-        expect(await roleIn(bob.id)).toBeUndefined();
-        const owner = await signIn('owner');
-        await magnetic.database.query("UPDATE app_user SET email = 'ops@example.com', email_verified = true WHERE id = $1", [owner.id]);
-        // a provider gives the email at every sign-in; a development user has none, so the admin opens Your apps
-        await (await get('/', owner.cookie)).text();
-
-        // Act: bob comes back to Your apps; carol and dan sign up
-        await (await get('/', bob.cookie)).text();
         const carol = await signIn('carol');
         const dan = await signIn('dan');
+        const before = [await roleIn(bob.id), await roleIn(carol.id), await roleIn(dan.id)];
+
+        // Act
+        for (const person of [bob, carol, dan]) await (await get(link, person.cookie)).text();
         const signInPage = await (await get('/signin')).text();
 
         // Assert
-        expect(await roleIn(owner.id)).toBe('owner');
+        expect(before).toEqual([undefined, undefined, undefined]);
         expect(await roleIn(bob.id)).toBe('builder');
         expect(await roleIn(carol.id)).toBe('builder');
         expect(await roleIn(dan.id)).toBeUndefined();

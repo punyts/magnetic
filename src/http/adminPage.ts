@@ -20,8 +20,6 @@ export interface AllowanceInfo {
 /** The beta as the overview shows it */
 export interface BetaInfo {
     readonly slug: string;
-    /** Whether the beta org is there yet */
-    readonly started: boolean;
     readonly taken: number;
     readonly places?: number;
     /** The link to hand out */
@@ -79,17 +77,11 @@ export function adminOverviewPage(look: PageLook, overview: Overview, allowance:
     );
 }
 
-/** The beta on the overview: start its org, then the link to hand out and the places taken */
+/** The beta on the overview: the link to hand out and the places taken. The server makes its org at start */
 function betaSection(beta: BetaInfo): string {
-    if (!beta.started)
-        return [
-            '<h2>Beta</h2>',
-            `<p class="muted">The beta org (${e(beta.slug)}) is not there yet. Starting it makes it, with you as its owner, and opens the beta link. Owners and admins of the org hold no place.</p>`,
-            '<form method="post" action="/admin/beta"><button class="primary">Start the beta</button></form>'
-        ].join('\n');
     return [
         '<h2>Beta</h2>',
-        `<p>${beta.places === undefined ? `${beta.taken} joined` : `${beta.taken} of ${beta.places} places taken`}. Hand out this link: people sign in, join the beta org (${e(beta.slug)}) as builders, and get the free agent use${beta.places === undefined ? '' : ` while places are left; after that they are told the beta is full`}.</p>`,
+        `<p>${beta.places === undefined ? `${beta.taken} joined` : `${beta.taken} of ${beta.places} places taken`}. Hand out this link: people sign in, join the beta org (${e(beta.slug)}) as builders when they open it signed in, and get the free agent use${beta.places === undefined ? '' : ` while places are left; after that they are told the beta is full`}.</p>`,
         `<p><input class="link" readonly value="${e(beta.link)}" aria-label="Beta link"></p>`
     ].join('\n');
 }

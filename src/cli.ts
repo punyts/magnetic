@@ -24,6 +24,8 @@ import type { OidcProvider } from './auth/OidcSignIn.js';
 import { MockAgentModel } from './testing/mockAgentModel.js';
 import { startMockOidcProvider } from './testing/mockOidcProvider.js';
 import { seedBeta } from './testing/betaPersonas.js';
+import { BETA_ORG_NAME } from './beta/Beta.js';
+import type { ServerOrg } from './orgs/ServerOrgs.js';
 import type { SeededBeta } from './testing/betaPersonas.js';
 
 /** The embedder the options name; the local model only when its package is installed, as it never falls back to another */
@@ -220,7 +222,7 @@ async function main(): Promise<void> {
             process.exitCode = 2;
             return;
         }
-        seeded = await seedBeta(database, { scenario: options.seed, slug: options.betaOrg as string, places: options.allowanceUsers ?? 100, allowance: options.userAllowance ?? 5 });
+        seeded = await seedBeta(database, { scenario: options.seed, slug: options.betaOrg as string, places: options.allowanceUsers ?? 100, allowance: options.userAllowance ?? 5, ...(options.betaBudget !== undefined && { budget: options.betaBudget }), ...(options.internalOrg !== undefined && { internal: { slug: options.internalOrg, ...(options.internalBudget !== undefined && { budget: options.internalBudget }) } }) });
         const { personas, testers, placesTaken, places } = seeded.made;
         process.stderr.write(`magnetic: seeded ${options.seed}: ${personas} new personas, ${testers} new testers, ${placesTaken} of ${places} places taken\n`);
     }
@@ -231,6 +233,11 @@ async function main(): Promise<void> {
     const providers: OidcProvider[] = options.linkedIn === undefined ? [] : [linkedInProvider(options.linkedIn.clientId, options.linkedIn.clientSecret, { pkce: options.linkedIn.pkce })];
     const mock = options.mockProvider ? await startMockOidcProvider() : undefined;
     if (mock !== undefined) providers.push({ name: 'mock', label: 'Sign in with the mock provider', issuer: mock.issuer, clientId: mock.clientId, clientSecret: mock.clientSecret });
+    // The company org and the beta org, made at start with their admins invited (docs/design/magnetic-orgs-and-invites.md)
+    const serverOrgs: ServerOrg[] = [
+        ...(options.internalOrg !== undefined ? [{ slug: options.internalOrg, name: options.internalOrg, pages: true as const, ...(options.internalBudget !== undefined && { monthlyBudget: options.internalBudget }) }] : []),
+        ...(options.betaOrg !== undefined ? [{ slug: options.betaOrg, name: BETA_ORG_NAME, ...(options.betaBudget !== undefined && { monthlyBudget: options.betaBudget }) }] : [])
+    ];
     const network = options.network === undefined ? undefined : await networkOf(options.network, options.dataDir);
     const server = await startMagnetic({
         database,
@@ -255,6 +262,7 @@ async function main(): Promise<void> {
         ...(options.statenet !== undefined && { statenet: options.statenet }),
         ...(options.stripe !== undefined && { payments: { stripe: options.stripe, ...(options.topUps !== undefined && { topUps: options.topUps }) } }),
         ...(admins.length > 0 && { admins }),
+        ...(serverOrgs.length > 0 && { serverOrgs }),
         agent: { ...(options.mockAgent && { model: new MockAgentModel(undefined, mockUsage) }), modelName: options.model, ...(options.models !== undefined && { models: options.models }), effort: options.effort, budgets: { dailyPerUser: options.dailyBudget, perUserTotal: options.userAllowance, allowanceUsers: options.allowanceUsers, betaOrg: options.betaOrg, monthly: options.monthlyBudget } }
     });
     for (const provider of server.signIn.providers) process.stderr.write(`magnetic: ${provider.name} redirect URI ${server.signIn.redirectUri(provider.name)}\n`);

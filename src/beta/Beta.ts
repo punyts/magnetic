@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Database, Queryable } from '@punyts/stateui-pg';
-import { audit, OrgError } from '../orgs/Orgs.js';
-import type { OrgRole, Orgs } from '../orgs/Orgs.js';
+import { audit } from '../orgs/Orgs.js';
+import type { OrgRole } from '../orgs/Orgs.js';
 
 /**
  * The beta (docs/design/magnetic-beta.md): one org, joined through one link, whose first members get the free agent
@@ -31,7 +31,7 @@ export async function betaTaken(db: Queryable, slug: string): Promise<number> {
 
 export interface BetaStatus {
     readonly slug: string;
-    /** The beta org; undefined until an admin starts it */
+    /** The beta org; undefined until the server makes it */
     readonly org?: { readonly id: string; readonly name: string };
     readonly taken: number;
     /** How many places there are; undefined for no limit */
@@ -46,7 +46,6 @@ export const BETA_ORG_NAME = 'Magnetic beta';
 export class Beta {
     constructor(
         private readonly db: Database,
-        private readonly orgs: Orgs,
         /** The beta org's slug */
         readonly slug: string,
         /** How many places; undefined for no limit */
@@ -68,15 +67,6 @@ export class Beta {
     async status(): Promise<BetaStatus> {
         const org = (await this.db.query<{ id: string; name: string }>('SELECT id::text AS id, name FROM org WHERE slug = $1', [this.slug])).rows[0];
         return { slug: this.slug, ...(org !== undefined && { org }), taken: org === undefined ? 0 : await betaTaken(this.db, this.slug), ...(this.places !== undefined && { places: this.places }) };
-    }
-
-    /** Makes the beta org, with the admin who starts it as its owner; nothing when it is there already */
-    async start(adminId: string): Promise<void> {
-        try {
-            await this.orgs.create(adminId, { name: BETA_ORG_NAME, slug: this.slug });
-        } catch (error) {
-            if (!(error instanceof OrgError && error.status === 409)) throw error;
-        }
     }
 
     /** The person's role in the beta org, if they are in it */

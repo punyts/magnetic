@@ -8,11 +8,6 @@ import { fill } from './text.js';
 /** The words of the beta page, in each language Magnetic speaks; every language has every key (the type checks it) */
 const EN = {
     'beta.pageTitle': 'The Magnetic beta',
-    'beta.join': 'Join the Magnetic beta',
-    'beta.joinText': '{left} of its {places} places are left.',
-    'beta.joinTextOpen': 'Everyone who joins is welcome.',
-    'beta.gets': 'Each place comes with {amount} of agent use, on us: ask the agent to build an app or change one.',
-    'beta.joinButton': 'Join the beta',
     'beta.in': 'You are in the beta',
     'beta.inText': 'You have {amount} of agent use, on us. Make an app on Your apps and ask the agent to build it.',
     'beta.inTextNoAmount': 'Make an app on Your apps and ask the agent to build it.',
@@ -26,11 +21,6 @@ type BetaTexts = Record<keyof typeof EN, string>;
 
 const DE: BetaTexts = {
     'beta.pageTitle': 'Die Magnetic-Beta',
-    'beta.join': 'Bei der Magnetic-Beta mitmachen',
-    'beta.joinText': '{left} ihrer {places} Plätze sind noch frei.',
-    'beta.joinTextOpen': 'Alle, die mitmachen, sind willkommen.',
-    'beta.gets': 'Jeder Platz bringt {amount} Agentennutzung, auf uns: Lass den Agenten eine App bauen oder ändern.',
-    'beta.joinButton': 'Mitmachen',
     'beta.in': 'Du bist in der Beta',
     'beta.inText': 'Du hast {amount} Agentennutzung, auf uns. Lege unter Deine Apps eine App an und lass den Agenten sie bauen.',
     'beta.inTextNoAmount': 'Lege unter Deine Apps eine App an und lass den Agenten sie bauen.',
@@ -42,11 +32,6 @@ const DE: BetaTexts = {
 };
 const FR: BetaTexts = {
     'beta.pageTitle': 'La bêta de Magnetic',
-    'beta.join': 'Rejoindre la bêta de Magnetic',
-    'beta.joinText': 'Il reste {left} de ses {places} places.',
-    'beta.joinTextOpen': 'Toute personne qui la rejoint est la bienvenue.',
-    'beta.gets': 'Chaque place donne {amount} d’utilisation de l’agent, offerts : demandez à l’agent de créer une app ou d’en modifier une.',
-    'beta.joinButton': 'Rejoindre la bêta',
     'beta.in': 'Vous êtes dans la bêta',
     'beta.inText': 'Vous avez {amount} d’utilisation de l’agent, offerts. Créez une app dans Vos apps et demandez à l’agent de la construire.',
     'beta.inTextNoAmount': 'Créez une app dans Vos apps et demandez à l’agent de la construire.',
@@ -58,11 +43,6 @@ const FR: BetaTexts = {
 };
 const ES: BetaTexts = {
     'beta.pageTitle': 'La beta de Magnetic',
-    'beta.join': 'Únete a la beta de Magnetic',
-    'beta.joinText': 'Quedan {left} de sus {places} plazas.',
-    'beta.joinTextOpen': 'Todas las personas que se unan son bienvenidas.',
-    'beta.gets': 'Cada plaza trae {amount} de uso del agente, por nuestra cuenta: pide al agente que cree una app o que cambie una.',
-    'beta.joinButton': 'Unirme a la beta',
     'beta.in': 'Estás en la beta',
     'beta.inText': 'Tienes {amount} de uso del agente, por nuestra cuenta. Crea una app en Tus apps y pide al agente que la construya.',
     'beta.inTextNoAmount': 'Crea una app en Tus apps y pide al agente que la construya.',
@@ -76,31 +56,23 @@ const ALL: Record<Language, BetaTexts> = { en: EN, de: DE, fr: FR, es: ES };
 
 /** What the beta link shows a signed-in person */
 export type BetaView =
-    | { readonly state: 'open'; readonly left?: number; readonly places?: number; readonly amount?: number; readonly action: string }
     | { readonly state: 'in'; readonly amount?: number }
     | { readonly state: 'runs' }
     | { readonly state: 'full'; readonly places: number };
 
 const e = (value: unknown): string => escapeHtml(String(value));
 
-/** `GET /beta/<code>`: join the beta, you are in it, or it is full */
+/** `GET /beta/<code>`: you are in the beta, you run it, or it is full */
 export function betaPage(look: PageLook, view: BetaView): string {
     const t = ALL[look.language] ?? EN;
     const p = (text: string, muted = false): string => `<p${muted ? ' class="muted"' : ''}>${e(text)}</p>`;
     const apps = `<p><a class="button primary" href="/">${e(t['beta.apps'])}</a></p>`;
     const body =
-        view.state === 'open'
-            ? [
-                  `<h1>${e(t['beta.join'])}</h1>`,
-                  p(view.left !== undefined && view.places !== undefined ? fill(t['beta.joinText'], { left: String(view.left), places: String(view.places) }) : t['beta.joinTextOpen']),
-                  view.amount === undefined ? '' : p(fill(t['beta.gets'], { amount: usd(view.amount) })),
-                  `<form method="post" action="${e(view.action)}"><button class="primary">${e(t['beta.joinButton'])}</button></form>`
-              ]
-            : view.state === 'in'
-              ? [`<h1>${e(t['beta.in'])}</h1>`, p(view.amount === undefined || view.amount === 0 ? t['beta.inTextNoAmount'] : fill(t['beta.inText'], { amount: usd(view.amount) })), p(t['beta.feedback'], true), apps]
-              : view.state === 'runs'
-                ? [`<h1>${e(t['beta.in'])}</h1>`, p(t['beta.run']), apps]
-                : [`<h1>${e(t['beta.full'])}</h1>`, p(fill(t['beta.fullText'], { places: String(view.places) })), apps];
+        view.state === 'in'
+            ? [`<h1>${e(t['beta.in'])}</h1>`, p(view.amount === undefined || view.amount === 0 ? t['beta.inTextNoAmount'] : fill(t['beta.inText'], { amount: usd(view.amount) })), p(t['beta.feedback'], true), apps]
+            : view.state === 'runs'
+              ? [`<h1>${e(t['beta.in'])}</h1>`, p(t['beta.run']), apps]
+              : [`<h1>${e(t['beta.full'])}</h1>`, p(fill(t['beta.fullText'], { places: String(view.places) })), apps];
     return [
         '<!doctype html>',
         htmlOpen(look),

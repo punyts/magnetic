@@ -55,6 +55,25 @@ describe('Accounts', () => {
         expect(await accounts.user(a.id)).toBeDefined();
         expect(await accounts.user(b.id)).toBeDefined();
     });
+
+    it('should sign in by an email address as one account: made at first, verified, then the same for a provider that verified it', async () => {
+        // Arrange
+        const accounts = new Accounts(test.db);
+
+        // Act
+        const made = await accounts.signInByEmail(' Cleo@Example.com ', 'Cleo Park');
+        const again = await accounts.signInByEmail('cleo@example.com');
+        const linked = await accounts.signIn({ provider: 'linkedin', subject: 'cleo' }, { name: 'Cleo P.', email: 'CLEO@example.com', emailVerified: true });
+        const unverified = await accounts.signIn({ provider: 'google', subject: 'cleo' }, { name: 'Cleo', email: 'cleo@example.com', emailVerified: false });
+
+        // Assert
+        expect(made).toMatchObject({ name: 'Cleo Park', email: 'cleo@example.com' });
+        expect(again.id).toBe(made.id);
+        expect(linked.id).toBe(made.id);
+        expect(unverified.id).not.toBe(made.id);
+        expect((await accounts.byVerifiedEmail('CLEO@example.com'))?.id).toBe(made.id);
+        expect(await accounts.byVerifiedEmail('nobody@example.com')).toBeUndefined();
+    });
 });
 
 describe('Sessions', () => {
