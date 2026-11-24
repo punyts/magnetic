@@ -33,7 +33,8 @@ CREATE TABLE org (
     id uuid NOT NULL,
     slug text NOT NULL,
     name text NOT NULL,
-    created_by uuid NOT NULL,
+    -- null for an org the server made (docs/design/magnetic-orgs-and-invites.md)
+    created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     owner_number bigint DEFAULT nextval('statenet_owner_number'::regclass) NOT NULL,
     CONSTRAINT org_slug_check CHECK ((slug ~ '^[a-z0-9][a-z0-9-]{1,62}$'::text)),
@@ -165,7 +166,8 @@ CREATE TABLE org_invite (
     role text NOT NULL,
     groups uuid[] DEFAULT '{}'::uuid[] NOT NULL,
     token_hash text NOT NULL,
-    created_by uuid NOT NULL,
+    -- null for an invite from Magnetic itself
+    created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone NOT NULL,
     accepted_at timestamp with time zone,

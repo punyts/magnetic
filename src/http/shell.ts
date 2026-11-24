@@ -531,7 +531,10 @@ async function loadLinks() {
     try {
         const response = await fetch(base + '/share');
         if (!response.ok) throw new Error('refused');
-        grants = (await response.json()).grants || [];
+        const body = await response.json();
+        grants = body.grants || [];
+        // An app in an org: whether everyone in the org may open and use it
+        ed({ notInOrg: !body.org, orgOpen: Boolean(body.org && body.org.open) });
         showLinks();
     } catch { shareSays(T['share.loadFailed']); }
 }
@@ -817,6 +820,13 @@ emitListeners.push((name, payload) => {
             if (refused !== undefined) { shareSays(refused); return; }
             shareSays(T['share.made']);
             await loadLinks();
+        })(); return;
+        case 'orgOpen': void (async () => {
+            const open = Boolean(value);
+            const refused = await post('/share/org', { open });
+            if (refused !== undefined) { shareSays(refused); ed({ orgOpen: !open }); return; }
+            ed({ orgOpen: open });
+            shareSays(open ? T['share.orgOpened'] : T['share.orgClosed']);
         })(); return;
         case 'linkCopy': {
             const grant = grants.find((item) => item.id === value);

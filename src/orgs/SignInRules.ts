@@ -6,7 +6,7 @@ import type { OrgPolicies } from './Policies.js';
 import type { ScimDirectory } from './Scim.js';
 
 /** Said to someone at an org's domain who tries to sign in another way while the org requires its own provider */
-export const SSO_REQUIRED = 'Your organisation signs you in through its own account. Use "Sign in with your work email".';
+export const SSO_REQUIRED = 'Your organisation signs you in through its own account. Enter your work email under "Sign in with your email".';
 
 /**
  * What an org's policies say about signing in: `requireSso` lets people at the org's verified domains in only through

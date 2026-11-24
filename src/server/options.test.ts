@@ -94,6 +94,24 @@ describe('parseOptions', () => {
         expect(parseOptions([], { MAGNETIC_BETA_ORG: 'beta' }).betaOrg).toBe('beta');
         expect(() => parseOptions([], { MAGNETIC_BETA_ORG: 'Beta Org', MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' })).toThrow('Invalid beta org');
         expect(parseOptions(['--user-allowance', '2', '--daily-budget', 'off'], {})).toMatchObject({ userAllowance: 2, dailyBudget: undefined });
+    });
+
+    it('should read the company org and the budgets of both orgs, and refuse a budget without its org or one slug for both', () => {
+        // Arrange
+        const key = { MAGNETIC_SECRET_KEY: 'a-secret-key-of-enough-length' };
+
+        // Act
+        const fromEnv = parseOptions([], { ...key, MAGNETIC_BETA_ORG: 'beta', MAGNETIC_BETA_BUDGET: '500', MAGNETIC_INTERNAL_ORG: 'ai-minion', MAGNETIC_INTERNAL_BUDGET: '50' });
+        const fromFlags = parseOptions(['--internal-org', 'acme', '--internal-budget', '20', '--beta-org', 'trial', '--beta-budget', '100'], key);
+
+        // Assert
+        expect(fromEnv).toMatchObject({ betaOrg: 'beta', betaBudget: 500, internalOrg: 'ai-minion', internalBudget: 50 });
+        expect(fromFlags).toMatchObject({ betaOrg: 'trial', betaBudget: 100, internalOrg: 'acme', internalBudget: 20 });
+        expect(parseOptions([], {})).toMatchObject({ betaBudget: undefined, internalOrg: undefined, internalBudget: undefined });
+        expect(() => parseOptions(['--beta-budget', '5'], {})).toThrow('--beta-budget is for --beta-org');
+        expect(() => parseOptions(['--internal-budget', '5'], {})).toThrow('--internal-budget is for --internal-org');
+        expect(() => parseOptions(['--internal-org', 'Ai Minion'], {})).toThrow('Invalid internal org');
+        expect(() => parseOptions(['--internal-org', 'beta', '--beta-org', 'beta'], key)).toThrow('two orgs');
         expect(() => parseOptions(['--user-allowance', 'lots'], {})).toThrow('Invalid user allowance');
     });
 

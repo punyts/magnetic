@@ -34,6 +34,21 @@ export interface Membership extends Org {
     readonly role: OrgRole;
 }
 
+/** The server itself, as the one who invites the admins to its own orgs */
+export const MAGNETIC = Symbol('magnetic');
+/** How an invite from the server names who sent it */
+export const MAGNETIC_NAME = 'Magnetic';
+
+/** What an invite link is for, to show before it is accepted */
+export interface Invitation {
+    readonly org: Org;
+    /** The address it was sent to, lower case */
+    readonly email: string;
+    readonly role: OrgRole;
+    /** The name of who sent it: a person, or Magnetic */
+    readonly invitedBy: string;
+}
+
 /** An invite waiting for the person it is for, as their Your apps shows it */
 export interface PendingInvite {
     readonly id: string;
@@ -159,8 +174,11 @@ export class Orgs {
         private readonly now: () => Date = () => new Date()
     ) {}
 
-    /** Makes an org with its workspace; the person who makes it is its first owner */
-    async create(userId: string, input: { readonly name: string; readonly slug: string }): Promise<Org> {
+    /**
+     * Makes an org with its workspace; the person who makes it is its first owner. `undefined` makes one with no members
+     * yet, as the server does for its own orgs, whose owners join by invite (docs/design/magnetic-orgs-and-invites.md)
+     */
+    async create(userId: string | undefined, input: { readonly name: string; readonly slug: string }): Promise<Org> {
         const name = input.name.trim().slice(0, 200);
         const slug = input.slug.trim().toLowerCase();
         if (name === '') throw new OrgError(400, 'Give the org a name.');
@@ -169,13 +187,13 @@ export class Orgs {
         const workspaceId = randomUUID();
         try {
             await this.db.transaction(async (tx) => {
-                await tx.query('INSERT INTO org (id, slug, name, created_by) VALUES ($1, $2, $3, $4)', [id, slug, name, userId]);
+                await tx.query('INSERT INTO org (id, slug, name, created_by) VALUES ($1, $2, $3, $4)', [id, slug, name, userId ?? null]);
                 await tx.query("INSERT INTO workspace (id, kind, org_id) VALUES ($1, 'org', $2)", [workspaceId, id]);
-                await tx.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'owner')", [id, userId]);
+                if (userId !== undefined) await tx.query("INSERT INTO org_member (org_id, user_id, role) VALUES ($1, $2, 'owner')", [id, userId]);
                 // its owners and admins hold its whole tree
                 const number = (await tx.query<{ number: string }>('SELECT owner_number::text AS number FROM org WHERE id = $1', [id])).rows[0]?.number as string;
-                await new Permissions(this.db, this.now).make({ owner: number, pattern: '$', subject: membersSubject(number, 'admin'), rights: ['read', 'write', 'share'], kind: 'admins', madeBy: userId }, tx);
-                await audit(tx, { orgId: id, workspaceId, actorId: userId, action: 'org.created', targetKind: 'org', targetId: id, detail: { name, slug } });
+                await new Permissions(this.db, this.now).make({ owner: number, pattern: '$', subject: membersSubject(number, 'admin'), rights: ['read', 'write', 'share'], kind: 'admins', ...(userId !== undefined && { madeBy: userId }) }, tx);
+                await audit(tx, { orgId: id, workspaceId, ...(userId !== undefined && { actorId: userId }), action: 'org.created', targetKind: 'org', targetId: id, detail: { name, slug } });
             });
         } catch (error) {
             if (isUniqueViolation(error)) throw new OrgError(409, 'An org already has this slug.');
@@ -187,6 +205,27 @@ export class Orgs {
     async get(orgId: string): Promise<Org | undefined> {
         const row = (await this.db.query<OrgRow>(`${ORG_SELECT} WHERE o.id = $1`, [orgId])).rows[0];
         return row === undefined ? undefined : orgOf(row);
+    }
+
+    async bySlug(slug: string): Promise<Org | undefined> {
+        const row = (await this.db.query<OrgRow>(`${ORG_SELECT} WHERE o.slug = $1`, [slug])).rows[0];
+        return row === undefined ? undefined : orgOf(row);
+    }
+
+    /**
+     * Whether an address has nothing waiting in an org: no member has it as their verified email, and no invite to it is
+     * still open
+     */
+    async unasked(orgId: string, email: string): Promise<boolean> {
+        const address = email.trim().toLowerCase();
+        const row = (
+            await this.db.query<{ asked: boolean }>(
+                `SELECT EXISTS (SELECT 1 FROM org_member m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND lower(u.email) = $2 AND u.email_verified)
+                     OR EXISTS (SELECT 1 FROM org_invite i WHERE i.org_id = $1 AND i.email = $2 AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.expires_at > $3) AS asked`,
+                [orgId, address, this.now()]
+            )
+        ).rows[0];
+        return row?.asked !== true;
     }
 
     /** The org whose workspace this is, if it is an org's */
@@ -319,10 +358,11 @@ export class Orgs {
 
     /**
      * Invites an email to the org with a role and groups, and returns the invite's token for the link (only its hash is
-     * kept). Admins invite up to admin; only owners invite owners
+     * kept). Admins invite up to admin; only owners invite owners. `MAGNETIC` as the actor is the server itself, which
+     * invites the admins to its own orgs
      */
     async invite(
-        actorId: string,
+        actorId: string | typeof MAGNETIC,
         orgId: string,
         input: { readonly email: string; readonly role: OrgRole; readonly groups?: readonly string[] }
     ): Promise<{ readonly id: string; readonly token: string; readonly expiresAt: string }> {
@@ -331,9 +371,12 @@ export class Orgs {
         const token = randomBytes(32).toString('base64url');
         const id = randomUUID();
         const expiresAt = new Date(this.now().getTime() + INVITE_DAYS * 86_400_000);
+        const by = actorId === MAGNETIC ? undefined : actorId;
         await this.db.transaction(async (tx) => {
-            const actor = await this.requireIn(tx, orgId, actorId, 'admin');
-            if (input.role === 'owner' && actor !== 'owner') throw new OrgError(403, 'Only an owner can invite an owner.');
+            if (by !== undefined) {
+                const actor = await this.requireIn(tx, orgId, by, 'admin');
+                if (input.role === 'owner' && actor !== 'owner') throw new OrgError(403, 'Only an owner can invite an owner.');
+            }
             const groups = [...new Set(input.groups ?? [])];
             if (groups.length > 0) {
                 const found = (await tx.query<{ n: number; pushed: number }>('SELECT count(*)::int AS n, count(*) FILTER (WHERE scim)::int AS pushed FROM org_group WHERE org_id = $1 AND id = ANY($2::uuid[])', [orgId, groups])).rows[0];
@@ -347,11 +390,11 @@ export class Orgs {
                 input.role,
                 groups,
                 hashOf(token),
-                actorId,
+                by ?? null,
                 this.now(),
                 expiresAt
             ]);
-            await audit(tx, { orgId, actorId, action: 'invite.created', targetKind: 'invite', targetId: id, detail: { email, role: input.role, groups } });
+            await audit(tx, { orgId, ...(by !== undefined && { actorId: by }), action: 'invite.created', targetKind: 'invite', targetId: id, detail: { email, role: input.role, groups } });
         });
         return { id, token, expiresAt: expiresAt.toISOString() };
     }
@@ -392,8 +435,8 @@ export class Orgs {
         if (user?.email === null || user?.email === undefined || !user.email_verified) return [];
         const rows = (
             await this.db.query<{ id: string; org_id: string; role: OrgRole; expires_at: Date; invited_by: string }>(
-                `SELECT i.id, i.org_id, i.role, i.expires_at, u.name AS invited_by
-                   FROM org_invite i JOIN app_user u ON u.id = i.created_by
+                `SELECT i.id, i.org_id, i.role, i.expires_at, coalesce(u.name, '${MAGNETIC_NAME}') AS invited_by
+                   FROM org_invite i LEFT JOIN app_user u ON u.id = i.created_by
                   WHERE i.email = $1 AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.expires_at > $2
                     AND NOT EXISTS (SELECT 1 FROM org_member m WHERE m.org_id = i.org_id AND m.user_id = $3)
                   ORDER BY i.created_at DESC`,
@@ -431,12 +474,18 @@ export class Orgs {
     }
 
     /** What an invite is for, to show before it is accepted; `undefined` when it is not valid any more */
-    async invitation(token: string): Promise<{ readonly org: Org; readonly email: string; readonly role: OrgRole } | undefined> {
+    async invitation(token: string): Promise<Invitation | undefined> {
         if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
-        const invite = (await this.db.query<{ org_id: string; email: string; role: OrgRole; expires_at: Date; accepted_at: Date | null; declined_at: Date | null }>('SELECT org_id, email, role, expires_at, accepted_at, declined_at FROM org_invite WHERE token_hash = $1', [hashOf(token)])).rows[0];
+        const invite = (
+            await this.db.query<{ org_id: string; email: string; role: OrgRole; expires_at: Date; accepted_at: Date | null; declined_at: Date | null; invited_by: string }>(
+                `SELECT i.org_id, i.email, i.role, i.expires_at, i.accepted_at, i.declined_at, coalesce(u.name, '${MAGNETIC_NAME}') AS invited_by
+                   FROM org_invite i LEFT JOIN app_user u ON u.id = i.created_by WHERE i.token_hash = $1`,
+                [hashOf(token)]
+            )
+        ).rows[0];
         if (invite === undefined || invite.accepted_at !== null || invite.declined_at !== null || invite.expires_at.getTime() <= this.now().getTime()) return undefined;
         const org = await this.get(invite.org_id);
-        return org === undefined ? undefined : { org, email: invite.email, role: invite.role };
+        return org === undefined ? undefined : { org, email: invite.email, role: invite.role, invitedBy: invite.invited_by };
     }
 
     /** The org's audit log, newest first; admins and owners */

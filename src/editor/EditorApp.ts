@@ -41,7 +41,7 @@ export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } 
 /** What the editor emits, for the page's script */
 export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'view', 'layerLayout', 'layerData', 'layerLogic',
-    'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
+    'share', 'shareClose', 'shareRight', 'shareMake', 'orgOpen', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'hintClose', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'screenColumns', 'path', 'ask',
     'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk',
@@ -54,7 +54,7 @@ const E = '$.data.editor';
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget', 'sideHidden',
+    'notInOrg', 'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget', 'sideHidden',
     'statenetHidden', 'themeHidden', 'logicHidden'
 ];
 
@@ -81,7 +81,7 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'wideHidden', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', 'boardHidden', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'orgOpen', 'wideHidden', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', 'boardHidden', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
         // The view the canvas shows (Screens, Statenet, Theme, Logic), and the layers on the screen tiles
         { op: 'set', field: 'view', type: 'string', default: 'screens' },
         { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
@@ -766,12 +766,16 @@ function inspector(t: Texts): Record<string, unknown> {
     );
 }
 
-/** Share, under its button: who may do what with a new link, and the links made, each with Copy and Revoke */
+/**
+ * Share, under its button: for an app in an org, whether everyone in the org may open and use it (org public); who may
+ * do what with a new link; and the links made, each with Copy and Revoke
+ */
 function shareSheet(t: Texts): Record<string, unknown> {
     return float(
         { right: '12px', y: BELOW_RAIL, width: fit('352px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.shareThis'] }, close: icon(t['editor.close'], 'shareClose', 'x') }),
+            org: { component: 'switchField', size: 'sm', _label: t['shell.orgOpen'], '<-checked': `${E}.orgOpen`, '<-hidden': `${E}.notInOrg`, on: { change: emit('orgOpen') } },
             make: {
                 component: 'panel',
                 padding: 'none',

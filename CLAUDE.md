@@ -10,8 +10,9 @@ git repo (`punyts/magnetic`) inside the punyts workspace; read `../CLAUDE.md` fi
 1. `npm run magnetic:db`: Postgres in Docker on `127.0.0.1:5433` (start Docker Desktop first).
 2. `npm run magnetic:build` after changing Magnetic or a library it uses: the server runs from `dist/`.
 3. Then one of:
-   - `npm run magnetic:beta`: the beta as the host runs it (`beta.dev.env`: $5 each for 100 places, $500 a month),
-     seeded with people to sign in as. Launch config `magnetic-beta`.
+   - `npm run magnetic:beta`: the beta as the host runs it (`beta.dev.env`: $5 each for 100 places; the `beta` org
+     $500 a month, the company org `ai-minion` $50, $550 in all), seeded with people to sign in as. Launch config
+     `magnetic-beta`.
    - `npm run magnetic:beta-full`: the same with all 100 places taken.
    - `npm run magnetic`: no beta; dev users alice and bob. `npm run magnetic:dev` builds the UI libraries first.
    - `npm run magnetic:live`: the real Claude API, with `ANTHROPIC_API_KEY` from the workspace `.env`. Costs money.
@@ -21,7 +22,8 @@ All of these use `--migrate`, `--mock-provider` (sign in as a random test person
 (scripted, no API calls). `npm run magnetic:reset` deletes the local database volume and starts it empty.
 
 ### The seeded beta (`--seed beta|beta-full`, `src/testing/betaPersonas.ts`)
-Sign-in buttons for: Avery, the admin (owns the beta org, opens `/admin`); Nell, never signed in (takes a place on
+Sign-in buttons for: Avery, the admin (owns the beta org and `ai-minion`, so the server invites no one; opens
+`/admin`, and edits Magnetic's page drafts, which live in `ai-minion`); Nell, never signed in (takes a place on
 first sign-in; only fresh after a reset); Hana ($2.40 of $5); Nico ($4.90, one more turn); Uma (all $5 used, chat
 off); Gia (used $5, $3 more given by the admin); Theo (used $5, bought $10). Testers hold the other places, leaving 3
 open (or none when full). The seed runs on every start and only adds what is missing. Seeded mock turns cost about
@@ -63,6 +65,9 @@ $0.15, so allowances move.
   e2e server run as those roles (`roleDatabases` in `src/testing/testDb.ts`). The development `magnetic` user is a
   superuser and bypasses row-level security.
 - Generate UUIDs in code (`randomUUID()`), not in SQL.
+- Orgs the server keeps: `src/orgs/ServerOrgs.ts` (`--internal-org`, `--beta-org`, made at start; admins invited as
+  owners, the actor `MAGNETIC`). Invites: `src/server/inviteRoutes.ts`, signed in or not
+  (docs/design/magnetic-orgs-and-invites.md).
 - Budgets: `src/agent/Budgets.ts` (spend ledger `agent_request`; credits, payments and gifts in `agent_credit`); the
   beta's places: `src/beta/Beta.ts`.
 - Logging: `report.info(message, fields)`; never log secrets, prompts or provider response bodies.

@@ -109,17 +109,17 @@ test.describe('Ways in, and ways refused', () => {
         expect((await context.cookies()).filter((cookie) => /session/i.test(cookie.name))).toEqual([]);
     });
 
-    test('a work email whose domain no org claims is told to sign in another way', async ({ page, signInPage }) => {
+    test('an email no org signs in is told a sign-in link was mailed if an account uses it', async ({ page, signInPage }) => {
         // Arrange
         await signInPage.goto();
 
         // Act
-        await signInPage.app.getByPlaceholder('Work email').fill('someone@nowhere.example');
+        await signInPage.app.getByPlaceholder('Email', { exact: true }).fill('someone@nowhere.example');
         await signInPage.button('Continue').click();
 
         // Assert
         await page.waitForURL(/\/signin\/sso\?email=/);
-        await expect(signInPage.app.getByText("No organisation signs in here with that email's domain. Sign in another way.")).toBeVisible();
+        await expect(signInPage.app.getByText('If an account uses someone@nowhere.example, we sent it a link to sign in.', { exact: false })).toBeVisible();
         await expect(signInPage.button('Sign in as bob')).toBeVisible();
     });
 

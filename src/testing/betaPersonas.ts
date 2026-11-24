@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Database, Queryable } from '@punyts/stateui-pg';
-import { betaTaken } from '../beta/Beta.js';
+import { BETA_ORG_NAME, betaTaken } from '../beta/Beta.js';
 import { Orgs } from '../orgs/Orgs.js';
+import { OrgPolicies } from '../orgs/Policies.js';
 
 /**
  * The people of a beta on a development server (`--seed beta` or `--seed beta-full`), so each state of the beta can be
@@ -147,12 +148,12 @@ export interface SeededBeta {
 }
 
 /**
- * Seeds the beta: the org with the admin as its owner, the personas with their spend, gifts, payments and feedback, and
+ * Seeds the beta: the beta org and the company org with the admin as their owner (so the server invites no one), the personas with their spend, gifts, payments and feedback, and
  * testers holding places until only `PLACES_LEFT` are left. People already there are left as they are, so it runs on
  * every start; the testers' places are added or taken away to fit the scenario. `newbie` is never made: they sign in
  * fresh after a reset of the database (`npm run magnetic:reset`)
  */
-export async function seedBeta(db: Database, options: { readonly scenario: BetaScenario; readonly slug: string; readonly places: number; readonly allowance: number; readonly now?: Date }): Promise<SeededBeta> {
+export async function seedBeta(db: Database, options: { readonly scenario: BetaScenario; readonly slug: string; readonly places: number; readonly allowance: number; readonly budget?: number; readonly internal?: { readonly slug: string; readonly budget?: number }; readonly now?: Date }): Promise<SeededBeta> {
     const now = options.now ?? new Date();
     const list = personas(options.scenario, options.allowance);
     const day = 24 * 60 * 60 * 1000;
@@ -172,12 +173,18 @@ export async function seedBeta(db: Database, options: { readonly scenario: BetaS
     const adminId = ids.get('admin') as string;
     let org = (await db.query<{ id: string }>('SELECT id::text AS id FROM org WHERE slug = $1', [options.slug])).rows[0];
     if (org === undefined) {
-        const made = await new Orgs(db).create(adminId, { name: 'Magnetic beta', slug: options.slug });
+        const made = await new Orgs(db).create(adminId, { name: BETA_ORG_NAME, slug: options.slug });
+        await new OrgPolicies(db, () => [], async () => undefined).set(adminId, made.id, { personalWorkspaces: false, ...(options.budget !== undefined && { monthlyBudget: options.budget }) });
         await db.query('UPDATE org SET created_at = $2 WHERE id = $1', [made.id, new Date(now.getTime() - 13.5 * day)]);
         await db.query('UPDATE org_member SET joined_at = $3 WHERE org_id = $1 AND user_id = $2', [made.id, adminId, new Date(now.getTime() - 13.5 * day)]);
         org = { id: made.id };
     }
     const orgId = org.id;
+    const internal = options.internal;
+    if (internal !== undefined && (await db.query('SELECT 1 FROM org WHERE slug = $1', [internal.slug])).rows.length === 0) {
+        const made = await new Orgs(db).create(adminId, { name: internal.slug, slug: internal.slug });
+        await new OrgPolicies(db, () => [], async () => undefined).set(adminId, made.id, { personalWorkspaces: false, ...(internal.budget !== undefined && { monthlyBudget: internal.budget }) });
+    }
 
     // The personas' places, spend and the rest, made once with them
     for (const [index, persona] of list.entries()) {

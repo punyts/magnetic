@@ -52,7 +52,7 @@ export function adminRoutes(context: AdminRouteContext) {
     async function betaInfo(): Promise<BetaInfo | undefined> {
         if (beta === undefined) return undefined;
         const status = await beta.status();
-        return { slug: status.slug, started: status.org !== undefined, taken: status.taken, ...(status.places !== undefined && { places: status.places }), link: `${context.origin()}/beta/${beta.code}` };
+        return { slug: status.slug, taken: status.taken, ...(status.places !== undefined && { places: status.places }), link: `${context.origin()}/beta/${beta.code}` };
     }
 
     return async (request: IncomingMessage, response: ServerResponse, method: string, path: string, query: URLSearchParams): Promise<boolean> => {
@@ -67,13 +67,7 @@ export function adminRoutes(context: AdminRouteContext) {
         const look = await context.lookOf(request, who.user.id);
 
         if (method === 'GET' && path === '/admin') {
-            context.sendPage(response, adminOverviewPage(look, await admin.overview(), context.allowance, await betaInfo(), query.get('started') === null ? undefined : { notice: 'The beta has started. Hand out its link.' }));
-            return true;
-        }
-        if (method === 'POST' && path === '/admin/beta' && beta !== undefined) {
-            await beta.start(who.user.id);
-            context.report('Beta started', { by: who.user.id, org: beta.slug });
-            context.redirect(response, '/admin?started=1');
+            context.sendPage(response, adminOverviewPage(look, await admin.overview(), context.allowance, await betaInfo()));
             return true;
         }
         if (method === 'GET' && path === '/admin/feedback') {

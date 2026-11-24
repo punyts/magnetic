@@ -45,7 +45,7 @@ export async function mailInvite(
 }
 
 /** A role as an invite email says it */
-const ROLE_WORDS: Readonly<Record<string, string>> = { owner: 'an owner', admin: 'an admin', builder: 'a builder', member: 'a member' };
+export const ROLE_WORDS: Readonly<Record<string, string>> = { owner: 'an owner', admin: 'an admin', builder: 'a builder', member: 'a member' };
 
 export interface OrgRouteContext {
     /** False: nobody makes an org (the beta: everyone is in its org); true by default */

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { User } from '../accounts/Accounts.js';
-import { invitePage, orgListPage, orgPage, supportPage } from '../http/orgSettings.js';
+import { orgListPage, orgPage, supportPage } from '../http/orgSettings.js';
 import type { EnterpriseView, OrgAppView } from '../http/orgSettings.js';
 import { deleteOrg } from '../orgs/Lifecycle.js';
 import { MAX_METADATA_BYTES } from '../auth/samlMetadata.js';
@@ -36,7 +36,6 @@ const ORG = new RegExp(`^/settings/orgs/${UUID}$`);
 const SUPPORT = new RegExp(`^/settings/orgs/${UUID}/apps/${UUID}/instances/${UUID}$`);
 /** A random (version 4) id: an app made in the workspace. The starter apps have the same id in every workspace, so they do not move */
 const MOVABLE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const INVITE = /^\/invites\/([A-Za-z0-9_-]{43})$/;
 const PRINCIPAL = new RegExp(`^(user|group):${UUID}$`);
 
 /** What a person typed in a form field, or nothing */
@@ -244,25 +243,6 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
             }
             return true;
         }
-        if ((match = INVITE.exec(path)) !== null) {
-            const token = match[1] as string;
-            const look = await context.lookOf(request, user.id);
-            if (method === 'GET') {
-                const invite = await orgs.invitation(token);
-                context.sendPage(response, invitePage({ look, token, ...(invite !== undefined && { invite }) }), invite === undefined ? 404 : 200);
-                return true;
-            }
-            if (method !== 'POST') return false;
-            try {
-                const org = await orgs.accept(token, user.id);
-                context.redirect(response, `/settings/orgs/${org.id}`);
-            } catch (error) {
-                if (!(error instanceof OrgError)) throw error;
-                const invite = await orgs.invitation(token);
-                context.sendPage(response, invitePage({ look, token, ...(invite !== undefined && { invite }), error: error.message }), error.status);
-            }
-            return true;
-        }
         if ((match = SUPPORT.exec(path)) !== null && method === 'GET') {
             const [orgId, appId, userId] = [match[1] as string, match[2] as string, match[3] as string];
             const org = await orgs.get(orgId);
@@ -276,7 +256,7 @@ export function orgSettingsRoutes(context: OrgSettingsContext): (request: Incomi
     }
 
     return async (request, response, method, path, query) => {
-        if (!path.startsWith('/settings/orgs') && !INVITE.test(path)) return false;
+        if (!path.startsWith('/settings/orgs')) return false;
         const who = await context.signedIn(request);
         if (who === undefined) {
             if (method === 'GET') context.redirect(response, `/signin?next=${encodeURIComponent(path)}`);

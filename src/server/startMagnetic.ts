@@ -49,8 +49,11 @@ import { Feedback, FEEDBACK_KINDS, FEEDBACK_PER_HOUR, MAX_FEEDBACK_LENGTH } from
 import { Admin, AdminList } from '../admin/Admin.js';
 import { adminRoutes } from './adminRoutes.js';
 import { betaRoutes } from './betaRoutes.js';
+import { inviteRoutes } from './inviteRoutes.js';
 import { busyPage, isInstanceBusy } from '../http/busyPage.js';
 import { Beta } from '../beta/Beta.js';
+import { ensureServerOrgs, inviteServerAdmins } from '../orgs/ServerOrgs.js';
+import type { ServerOrg } from '../orgs/ServerOrgs.js';
 import { Stripe } from '../billing/Stripe.js';
 import type { StripeOptions } from '../billing/Stripe.js';
 import { orgTextsOf } from '../http/orgText.js';
@@ -91,7 +94,7 @@ import { sharedDataFacts, sharedWithWorkspace } from '../sharing/facts.js';
 import { allows, AppAccess } from '../orgs/AppAccess.js';
 import type { AppPermission } from '../orgs/AppAccess.js';
 import { Permissions } from '../permissions/Permissions.js';
-import { Orgs } from '../orgs/Orgs.js';
+import { atLeast, OrgError, Orgs } from '../orgs/Orgs.js';
 import { AppInstances } from '../orgs/Instances.js';
 import { OwnerNumbers } from '../statenet/OwnerNumbers.js';
 import { OrgPolicies } from '../orgs/Policies.js';
@@ -108,7 +111,7 @@ import { startStatenetNode } from '../statenet/StatenetNode.js';
 import { aggregateStorage, NamespaceWorkspaces, StateWriter } from '../statenet/StateNamespaces.js';
 import type { StatenetNode, StatenetOptions } from '../statenet/StatenetNode.js';
 import { CUSTOM_PROVIDER } from '../auth/OidcSignIn.js';
-import { orgRoutes } from './orgRoutes.js';
+import { createOrgApp, orgRoutes } from './orgRoutes.js';
 import { orgSettingsRoutes } from './orgSettingsRoutes.js';
 import { assertMigrated, CatalogEmbeddings, EmbeddingIndex, pgWorkspaceStorage, RecordSimilarity } from '@punyts/stateui-pg';
 import type { Embedder } from '@punyts/stateui-pg';
@@ -131,7 +134,9 @@ const MAX_FORM_BYTES = 4096;
 /** An org's SAML assertion consumer URL, which is also Magnetic's entity id for it (docs/design/statenet-network.md, S12) */
 const SAML_ROUTE = /^\/auth\/saml\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 /** A step of a sign-in under `magnetic.signin`: the provider's name and the outcome, never an email, a code or a token */
-const signInReport = (provider: string, outcome: 'started' | 'answered' | 'signed-in' | 'refused' | 'unreachable' | 'no-org' | 'link-used' | 'signed-out'): void => report('magnetic.signin', 'Sign-in', { provider, outcome });
+const signInReport = (provider: string, outcome: 'started' | 'answered' | 'signed-in' | 'refused' | 'unreachable' | 'no-org' | 'link-used' | 'signed-out' | EmailOutcome): void => report('magnetic.signin', 'Sign-in', { provider, outcome });
+/** What asking for a sign-in link by email did; reported, never said to the person */
+type EmailOutcome = 'email-sent' | 'email-none' | 'email-limited' | 'email-refused' | 'email-failed';
 /** Where the browser finishes a SAML sign-in, with the cookie of the browser that started it */
 const SAML_FINISH = /^\/auth\/saml\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/finish$/;
 /** The most a provider's posted SAML answer may hold, form encoded */
@@ -294,6 +299,11 @@ export interface MagneticOptions {
      * (docs/design/magnetic-admin.md). Empty or absent: there are none
      */
     readonly admins?: readonly string[];
+    /**
+     * The orgs the server keeps: made at start when missing, and each admin invited as an owner of each
+     * (docs/design/magnetic-orgs-and-invites.md)
+     */
+    readonly serverOrgs?: readonly ServerOrg[];
 }
 
 export interface PaymentsOptions {
@@ -514,7 +524,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
      * the network listener it offers neither, only how to sign in with a link from another device. With `button` it
      * offers only that one: a device link's "Continue as", or allowing an agent; it posts `token` (its id) and `next`
      */
-    const signInPageOf = async (request: IncomingMessage, next: string, error?: string, button?: SignInButton): Promise<string> => {
+    const signInPageOf = async (request: IncomingMessage, next: string, error?: string, button?: SignInButton, said?: string): Promise<string> => {
         const look: PageLook = { language: languageOf(request.headers['accept-language']), mode: 'system' };
         const t = textsOf(look.language);
         const query = next === '/' ? '' : `?next=${encodeURIComponent(next)}`;
@@ -524,7 +534,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const work = !network;
         const providers = network ? [] : providerButtons;
         const people = button !== undefined ? [{ id: button.id, label: button.label }] : network ? [] : devUsers.map((name) => ({ id: name, label: fill(t['signin.as'], { name: options.devProfiles?.[name]?.label ?? name }) }));
-        const notice = button?.notice !== undefined ? { notice: button.notice, noNotice: false } : network && button === undefined ? { notice: t['signin.networkText'], noNotice: false } : await betaNotice(t);
+        const notice = said !== undefined ? { notice: said, noNotice: false } : button?.notice !== undefined ? { notice: button.notice, noNotice: false } : network && button === undefined ? { notice: t['signin.networkText'], noNotice: false } : await betaNotice(t);
         return appPage({
             look,
             title: t['signin.title'],
@@ -689,7 +699,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** Magnetic's own pages as its code makes them, in the system workspace */
     const pageApps = new PageApps(fixedWorkspace(SYSTEM_USER_ID), toolsOf, stamps, exclusive);
     /** Magnetic's own pages as admins edit and publish them (docs/design/magnetic-editable.md) */
-    const sitePages = new SitePages(db, fixedWorkspace(PAGES_WORKSPACE_ID), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC, SIDE], exclusive);
+    // The server's orgs, made before the pages: the company org holds Magnetic's own pages (docs/design/magnetic-orgs-and-invites.md)
+    const serverOrgs = options.serverOrgs === undefined || options.serverOrgs.length === 0 ? [] : await exclusive('server-orgs', () => ensureServerOrgs({ orgs, policies, report: (message, fields) => options.report.info(message, fields) }, options.serverOrgs ?? []));
+    const pagesWorkspaceId = serverOrgs.find((org) => org.pages === true)?.workspaceId ?? PAGES_WORKSPACE_ID;
+    const sitePages = new SitePages(db, pagesWorkspaceId, fixedWorkspace(pagesWorkspaceId), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC, SIDE], exclusive);
     /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
     const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
     /** Each person's editor, made from Magnetic's version and kept when they change it */
@@ -801,11 +814,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (app !== undefined) return { services: own, app, workspaceId: userId, permission: 'manage' };
         const place = await access.locate(userId, appId);
         if (place?.orgId === undefined) {
-            // An admin's draft of one of Magnetic's own pages (docs/design/magnetic-editable.md): admins only
+            // A draft of one of Magnetic's own pages (docs/design/magnetic-editable.md): the server's admins manage them,
+            // as do the company org's owners and admins when the drafts are in its workspace (found above)
             if (!(await admins.is(userId))) return undefined;
-            const pages = await workspaces.get(PAGES_WORKSPACE_ID);
+            const pages = await workspaces.get(pagesWorkspaceId);
             const draft = await pages.instanceViews.find(appId);
-            return draft === undefined ? undefined : { services: pages, app: draft, workspaceId: PAGES_WORKSPACE_ID, permission: 'manage' };
+            const pagesOrg = serverOrgs.find((org) => org.workspaceId === pagesWorkspaceId);
+            return draft === undefined ? undefined : { services: pages, app: draft, workspaceId: pagesWorkspaceId, ...(pagesOrg !== undefined && { orgId: pagesOrg.id }), permission: 'manage' };
         }
         const services = await workspaces.get(place.workspaceId);
         const found = await services.instanceViews.find(appId);
@@ -922,32 +937,44 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     });
     // The beta (docs/design/magnetic-beta.md): one org, joined through a link signed with the server's key
     if (budgetLimits.betaOrg !== undefined && options.secretKey === undefined) throw new Error('The beta org needs secretKey, which signs the beta link');
-    const beta = budgetLimits.betaOrg === undefined || options.secretKey === undefined ? undefined : new Beta(db, orgs, budgetLimits.betaOrg, budgetLimits.allowanceUsers, options.secretKey);
-    /** Those this server saw in the beta org already, so their visits ask no more */
-    const inBetaOrg = new Set<string>();
-    /**
-     * Everyone who signs in joins the beta org while places are left, as through its link; an admin's sign-in makes the
-     * org first, with them as its owner. Tried again on Your apps, for those who signed in before it was made
-     */
-    const joinBeta = async (userId: string): Promise<void> => {
-        if (beta === undefined || inBetaOrg.has(userId)) return;
-        try {
-            if (await admins.is(userId)) {
-                await beta.start(userId);
-                if ((await beta.roleOf(userId)) !== undefined) inBetaOrg.add(userId);
-                return;
-            }
-            const joined = await beta.join(userId);
-            if (joined === 'joined' || joined === 'member') inBetaOrg.add(userId);
-            if (joined === 'joined') options.report.info('Joined the beta', { userId });
-        } catch (error) {
-            options.report.info('Joining the beta failed', { userId, error: error instanceof Error ? error.message : String(error) });
-        }
-    };
+    const beta = budgetLimits.betaOrg === undefined || options.secretKey === undefined ? undefined : new Beta(db, budgetLimits.betaOrg, budgetLimits.allowanceUsers, options.secretKey);
     const handleBeta =
         beta === undefined
             ? async () => false
             : betaRoutes({ beta, budgets, signedIn, lookOf, sendPage: (response, html, status) => sendPage(response, html, status), redirect: (response, location) => redirect(response, location), report: (message, fields) => options.report.info(message, fields) });
+    // An invite's link, signed in or not (docs/design/magnetic-orgs-and-invites.md)
+    const handleInvite = inviteRoutes({
+        orgs,
+        accounts,
+        signedIn,
+        lookOf: async (request, userId) => (userId === undefined ? { language: languageOf(request.headers['accept-language']), mode: 'system' } : lookOf(request, userId)),
+        readForm: (request) => readForm(request),
+        sendPage: (response, html, status) => sendPage(response, html, status),
+        redirect: (response, location, cookie) => redirect(response, location, cookie),
+        startSession: async (request, userId) => sessionCookie(await sessions.start(userId), { maxAge: SESSION_DAYS * 24 * 60 * 60, secure: secure || fromNetwork(request) }),
+        report: (message, fields) => options.report.info(message, fields)
+    });
+    /** Sign-in links mailed per address in the last ten minutes, at most three (on this server) */
+    const linksMailed = new Map<string, number[]>();
+    /** Mails a sign-in link to the account whose verified email this is, if any and allowed; answers what happened, never said to the person */
+    async function mailSignInLink(email: string): Promise<EmailOutcome> {
+        const address = email.toLowerCase();
+        const now = Date.now();
+        const recent = (linksMailed.get(address) ?? []).filter((at) => now - at < DEVICE_LINK_MINUTES * 60_000);
+        if (recent.length >= 3) return 'email-limited';
+        linksMailed.set(address, [...recent, now]);
+        const user = await accounts.byVerifiedEmail(address);
+        if (user === undefined) return 'email-none';
+        // An org that signs its people in itself refuses other ways for its domains
+        if ((await rules.refusal(address, undefined)) !== undefined) return 'email-refused';
+        try {
+            await options.mailer?.signInLink({ to: address, link: `${publicOrigin ?? origin}/signin/link/${await deviceLinks.make(user.id)}`, minutes: DEVICE_LINK_MINUTES });
+            return 'email-sent';
+        } catch (error) {
+            options.report.info('Sign-in link email failed', { error: error instanceof Error ? error.message : String(error) });
+            return 'email-failed';
+        }
+    }
     const handleAdmin = adminRoutes({
         admin: new Admin(db),
         admins,
@@ -1155,7 +1182,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const services = await workspaces.get(membership.workspaceId);
             for (const app of await services.instanceViews.list()) {
                 const permission = visible.get(app.id);
-                if (permission === undefined || found.some((shared) => shared.appId === app.id)) continue;
+                // those they edit or manage are among their own apps on Your apps
+                if (permission === undefined || permission === 'manage' || permission === 'edit' || found.some((shared) => shared.appId === app.id)) continue;
                 found.push({ appId: app.id, name: app.name, right: permission === 'view' ? 'view' : 'use', ownerName: membership.name });
             }
         }
@@ -1195,17 +1223,26 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
 
     /** `GET /`: the person's "Your apps", with the lists written into its data first */
     async function homeRoute(request: IncomingMessage, response: ServerResponse, user: User): Promise<void> {
-        await joinBeta(user.id);
         const services = await workspaces.get(user.id);
         const look = await lookOf(request, user.id);
         const t = textsOf(look.language);
         const homeId = await homes.id(services, user.id);
         const all = await services.instanceViews.list();
         const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
-        const apps: HomeCard[] = [...all]
-            .filter((app) => app.id !== homeId && app.name !== EDITOR_APP)
+        // Their own: the apps of their own workspace, and those of their orgs they edit or manage (an org that keeps apps
+        // in the org has their new ones there), newest first
+        const own: Array<{ readonly id: string; readonly name: string; readonly updatedAt: Date; readonly org?: string }> = [...all].filter((app) => app.id !== homeId && app.name !== EDITOR_APP);
+        for (const membership of await orgs.of(user.id)) {
+            const visible = await access.visibleApps(user.id, membership.workspaceId);
+            if (![...visible.values()].some((permission) => permission === 'manage' || permission === 'edit')) continue;
+            for (const app of await (await workspaces.get(membership.workspaceId)).instanceViews.list()) {
+                const permission = visible.get(app.id);
+                if (permission === 'manage' || permission === 'edit') own.push({ id: app.id, name: app.name, updatedAt: app.updatedAt, org: membership.name });
+            }
+        }
+        const apps: HomeCard[] = own
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-            .map((app) => ({ id: app.id, name: app.name, note: changed(app.updatedAt), own: true, answered: true }));
+            .map((app) => ({ id: app.id, name: app.name, note: app.org === undefined ? changed(app.updatedAt) : `${app.org} · ${changed(app.updatedAt)}`, own: true, answered: true }));
         // The apps shared with them: those waiting for an answer come first, those they accepted after their own, and
         // those they rejected not at all
         const answers = await shareAnswers.of(user.id);
@@ -1348,7 +1385,6 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             }
             const profile = options.devProfiles?.[name];
             const user = await accounts.signIn({ provider: 'dev', subject: name }, profile === undefined ? { name } : { name: profile.name, ...(profile.email !== undefined && { email: profile.email, emailVerified: true }) });
-            await joinBeta(user.id);
             await rules.signedIn({ id: user.id, emailVerified: profile?.email !== undefined }, { provider: 'dev', ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
             redirect(response, safeNext(form.get('next')), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60));
             signInReport('dev', 'signed-in');
@@ -1356,14 +1392,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         const pendingCookie = (key: string, maxAge: number): string => httpOnlyCookie(SIGN_IN_COOKIE, key, { maxAge, secure: secureHere, path: '/auth' });
         /**
-         * After a provider's sign-in was checked: the org's rules (a refusal is a `SignInError`), the account, the beta,
-         * the audit log, and the session
+         * After a provider's sign-in was checked: the org's rules (a refusal is a `SignInError`), the account, the audit
+         * log, and the session
          */
         const completeSignIn = async (request: IncomingMessage, response: ServerResponse, identity: Identity, profile: Profile, next: string, orgId: string | undefined): Promise<void> => {
             const refusal = await rules.refusal(profile.email, orgId);
             if (refusal !== undefined) throw new SignInError(refusal);
             const user = await accounts.signIn(identity, profile, orgId);
-            await joinBeta(user.id);
             await rules.signedIn({ id: user.id, ...(profile.email !== undefined && { email: profile.email }), emailVerified: profile.emailVerified === true }, { provider: identity.provider, ...(orgId !== undefined && { orgId }), ...(request.socket.remoteAddress !== undefined && { ip: request.socket.remoteAddress }) });
             redirect(response, next, [pendingCookie('', 0), cookie(await sessions.start(user.id), SESSION_DAYS * 24 * 60 * 60)]);
         };
@@ -1405,7 +1440,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (method === 'GET' && path === '/signin/sso' && !fromNetwork(request)) {
-            // "Sign in with your work email": the org that verified the email's domain, through its own provider
+            // "Sign in with your email": the org that verified the email's domain, through its own provider
             const next = safeNext(url.searchParams.get('next'));
             const email = (url.searchParams.get('email') ?? '').trim().slice(0, 320);
             const orgId = await domains.orgOfEmail(email);
@@ -1417,6 +1452,18 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 return true;
             }
             const provider = orgId === undefined ? undefined : await sso.provider(orgId);
+            if (provider === undefined && options.mailer !== undefined) {
+                // Any other address: a one-time sign-in link by email, to the account that has it verified. The page says
+                // the same whether or not there is one (docs/design/magnetic-orgs-and-invites.md)
+                const t = textsOf(languageOf(request.headers['accept-language']));
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                    sendAppPage(request, response, await signInPageOf(request, next, t['signin.emailInvalid']), 400);
+                    return true;
+                }
+                signInReport('email', await mailSignInLink(email));
+                sendAppPage(request, response, await signInPageOf(request, next, undefined, undefined, fill(t['signin.emailSent'], { email, minutes: String(DEVICE_LINK_MINUTES) })));
+                return true;
+            }
             if (orgId === undefined || provider === undefined) {
                 signInReport('sso', 'no-org');
                 sendAppPage(request, response, await signInPageOf(request, next, NO_ORG_SIGN_IN), 404);
@@ -1634,14 +1681,31 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const who = await signedIn(request);
             if (who === undefined) throw new HttpError(401, 'Sign in first', 'unauthorized');
             const json = (request.headers.accept ?? '').includes('application/json');
+            const typed = (await readForm(request)).get('name') ?? '';
             const noPersonal = await personalRefusal(who.user.id);
             if (noPersonal !== undefined) {
-                if (json) sendJson(response, 403, { message: noPersonal });
-                else redirect(response, '/settings/orgs');
+                // An org that keeps apps in the org: the app is made there, in the first such org that lets them build
+                // (docs/design/magnetic-orgs-and-invites.md)
+                const policiesOf = await policies.ofMember(who.user.id);
+                const home = (await orgs.of(who.user.id)).find((org) => policiesOf.get(org.id)?.personalWorkspaces === false && atLeast(org.role, 'builder'));
+                if (home === undefined) {
+                    if (json) sendJson(response, 403, { message: noPersonal });
+                    else redirect(response, '/settings/orgs');
+                    return true;
+                }
+                try {
+                    const made = await createOrgApp(orgContext, who.user.id, home.id, home.workspaceId, typed);
+                    if (json) sendJson(response, 201, { id: made.id });
+                    else redirect(response, `/edit/${encodeURIComponent(made.id)}`);
+                } catch (error) {
+                    if (!(error instanceof OrgError)) throw error;
+                    if (json) sendJson(response, error.status, { message: error.message });
+                    else redirect(response, '/');
+                }
                 return true;
             }
             const services = await workspaces.get(who.user.id);
-            const name = appNameOf((await readForm(request)).get('name') ?? '');
+            const name = appNameOf(typed);
             const create = toolsOf(services).find((tool) => tool.name === 'ui_app_create');
             const outcome = name === undefined || create === undefined ? undefined : await create.run({ name, app: { layout: STARTER_APP_LAYOUT }, home: starterScreen(true) });
             const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
@@ -1664,7 +1728,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, `/apps/${encodeURIComponent(decodeURIComponent(own[1] as string))}?screen=${own[2].slice('/screens/'.length)}`);
             return true;
         }
-        const edit = /^\/edit\/([^/]+)(?:\/screens\/[a-z][a-z0-9-]*|(\/events|\/turns|\/stop|\/share|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget|\/views\/[a-z]+))?$/.exec(path);
+        const edit = /^\/edit\/([^/]+)(?:\/screens\/[a-z][a-z0-9-]*|(\/events|\/turns|\/stop|\/share|\/share\/org|\/share\/[^/]+\/revoke|\/node|\/nodes|\/components|\/state|\/trace|\/screens|\/connections|\/shared-data|\/feedback|\/budget|\/views\/[a-z]+))?$/.exec(path);
         if (edit !== null) {
             await editRoute(request, response, method, decodeURIComponent(edit[1] as string), edit[2]);
             return true;
@@ -1672,6 +1736,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (await handleScim(request, response, method, path, url.searchParams)) return true;
         if (await handleOrgRoute(request, response, method, path)) return true;
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
+        if (await handleInvite(request, response, method, path)) return true;
         if (await handleConnections(request, response, method, path)) return true;
         if (await handleData(request, response, method, path)) return true;
         if (await handleRequests(request, response, method, path)) return true;
@@ -1826,7 +1891,20 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         }
         if (what === '/share' && method === 'GET') {
             const links = (await grants.forApp(workspaceId, appId)).map((grant) => ({ id: grant.id, right: grant.right, url: linkOf(grant), members: Object.keys(grant.members).length, revoked: grant.revokedAt !== undefined, createdAt: grant.createdAt }));
-            sendJson(response, 200, { grants: links });
+            // org public: whether everyone in the app's org may open and use it
+            const org = place.orgId === undefined ? null : { open: (await access.list(userId, workspaceId, appId)).openToOrg };
+            sendJson(response, 200, { grants: links, org });
+            return;
+        }
+        if (what === '/share/org' && method === 'POST') {
+            const body = await readJsonBody(request, MAX_FORM_BYTES);
+            const open = typeof body === 'object' && body !== null ? (body as { open?: unknown }).open : undefined;
+            if (place.orgId === undefined || typeof open !== 'boolean') {
+                sendJson(response, 400, { message: place.orgId === undefined ? 'Only an app in an org can be open to the org.' : 'Say whether the app is open to the org.' });
+                return;
+            }
+            await access.setOpenToOrg(userId, workspaceId, appId, open);
+            sendJson(response, 200, { open });
             return;
         }
         if (what === '/share' && method === 'POST') {
@@ -2104,6 +2182,15 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     runtimePort = http.runtimePort;
     origin = http.origin.replace('//0.0.0.0', '//127.0.0.1').replace('//[::]', '//[::1]');
     networkOrigin = http.networkOrigin;
+    if (serverOrgs.length > 0) {
+        await exclusive('server-orgs', () =>
+            inviteServerAdmins(
+                { orgs, policies, ...(options.mailer !== undefined && { mailer: options.mailer }), origin: publicOrigin ?? origin, report: (message, fields) => options.report.info(message, fields) },
+                serverOrgs,
+                options.admins ?? []
+            )
+        );
+    }
     const sweep = setInterval(() => void workspaces.sweep(), 60_000);
     sweep.unref();
     // Revocations reach the datasets' authorities here within seconds, wherever they were made

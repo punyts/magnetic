@@ -2,7 +2,7 @@ import { escapeHtml } from '@punyts/stateui-mcp';
 import type { AccessEntry, AppPermission } from '../orgs/AppAccess.js';
 import { APP_PERMISSIONS } from '../orgs/AppAccess.js';
 import type { InstanceSummary, SupportView } from '../orgs/Instances.js';
-import type { Membership, Org, OrgGroup, OrgMember, OrgRole } from '../orgs/Orgs.js';
+import type { Invitation, Membership, Org, OrgGroup, OrgMember, OrgRole } from '../orgs/Orgs.js';
 import { atLeast, ORG_ROLES } from '../orgs/Orgs.js';
 import { fill } from './text.js';
 import { orgTextsOf } from './orgText.js';
@@ -345,16 +345,34 @@ function scimSection(t: OrgTexts, view: OrgPageView, scim: EnterpriseView['scim'
 <p class="muted">${e(t['orgs.scimDisableText'])}</p>${form(org.id, 'scimOff', {}, `<button class="danger">${e(t['orgs.scimDisable'])}</button>`)}`;
 }
 
-/** `GET /invites/<token>`: what the invite is for, and a button that joins; or why it does not work */
-export function invitePage(view: { readonly look: PageLook; readonly token: string; readonly invite?: { readonly org: Org; readonly email: string; readonly role: OrgRole }; readonly error?: string }): string {
+/** What the invite page shows */
+export interface InvitePageView {
+    readonly look: PageLook;
+    readonly token: string;
+    /** Absent when the invite does not work any more */
+    readonly invite?: Invitation;
+    /** Signed in already with the invited address: Join alone, no name to give */
+    readonly signedInAs?: boolean;
+    /** The name the field starts with: the account's, when the address has one */
+    readonly name?: string;
+    readonly error?: string;
+}
+
+/**
+ * `GET /invites/<token>`: what the invite is for, who sent it, and Join, which signs in with the invited address (the
+ * link came to it) and joins; or why it does not work (docs/design/magnetic-orgs-and-invites.md)
+ */
+export function invitePage(view: InvitePageView): string {
     const t = orgTextsOf(view.look.language);
     const { invite } = view;
     const title = invite === undefined ? t['orgs.inviteGone'] : fill(t['orgs.inviteTitle'], { org: invite.org.name });
+    const name = view.signedInAs === true ? '' : `<label>${e(t['orgs.inviteName'])}<input name="name" required maxlength="200" autocomplete="name" value="${e(view.name ?? '')}"></label>`;
     const body =
         invite === undefined
             ? `${top(t, title, [['/', t['orgs.back']]])}${messages(view)}`
-            : `${top(t, title, [['/', t['orgs.back']]])}<p>${e(fill(t['orgs.inviteText'], { org: invite.org.name, role: t[`orgs.role.${invite.role}`], email: invite.email }))}</p>${messages(view)}
-<form method="post" action="/invites/${e(view.token)}"><button class="primary">${e(t['orgs.accept'])}</button></form>`;
+            : `${top(t, title, [])}<p>${e(fill(t['orgs.inviteText'], { org: invite.org.name, role: t[`orgs.role.${invite.role}`], email: invite.email }))}</p>
+<p class="muted">${e(fill(t['orgs.inviteFrom'], { name: invite.invitedBy }))}</p>${messages(view)}
+<form method="post" action="/invites/${e(view.token)}">${name}<p class="muted">${e(view.signedInAs === true ? t['orgs.inviteSignedIn'] : t['orgs.inviteConfirms'])}</p><button class="primary">${e(t['orgs.accept'])}</button></form>`;
     return page(view.look, `${title} · Magnetic`, body);
 }
 

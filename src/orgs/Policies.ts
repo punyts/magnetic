@@ -1,5 +1,5 @@
 import type { Database } from '@punyts/stateui-pg';
-import { atLeast, audit, OrgError } from './Orgs.js';
+import { atLeast, audit, MAGNETIC, OrgError } from './Orgs.js';
 import type { OrgRole } from './Orgs.js';
 
 /** What an org allows, beyond roles and access lists */
@@ -67,11 +67,12 @@ export class OrgPolicies {
         return new Map(rows.map((row) => [row.org_id, policyOf(row.policy)]));
     }
 
-    /** Changes some policies; answers them all as they are now */
-    async set(actorId: string, orgId: string, change: PolicyChange): Promise<OrgPolicy> {
+    /** Changes some policies; answers them all as they are now. `MAGNETIC` is the server, giving its own orgs their first policies */
+    async set(actorId: string | typeof MAGNETIC, orgId: string, change: PolicyChange): Promise<OrgPolicy> {
         const checked = this.checked(change);
+        const by = actorId === MAGNETIC ? undefined : actorId;
         return this.db.transaction(async (tx) => {
-            const role = (await tx.query<{ role: OrgRole }>('SELECT role FROM org_member WHERE org_id = $1 AND user_id = $2 FOR UPDATE', [orgId, actorId])).rows[0]?.role;
+            const role: OrgRole | undefined = by === undefined ? 'owner' : (await tx.query<{ role: OrgRole }>('SELECT role FROM org_member WHERE org_id = $1 AND user_id = $2 FOR UPDATE', [orgId, by])).rows[0]?.role;
             if (role === undefined) throw new OrgError(404, 'No such org.');
             if (!atLeast(role, 'admin')) throw new OrgError(403, 'Your role in the org does not allow this.');
             if (checked.requireSso !== undefined && role !== 'owner') throw new OrgError(403, 'Only an owner can change how people sign in.');
@@ -84,9 +85,9 @@ export class OrgPolicies {
             await tx.query(
                 `INSERT INTO org_policy (org_id, policy, updated_by, updated_at) VALUES ($1, $2, $3, now())
                  ON CONFLICT (org_id) DO UPDATE SET policy = EXCLUDED.policy, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-                [orgId, JSON.stringify(next), actorId]
+                [orgId, JSON.stringify(next), by ?? null]
             );
-            await audit(tx, { orgId, actorId, action: 'policy.changed', targetKind: 'org', targetId: orgId, detail: checked });
+            await audit(tx, { orgId, ...(by !== undefined && { actorId: by }), action: 'policy.changed', targetKind: 'org', targetId: orgId, detail: checked });
             return policyOf(next);
         });
     }

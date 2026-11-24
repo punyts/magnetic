@@ -40,10 +40,10 @@ describe('The org settings pages', () => {
     const page = (path: string, cookie?: string): Promise<Response> => fetch(`${magnetic.origin}${path}`, { redirect: 'manual', ...(cookie !== undefined && { headers: { Cookie: cookie } }) });
 
     /** Posts a form as the browser does, from the page itself */
-    const post = (path: string, cookie: string, fields: Record<string, string | string[]>): Promise<Response> => {
+    const post = (path: string, cookie: string | undefined, fields: Record<string, string | string[]>): Promise<Response> => {
         const body = new URLSearchParams();
         for (const [name, value] of Object.entries(fields)) for (const each of Array.isArray(value) ? value : [value]) body.append(name, each);
-        return fetch(`${magnetic.origin}${path}`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: magnetic.origin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
+        return fetch(`${magnetic.origin}${path}`, { method: 'POST', redirect: 'manual', headers: { ...(cookie !== undefined && { Cookie: cookie }), Origin: magnetic.origin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
     };
 
     function openSocket(appId: string, cookie: string): Promise<WebSocket | number> {
@@ -104,7 +104,6 @@ describe('The org settings pages', () => {
         const visitor = await page(`/invites/${token}`);
         const offered = await page(`/invites/${token}`, bob);
         const offeredHtml = await offered.text();
-        const wrongPerson = await post(`/invites/${token}`, alice, {});
         const accepted = await post(`/invites/${token}`, bob, {});
         const used = await page(`/invites/${token}`, bob);
         const promoted = await post(`/settings/orgs/${orgId}`, alice, { do: 'role', userId: bobId, role: 'builder' });
@@ -113,20 +112,42 @@ describe('The org settings pages', () => {
         // Assert
         expect(invited.status).toBe(200);
         expect(html).toContain('Send this link to bob@acme.test');
-        expect(visitor.status).toBe(303);
-        expect(visitor.headers.get('location')).toBe(`/signin?next=${encodeURIComponent(`/invites/${token}`)}`);
+        expect(visitor.status).toBe(200);
+        expect(await visitor.text()).toContain('name="name"');
         expect(offered.status).toBe(200);
+        expect(offeredHtml).not.toContain('name="name"');
+        expect(offeredHtml).toContain('From alice.');
         expect(offeredHtml).toContain('Join Acme &amp; Co');
         expect(offeredHtml).toContain('as a member, with the email bob@acme.test');
-        expect(wrongPerson.status).toBe(403);
-        expect(await wrongPerson.text()).toContain('This invite is for another email address.');
         expect(accepted.status).toBe(303);
         expect(accepted.headers.get('location')).toBe(`/settings/orgs/${orgId}`);
+        expect(accepted.headers.get('set-cookie')).toBeNull();
         expect(used.status).toBe(404);
         expect(promoted.status).toBe(303);
         expect(promoted.headers.get('location')).toBe(`/settings/orgs/${orgId}?done`);
         expect(saved).toContain('Saved.');
         expect(await magnetic.orgs.role(orgId, bobId)).toBe('builder');
+    });
+
+    it('should let someone with no account join from the invite link: it confirms the address, makes the account and signs them in', async () => {
+        // Arrange
+        const invited = await post(`/settings/orgs/${orgId}`, alice, { do: 'invite', email: 'Cleo@Acme.test', role: 'member' });
+        const token = /\/invites\/([A-Za-z0-9_-]{43})/.exec(await invited.text())?.[1] as string;
+
+        // Act
+        const joined = await post(`/invites/${token}`, undefined, { name: 'Cleo Park' });
+        const cookie = (joined.headers.get('set-cookie') ?? '').split(';')[0] as string;
+        const session = await magnetic.sessions.find(cookie.split('=')[1] as string);
+        const again = await page(`/invites/${token}`);
+
+        // Assert
+        expect(joined.status).toBe(303);
+        expect(joined.headers.get('location')).toBe(`/settings/orgs/${orgId}`);
+        expect(session).toBeDefined();
+        const user = (await magnetic.database.query<{ name: string; email: string; email_verified: boolean }>('SELECT name, email, email_verified FROM app_user WHERE id = $1', [session?.userId])).rows[0];
+        expect(user).toEqual({ name: 'Cleo Park', email: 'cleo@acme.test', email_verified: true });
+        expect(await magnetic.orgs.role(orgId, session?.userId as string)).toBe('member');
+        expect(again.status).toBe(404);
     });
 
     it('should let a builder make an app in the org and bring in one of their own, each opening in the editor', async () => {
@@ -150,6 +171,33 @@ describe('The org settings pages', () => {
         expect((await (await page(`/edit/${ownId}`, bob)).status)).toBe(200);
         expect(bad.status).toBe(400);
         expect(await bad.text()).toContain('Give the app a name that starts with a letter.');
+    });
+
+    it("should list a builder's org apps on Your apps with the org's name, and let them open one to the whole org from Share", async () => {
+        // Arrange
+        const made = await post(`/settings/orgs/${orgId}`, bob, { do: 'makeApp', name: 'Team Board' });
+        const appId = (made.headers.get('location') ?? '').split('/').at(-1) as string;
+        const own = await fetch(`${magnetic.origin}/new`, { method: 'POST', headers: { Cookie: bob, Origin: magnetic.origin, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=sketches' });
+        const ownId = ((await own.json()) as { id: string }).id;
+        const share = async (id: string): Promise<{ org: { open: boolean } | null }> => (await (await page(`/edit/${id}/share`, bob)).json()) as { org: { open: boolean } | null };
+        const open = (id: string, value: boolean): Promise<Response> =>
+            fetch(`${magnetic.origin}/edit/${id}/share/org`, { method: 'POST', redirect: 'manual', headers: { Cookie: bob, Origin: magnetic.origin, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ open: value }) });
+        const before = await share(appId);
+
+        // Act
+        await (await page('/', bob)).text();
+        const home = (await magnetic.homes.read(await magnetic.workspaces.get(bobId), bobId)).apps;
+        const opened = await open(appId, true);
+        const after = await share(appId);
+        const personal = await open(ownId, true);
+
+        // Assert
+        expect(home.find((card) => card.id === appId)).toMatchObject({ name: 'team-board', own: true, note: expect.stringMatching(/^Acme & Co · /) });
+        expect(before.org).toEqual({ open: false });
+        expect(opened.status).toBe(200);
+        expect(after.org).toEqual({ open: true });
+        expect((await share(ownId)).org).toBeNull();
+        expect(personal.status).toBe(400);
     });
 
     it("should show a builder the org without its admin parts, and refuse an admin's change with the reason", async () => {

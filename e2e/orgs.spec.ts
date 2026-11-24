@@ -48,15 +48,12 @@ test.describe('Orgs', () => {
         const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]{43}/.exec((await page.getByRole('status').locator('code.link').textContent()) ?? '')?.[0];
         expect(link, 'the invite link, shown once').toBeDefined();
 
-        // Ada signs in with the provider, with that email verified, and opens the link
-        await mockPerson({ sub: `ada-${slug}`, name: 'Ada Lovelace', email });
+        // Ada, with no account, opens the link from her email: joining confirms the address and signs her in
         const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
         const ada = await context.newPage();
         await ada.goto(link as string);
-        await ada.waitForURL(/\/signin/);
-        await ada.locator('#page-app').getByRole('button', { name: 'Sign in with the mock provider' }).click();
-        await ada.waitForURL(/\/invites\//);
         await expect(ada.getByText(/as a builder/)).toBeVisible();
+        await ada.getByLabel('Your name').fill('Ada Lovelace');
         await ada.getByRole('button', { name: 'Join' }).click();
         await ada.waitForURL(/\/settings\/orgs\/[0-9a-f-]+$/);
         await expect(ada.getByText('You are a builder here.')).toBeVisible();
@@ -67,21 +64,25 @@ test.describe('Orgs', () => {
         await expect(page.getByText('Ada Lovelace').first()).toBeVisible();
     });
 
-    test('an invite does not work for someone with another email', async ({ browser, page }) => {
-        const slug = slugOf('wrong');
-        await makeOrg(page, `Wrong ${slug}`, slug);
-        await page.getByLabel('Email', { exact: true }).fill(`invited-${slug}@example.com`);
+    test('someone signed in as another person who opens an invite joins as the invited address, not as themselves', async ({ browser, page }) => {
+        const slug = slugOf('other');
+        await makeOrg(page, `Other ${slug}`, slug);
+        const email = `invited-${slug}@example.com`;
+        await page.getByLabel('Email', { exact: true }).fill(email);
         await page.getByRole('button', { name: 'Make the invite link' }).click();
         const link = /https?:\/\/\S+\/invites\/[A-Za-z0-9_-]{43}/.exec((await page.getByRole('status').locator('code.link').textContent()) ?? '')?.[0] as string;
         const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
         await signIn(context, 'bob');
         const bob = await context.newPage();
         await bob.goto(link);
+        await bob.getByLabel('Your name').fill('Invited Person');
         await bob.getByRole('button', { name: 'Join' }).click();
-        await expect(bob.getByText('This invite is for another email address. Sign in with the one it was sent to.')).toBeVisible();
-        await bob.goto('/settings/orgs');
-        await expect(bob.getByRole('link', { name: new RegExp(`Wrong ${slug}`) })).toBeHidden();
+        await bob.waitForURL(/\/settings\/orgs\/[0-9a-f-]+$/);
+        await expect(bob.getByText(email)).toBeVisible();
         await context.close();
+        await page.reload();
+        await expect(page.getByText('Invited Person').first()).toBeVisible();
+        await expect(page.getByRole('cell', { name: /^bob/ })).toHaveCount(0);
     });
 
     test('an owner turns on SCIM, sees the token once, and makes a new one', async ({ page }) => {
