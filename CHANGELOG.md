@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Views sync over state-sync's protocol 4** (docs/design/statenet-wire-format.md, W2): a view's socket carries its
+  sync messages as binary frames after a text `hello`, and a tab opened before the deploy stops syncing until it
+  reloads. Magnetic's code is unchanged; its socket tests speak the wire through `src/testing/syncWire.ts`
+  (`src/server/statenet.test.ts`, `sharing.test.ts`, `requests.test.ts`).
 - **Fix: a new development database gets the extensions the migrations need.** `docker-compose.yml` mounts the workspace's `docker/initdb/extensions.sql` into `/docker-entrypoint-initdb.d`, so `npm run magnetic:db` on a new volume and `npm run magnetic:reset` make `vector` and `ltree`; before, the first `--migrate` failed with `type "vector" does not exist`. Checked by starting the image with the mount on a new volume and listing `pg_extension`.
 - **Shared reads follow the dataset's namespace** (docs/design/statenet-requests.md, follow-ups). `SharedData` follows a shared dataset through `Services.datasetSessions.follow` as the owner workspace instead of the owner's part changes, so a write wherever the namespace is held reaches the reading apps at once. Test: `src/sharing/sharedData.test.ts` (a write to the namespace itself reaches bob's app).
 - **`bound` entries end with a person's access to the owner's apps.** `Permissions.revoke` ends a person's `bound` entries under an owner (`endBound`) when it revokes their `opened` or `access.*` entry there and they hold no other, and `dropMember` ends them for the org. Tests: `src/permissions/Permissions.test.ts` (the last link revoked; a member leaving).

@@ -1,3 +1,4 @@
+import { testWire } from '../testing/syncWire.js';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import type { PreviewBrowser, UiPart } from '@punyts/stateui-mcp';
@@ -39,6 +40,7 @@ type Frame = { type: string; [key: string]: unknown };
 /** A view socket: every frame it was sent, and the next frame of a type */
 interface View {
     readonly ws: WebSocket;
+    send(message: object): void;
     readonly frames: Frame[];
     next(type: string, where?: (frame: Frame) => boolean): Promise<Frame>;
     readonly closed: Promise<number>;
@@ -49,8 +51,9 @@ function openView(magnetic: RunningMagnetic, appId: string, cookie: string): Pro
         const ws = new WebSocket(`${magnetic.origin.replace('http', 'ws')}/apps/${appId}/sync?view=${randomUUID()}`, { headers: { Origin: magnetic.origin, Cookie: cookie } });
         const frames: Frame[] = [];
         const waiting: Array<{ type: string; where: (frame: Frame) => boolean; resolve: (frame: Frame) => void }> = [];
-        ws.on('message', (data) => {
-            const frame = JSON.parse(data.toString()) as Frame;
+        const wire = testWire();
+        ws.on('message', (data, isBinary) => {
+            const frame = wire.readSocket(data, isBinary) as Frame;
             frames.push(frame);
             for (const wait of [...waiting]) {
                 if (wait.type !== frame.type || !wait.where(frame)) continue;
@@ -62,6 +65,7 @@ function openView(magnetic: RunningMagnetic, appId: string, cookie: string): Pro
         ws.once('open', () =>
             resolve({
                 ws,
+                send: (message) => ws.send(wire.write(message)),
                 frames,
                 closed,
                 next: (type, where = () => true) => {
@@ -148,7 +152,7 @@ describe('several Magnetic servers on one database', () => {
     async function viewAt(at: RunningMagnetic, app: UiPart<'apps'>): Promise<View> {
         const namespace = namespaceOf(await (await fetch(`${at.origin}/apps/${app.id}`, { headers: { Cookie: cookie } })).text());
         const view = await openView(at, app.id, cookie);
-        view.ws.send(JSON.stringify({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 2 }));
+        view.send({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 4 });
         await view.next('welcome');
         return view;
     }
@@ -164,7 +168,7 @@ describe('several Magnetic servers on one database', () => {
         // Act
         const view = await viewAt(two, app);
         const base = (await view.next('welcome'))['revision'] as number;
-        view.ws.send(JSON.stringify({ type: 'change', change: { id: 'c-two', op: 'set', path: '$.app.fromTwo', value: true, base } }));
+        view.send({ type: 'change', change: { id: 'c-two', op: 'set', path: '$.app.fromTwo', value: true, base } });
         const ack = await view.next('ack');
 
         // Assert
@@ -409,9 +413,9 @@ describe('Magnetic servers in two groups', () => {
         const westCookie = await signIn(west.origin, 'alice');
         const namespace = namespaceOf(await (await fetch(`${west.origin}/apps/${app.id}`, { headers: { Cookie: westCookie } })).text());
         const view = await openView(west, app.id, westCookie);
-        view.ws.send(JSON.stringify({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 2 }));
+        view.send({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 4 });
         const welcome = await view.next('welcome');
-        view.ws.send(JSON.stringify({ type: 'change', change: { id: 'c-west', op: 'set', path: '$.app.fromWest', value: true, base: welcome['revision'] as number } }));
+        view.send({ type: 'change', change: { id: 'c-west', op: 'set', path: '$.app.fromWest', value: true, base: welcome['revision'] as number } });
         const ack = await view.next('ack');
 
         // Assert
