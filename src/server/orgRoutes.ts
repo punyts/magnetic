@@ -14,6 +14,7 @@ import type { OrgSso } from '../orgs/Sso.js';
 import type { OrgSaml } from '../orgs/Saml.js';
 import type { OrgScim } from '../orgs/Scim.js';
 import { MAX_METADATA_BYTES } from '../auth/samlMetadata.js';
+import { STARTER_APP_LAYOUT, starterScreen } from '../editor/StarterScreen.js';
 import type { StateChanges } from '../statenet/StateNamespaces.js';
 import type { Workspaces } from '../workspaces/Workspaces.js';
 
@@ -145,7 +146,7 @@ export async function createOrgApp(context: Pick<OrgRouteContext, 'orgs' | 'acce
     if (name === undefined) throw new OrgError(400, 'Give the app a name that starts with a letter.');
     const services = await context.workspaces.get(workspaceId);
     const create = context.toolsOf(services).find((tool) => tool.name === 'ui_app_create');
-    const outcome = create === undefined ? undefined : await create.run({ name } as never);
+    const outcome = create === undefined ? undefined : await create.run({ name, app: { layout: STARTER_APP_LAYOUT }, home: starterScreen(true) } as never);
     const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
     if (outcome === undefined || outcome.isError || typeof created?.id !== 'string') throw new OrgError(400, typeof created?.message === 'string' ? created.message : 'The app could not be made.');
     await context.access.recordCreated(userId, workspaceId, created.id);

@@ -121,8 +121,9 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     /** The inspector shows: its Properties tab is on screen */
     const inspectorOpen = (): Promise<boolean> => editor.getByRole('tab', { name: 'Properties' }).isVisible();
     const toolButton = (name: string) => editor.getByRole('button', { name });
-    /** Presses a component in the library, which shows beside the rail when the editor opens */
+    /** Presses a component in the library, opening it (A) first: the tests start with it closed */
     const pick = async (component: string): Promise<void> => {
+        if (!(await editor.getByText(component, { exact: true }).first().isVisible())) await page.keyboard.press('a');
         await editor.getByText(component, { exact: true }).first().click();
         await expect.poll(() => page.evaluate('window.magneticShell.tool()')).toBe('place');
     };
@@ -156,6 +157,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
         const [name, value] = alice.split('=') as [string, string];
         await context.addCookies([{ name, value, url: magnetic.origin }]);
+        // The library opens over the canvas, and over the app's left side, so the tests start with it closed
+        await context.addInitScript(() => localStorage.setItem('magnetic.library', '0'));
         page = await context.newPage();
         await page.goto(`${magnetic.origin}/edit/${appId}`);
         editor = page.locator('#editor');
@@ -359,8 +362,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should keep the sizes of the old editor (41fa580): compact corners, a narrow rail, a 640px pill chat bar', async () => {
         // Arrange: what the old editor measured at a wide window, before it was a StateUI app. A change that makes the
         // editor drift from that design fails here (the panels' own looks are in stateui-components' screenshot tests)
-        // The rail is the old one with four more buttons under the tools, the library's (M8 N2), the screens' (N4), the connections' and the shared data's: 130px taller; and three layers under the line where the old one had five toggles: 70px shorter
-        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 130 - 70 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
+        // The rail is the old one with four more buttons under the tools, the library's (M8 N2), the screens' (N4), the connections' and the shared data's: 130px taller; and three layers under the line where the old one had five toggles: 70px shorter; and 3px more on each side of the line and the Layers label: 9px taller
+        const OLD = { nameCorner: { height: 46 }, shareCorner: { height: 46 }, rail: { width: 74, height: 327 + 130 - 70 + 9 }, zoom: { width: 178, height: 45 }, chatBar: { width: 640, height: 50 } };
         const stage = await page.evaluate("window.magneticShell.editor.pathOf('stage')");
         const answer = (await page.evaluate(`window.magneticShell.editor.inspect({ paths: ${JSON.stringify(Object.keys(OLD).map((key) => `${stage}.children.${key}`))} })`)) as { nodes: { path: string; rect: { width: number; height: number } }[] };
         const size = (key: string) => answer.nodes.find((node) => node.path.endsWith(`.${key}`))?.rect;
@@ -457,7 +460,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
 
     it('should take the tool keys from inside the editor, but not while the person types there', async () => {
         // Arrange: the focus in the editor, on a button of its rail
-        await editor.getByRole('button', { name: 'Layout' }).focus();
+        await editor.getByRole('button', { name: 'Layout', exact: true }).focus();
 
         // Act and Assert: H and V switch the tool from inside the editor
         await page.keyboard.press('h');
@@ -472,6 +475,25 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         await page.waitForTimeout(200);
         expect(await page.evaluate('window.magneticShell.tool()')).toBe('use');
         expect(await box.inputValue()).toBe('hs');
+    }, 60_000);
+
+    it('should keep the Desktop frame and the zoom when the inspector opens over the canvas', async () => {
+        // Arrange: the inspector closed
+        const close = editor.getByRole('button', { name: 'Close the inspector' });
+        if (await inspectorOpen()) await close.click();
+        await expect.poll(inspectorOpen).toBe(false);
+        // The frame's size and the live app's width on the screen, which is the frame at the board's zoom
+        const look = (): Promise<string> => page.evaluate('JSON.stringify([window.magneticShell.canvas.size(), Math.round(window.magneticScreens.liveApp().element.getBoundingClientRect().width)])');
+        await expect.poll(look).toBeTruthy();
+        const before = await look();
+
+        // Act
+        await toolButton('Select a part of the app (S)').click();
+        await expect.poll(inspectorOpen).toBe(true);
+        await page.waitForTimeout(300);
+
+        // Assert
+        expect(await look()).toBe(before);
     }, 60_000);
 
     it('should show the app only once it is fitted', async () => {

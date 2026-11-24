@@ -35,13 +35,6 @@ export interface ShellPageOptions {
 /** The key chord that shows and hides the editor, as the runtime names it (`mod` is Ctrl, or Cmd on a Mac) */
 export const EDIT_KEY = 'mod+shift+e';
 
-/** The sizes the app's frame can have on the canvas; the first is the default */
-export const FRAME_SIZES = [
-    { id: 'desktop', label: 'Desktop', width: 1280, height: 800 },
-    { id: 'tablet', label: 'Tablet', width: 834, height: 1112 },
-    { id: 'phone', label: 'Phone', width: 390, height: 844 }
-] as const;
-
 /**
  * `GET /apps/<appId>` and `GET /edit/<appId>`, one page: the app fills the window, and Ctrl+Shift+E (Cmd+Shift+E on
  * a Mac) brings the editor around it, and takes it away again, without loading the page again. The address follows.
@@ -671,8 +664,12 @@ async function sendFeedback() {
 const CLOSE_AFTER_MS = 4000;
 let chatOpen = false;
 let drawerTimer = null;
-/** The blank app's hint shows over the frame of a blank app with screens, while the chat is closed, in the Screens view */
-function hintHidden() { return chatOpen || !editorState.blank || noScreens || appView; }
+/** The person closed the blank app's hint: it stays closed until the page loads again */
+let hintClosed = false;
+/** The blank app's hint shows over the frame of a blank app with screens, while the chat is closed, in the Screens view, until closed */
+function hintHidden() { return hintClosed || chatOpen || !editorState.blank || noScreens || appView; }
+/** Something was put on the app (inspect.js): it is no longer blank, and the hint goes */
+function appChanged() { if (editorState.blank) ed({ blank: false, notBlank: true, hintHidden: true }); }
 function showChat(open) {
     chatOpen = open;
     ed({ chatHidden: !open, hintHidden: hintHidden() });
@@ -743,6 +740,7 @@ emitListeners.push((name, payload) => {
         case 'model': if (typeof value === 'string') { model = value; try { localStorage.setItem('magnetic.model', model); } catch { /* storage may be blocked */ } } return;
         case 'stop': void post('/stop', {}); return;
         case 'idea1': case 'idea2': case 'idea3': void sendRequest(T['shell.' + name]); return;
+        case 'hintClose': hintClosed = true; ed({ hintHidden: true }); return;
         case 'focusClear': magneticShell.focus.length = 0; showFocus(); return;
         case 'focusRemove': if (typeof value === 'string') removeFocus(value); return;
         case 'tab': if (typeof value === 'string') editorState.tab = value; return;
@@ -772,7 +770,12 @@ emitListeners.push((name, payload) => {
 // The canvas is the screens board's (screens.js), a page the editor places that pans and zooms itself. The page keeps the size the app's
 // screens have on it, kept per app in this browser, and the tools; the zoom control and its keys drive the board, or
 // Statenet while it shows (views.js)
-const SIZES = { desktop: [1280, 800], tablet: [834, 1112], phone: [390, 844] };
+// Desktop takes the stage area of the canvas, so the app fills it at 100%; Tablet and Phone are a device's size
+const SIZES = { desktop: null, tablet: [834, 1112], phone: [390, 844] };
+/** The height of a card's head on the board (screens.js), which the Desktop frame leaves room for */
+const FRAME_HEAD = 40;
+/** The least Desktop frame, on a window too small to give it more */
+const LEAST_DESKTOP = [320, 240];
 const FRAME_KEY = 'magnetic.frame.' + appId;
 let size = 'desktop';
 /** The frame is turned: its width and height swap, landscape to portrait or back */
@@ -790,8 +793,9 @@ function keepFrame() {
 }
 
 // Where the frame can show without the floating panels covering it: right of the rail, below the corners, above the
-// chat bar and the zoom, and left of the inspector when it is open and tall
-function freeArea() {
+// chat bar and the zoom, and left of the inspector when it is open and tall. Without overlays it leaves out the panels
+// that open over the canvas (the inspector and the library or screens list beside the rail): the stage area
+function freeArea(overlays = true) {
     const box = (key) => panels.get(key);
     // The rail down the left, or below 760px the one along the top
     const rail = box('railTop') || box('rail');
@@ -799,9 +803,9 @@ function freeArea() {
     const corner = box('nameCorner');
     const bar = box('chatBar');
     const zoomBox = box('zoom');
-    const inspector = box('inspector');
+    const inspector = overlays ? box('inspector') : null;
     // The library beside the rail, when it shows down the side rather than as a sheet across the bottom
-    const library = libraryOpen ? box('library') : screensOpen ? box('screens') : connectionsOpen ? box('connections') : sharedOpen ? box('shared') : null;
+    const library = !overlays ? null : libraryOpen ? box('library') : screensOpen ? box('screens') : connectionsOpen ? box('connections') : sharedOpen ? box('shared') : null;
     const left = library && library.height > innerHeight / 2 && library.x < innerWidth / 2 ? library.x + library.width + 24 : upright ? rail.x + rail.width + 24 : 24;
     const top = Math.max(corner ? corner.y + corner.height : 0, rail && !upright ? rail.y + rail.height : 0) + 32;
     const right = (inspector && inspector.height > innerHeight / 2 ? inspector.x : innerWidth) - 24;
@@ -813,11 +817,20 @@ const sizeListeners = [];
 /** Who is told when the free area changes (the editor's panels moved), and when the editor shows or goes */
 const areaListeners = [];
 const editingListeners = [];
+/** The stage area: what the editor's fixed panels leave of the canvas, which the panels that open over it do not change */
+function stageArea() { return freeArea(false); }
+
 let lastArea = '';
+let lastStage = '';
 function areaChanged() {
     const area = JSON.stringify(freeArea());
-    if (area === lastArea) return;
+    const stage = JSON.stringify(stageArea());
+    if (area === lastArea && stage === lastStage) return;
+    const staged = stage !== lastStage;
     lastArea = area;
+    lastStage = stage;
+    // The Desktop frame follows the stage area, not the panels over it: the board is drawn at the new size before it fits again
+    if (staged && size === 'desktop') for (const listener of sizeListeners) listener();
     for (const listener of areaListeners) listener();
 }
 
@@ -827,14 +840,22 @@ function zoom(kind) {
     if (to) to[kind === 'zoomFit' ? 'fit' : kind]();
 }
 
-/** The frame size, in the frame's pixels: the chosen size's, swapped when the frame is turned */
+/**
+ * The frame size, in the frame's pixels: for Desktop the stage area less a card's head, so the app fills the canvas at
+ * 100% and keeps its size while the inspector or the library opens over it; otherwise the chosen size's, swapped when
+ * the frame is turned
+ */
 function frameSize() {
+    if (size === 'desktop') {
+        const free = stageArea();
+        return [Math.max(LEAST_DESKTOP[0], Math.floor(free.width)), Math.max(LEAST_DESKTOP[1], Math.floor(free.height - FRAME_HEAD))];
+    }
     const [width, height] = SIZES[size];
     return turned ? [height, width] : [width, height];
 }
 
 function setSize(id) {
-    size = SIZES[id] ? id : 'desktop';
+    size = id in SIZES ? id : 'desktop';
     keepFrame();
     ed({ size });
     for (const listener of sizeListeners) listener();
@@ -994,6 +1015,8 @@ const magneticShell = {
         onSize: (listener) => sizeListeners.push(listener),
         /** Where the board shows without the editor's panels covering it, in window pixels: { left, top, width, height } */
         freeArea,
+        /** Where the board fits: the free area without the panels that open over the canvas, so they cover the app rather than shrink it */
+        stageArea,
         /** Calls back when the free area changes: the editor's panels showed, moved or went */
         onArea: (listener) => areaListeners.push(listener),
         /** The board's zoom (screens.js): { zoomIn, zoomOut, zoomReset, fit }, what the zoom control drives when nothing else does */
@@ -1010,6 +1033,7 @@ const magneticShell = {
         }
     },
     editorChanged,
+    appChanged,
     onEscape: (listener) => escapeListeners.push(listener),
     /** Lets go of the first thing Escape lets go of; true when there was one */
     escape: () => TOOL_KEYS.escape(),
@@ -1070,7 +1094,7 @@ function showAll() {
         language: document.documentElement.lang || 'en',
         blank,
         notBlank: !blank,
-        hintHidden: !blank || chatOpen || noScreens || appView,
+        hintHidden: hintClosed || !blank || chatOpen || noScreens || appView,
         models: Object.fromEntries(MODELS.map((item) => [item.id, { _label: item.label }])),
         model,
         noModels: MODELS.length < 2 || PHONE.matches

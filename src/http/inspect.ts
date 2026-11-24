@@ -19,9 +19,13 @@ import { SCRIPT_TEXTS } from './text.js';
  *   keeps the settings both types share and drops the rest, and clears the children's placements the new type lacks,
  *   all in one write.
  * - The library (a panel of the editor beside the rail): drag a component onto the app, or press it and then click
- *   where it goes. A card holds the pointer while it is dragged and emits `grab`, `dragMove` and `dragEnd` with the
+ *   where it goes. Its Layout category starts with the layouts (row, column, grid, adhoc), each dropped as an empty
+ *   bordered panel with that layout that takes all of its container (grow 1 in a row or a column, the whole area of an
+ *   adhoc layout, the cell of a grid), a section that takes components and more layouts in turn. A card holds the pointer while it is dragged and emits `grab`, `dragMove` and `dragEnd` with the
  *   pointer in the editor's frame, which covers the window, so in the page's own pixels: over the app frame the drop
- *   shows where it would land, let go there it lands, and anywhere else (or Escape) it is cancelled. Dragging the
+ *   shows where it would land, let go there it lands, and anywhere else (or Escape) it is cancelled. It lands in the
+ *   innermost node under the pointer whose component lays out children, an empty one too, and never in the app node,
+ *   whose children are the screens. Dragging the
  *   selected node moves it; Alt+Arrow moves it before or after its sibling. Where it lands: between the children of a column or row, beside the nearest child in a
  *   grid, at the point in an `adhoc` layout (its placement in pixels). While a component is placed or a part moved,
  *   every layout section of the screen is outlined with its name and layout, so the places it can go show.
@@ -152,6 +156,7 @@ async function writeNodes(operations) {
     }
     says(T['inspect.saved']);
     shell.editorChanged();
+    shell.appChanged();
     setTimeout(() => { if (editor.state.inspectorStatus === T['inspect.saved']) says(''); }, 1500);
     return body;
 }
@@ -285,14 +290,22 @@ async function inspectAt(point) {
     }
 }
 
-// Where a node lands: the innermost node under the pointer that lays out children, but never the node being moved
+/** True when a node's component lays out children of its own (a panel, card, form...), also while it holds none */
+function takesChildren(node) {
+    const entry = library.find((component) => component.name === node.component);
+    return Boolean(node.layout || node.children.length > 0 || (entry && entry.layout));
+}
+
+// Where a node lands: the innermost node under the pointer that lays out children, but never the node being moved,
+// and never the app node, whose children are the screens
 function dropAt(answer, point) {
     drop = null;
     if (!answer) return;
     const moving = placing.move;
     for (const node of answer.nodes) {
         if (moving && (node.path === moving || node.path.startsWith(moving + '.'))) continue;
-        if (!node.layout && node.children.length === 0) continue;
+        if (node.path === '$.app') continue;
+        if (!takesChildren(node)) continue;
         if (node.layout === 'region') continue;
         drop = landing(node, point, moving);
         return;
@@ -333,7 +346,7 @@ function startPlacing(what) {
     drop = null;
     hover = null;
     shell.setTool('place');
-    says(what.component ? fill(T['inspect.placeComponent'], { component: what.component }) : T['inspect.placeDrop']);
+    says(what.component ? fill(T['inspect.placeComponent'], { component: what.label || what.component }) : T['inspect.placeDrop']);
     draw();
     void showSections();
 }
@@ -393,8 +406,12 @@ async function commitDrop() {
     const position = where.before ? { before: where.before } : where.after ? { after: where.after } : {};
     stopPlacing();
     if (what.component) {
-        const value = { component: what.component };
-        if (where.kind === 'adhoc') value.placement = { x: where.x + 'px', y: where.y + 'px' };
+        const value = what.value ? JSON.parse(JSON.stringify(what.value)) : { component: what.component };
+        // A layout takes all of its container: the space left in a row or a column, the whole area of an adhoc layout;
+        // a grid's cell stretches it already. A component lands at its own size, at the point in an adhoc layout
+        if (what.value && (where.kind === 'row' || where.kind === 'column')) value.placement = { grow: 1 };
+        else if (what.value && where.kind === 'adhoc') value.placement = { x: '0px', y: '0px', width: '100%', height: '100%' };
+        else if (where.kind === 'adhoc') value.placement = { x: where.x + 'px', y: where.y + 'px' };
         const result = await writeNodes([{ op: 'add', path: where.target.path, value, ...position }]);
         const key = result ? addedKey(result) : null;
         if (key) setTimeout(() => select(where.target.path + '.children.' + key), 300);
@@ -780,6 +797,33 @@ function saveProperty(name, value, wait) {
     }, wait));
 }
 
+/**
+ * The layouts the library offers beside the components, first in its Layout category: each an empty panel with that
+ * layout, a section to drop components or more layouts into. A region is left out: its children need a region each,
+ * so nothing can be dropped into one
+ */
+const LAYOUT_PRESETS = {
+    row: { type: 'row', gap: 'md', align: 'center' },
+    column: { type: 'column', gap: 'md' },
+    grid: { type: 'grid', cols: 2, gap: 'md' },
+    adhoc: { type: 'adhoc' }
+};
+function layoutEntries() {
+    return Object.entries(LAYOUT_PRESETS).filter(([type]) => layouts[type]).map(([type, layout]) => ({
+        name: fill(T['library.layoutName'], { type }),
+        category: 'layout',
+        summary: T['library.layout.' + type],
+        layout: true,
+        value: { component: 'panel', bordered: true, layout, children: {} }
+    }));
+}
+
+/** What a library card places, by the name it shows: a component, or a layout as the panel it makes */
+function libraryPick(name, dragged) {
+    const entry = library.find((component) => component.name === name);
+    return { component: entry && entry.value ? entry.value.component : name, ...(entry && entry.value && { value: entry.value }), label: name, dragged };
+}
+
 // The component library, filtered by the search and the category
 function showLibrary() {
     const words = search.trim().toLowerCase();
@@ -965,8 +1009,8 @@ function onEmit(name, payload) {
         case 'remove': void removeSelected(); return;
         case 'search': search = String(valueOf(payload) ?? ''); showLibrary(); return;
         case 'category': category = String(valueOf(payload) ?? 'all'); showLibrary(); return;
-        case 'place': if (typeof payload === 'string') startPlacing({ component: payload }); return;
-        case 'grab': if (typeof payload === 'string') startPlacing({ component: payload, dragged: true }); return;
+        case 'place': if (typeof payload === 'string') startPlacing(libraryPick(payload, false)); return;
+        case 'grab': if (typeof payload === 'string') startPlacing(libraryPick(payload, true)); return;
         case 'dragMove': dragMoved(payload); return;
         case 'dragEnd': void dragEnded(payload); return;
         case 'path': {
@@ -1022,8 +1066,8 @@ document.addEventListener('keydown', (event) => {
     editor.onReady(() => { showLibrary(); showFeed(); if (selected) showProperties(selected.info); else clearProperties(); });
     try {
         const listed = await getJson('/components');
-        library = listed.components || [];
         layouts = listed.layouts || {};
+        library = [...layoutEntries(), ...(listed.components || [])];
         showLibrary();
     } catch {
         says(T['inspect.failed']);
