@@ -496,6 +496,24 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
         expect(await look()).toBe(before);
     }, 60_000);
 
+    it("should draw a screen's frame square and inside its card on the board, the card as wide as the frame", async () => {
+        // Act: the live app's frame and the card around it, the nearest panel box above it across shadow roots
+        const boxes = (await page.evaluate(`(() => {
+            const frame = window.magneticScreens.liveApp().element.parentElement;
+            let at = frame.getRootNode().host;
+            while (at && !(at.tagName === 'SECTION' && at.classList.contains('panel'))) at = at.parentElement || (at.getRootNode() && at.getRootNode().host);
+            const [a, b] = [frame.getBoundingClientRect(), at.getBoundingClientRect()];
+            return [a.left - b.left, b.right - a.right, getComputedStyle(frame).borderRadius];
+        })()`)) as [number, number, string];
+
+        // Assert: no more than a pixel to spare on either side, and square corners that leave the app's own corners in sight
+        const [left, right, radius] = boxes;
+        expect(radius).toBe('0px');
+        expect(left).toBeGreaterThanOrEqual(0);
+        expect(right).toBeGreaterThanOrEqual(0);
+        expect(left + right).toBeLessThan(1);
+    }, 60_000);
+
     it('should show the app only once it is fitted', async () => {
         // Act
         const waiting = await page.evaluate("document.body.classList.contains('unfitted')");

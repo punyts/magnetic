@@ -59,6 +59,8 @@ const HEAD = 40;
 const CORNER = 96;
 /** How far a card's head and its corner in names stand in from the screen's edges, in the screens' pixels */
 const EDGE = 24;
+/** The width of the border of a screen's frame on the board, in the screens' pixels */
+const FRAME = 1;
 /** The zoom below which every card shows only its name, however few are in view: a screen there is too small to read */
 const NAMES_BELOW_ZOOM = 0.4;
 /** The share of the zoom that fits a card below which every card shows only its name: on a small window, where the fit is under NAMES_BELOW_ZOOM, a step or two out from it still shows the apps */
@@ -246,12 +248,17 @@ function boardTheme() {
     const rows = Math.ceil(Math.max(1, screens.length) / columns);
     return {
         // In names a card has no head, so its row's room under it is the head's and the gap: what a dragged card's place leaves out
-        board: { column: width + 'px', card: card + 'px', gap: (names ? HEAD + GAP : GAP) + 'px', height: (rows * card) + 'px' },
+        // A column holds a screen's frame: the screen and the frame's border on either side
+        board: { column: (width + 2 * FRAME) + 'px', card: card + 'px', gap: (names ? HEAD + GAP : GAP) + 'px', height: (rows * card) + 'px' },
         space: { gap: { md: GAP + 'px' } },
+        border: { width: { thin: FRAME + 'px' } },
+        // The frame is square, as the app's own edges are: rounded corners would cover the app's corners
+        embed: { radius: '0px' },
         // The corner over a card in names: a button of a size of the board's, which shrinks with the card
         size: { control: { lg: CORNER + 'px' }, icon: { lg: Math.round(CORNER / 2) + 'px' } },
         // A head's title and ⋯ stand in from the screen's edges
-        panel: { padding: '0px ' + EDGE + 'px' },
+        // and a card's panels draw no border, so the frame is as wide as the card
+        panel: { padding: '0px ' + EDGE + 'px', border: { width: '0px' } },
         ...(names && { text: { title: { size: Math.round(20 / Math.max(0.01, view.zoom)) + 'px' } } })
     };
 }
