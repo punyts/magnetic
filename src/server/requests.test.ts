@@ -1,3 +1,4 @@
+import { testWire } from '../testing/syncWire.js';
 import { readGrant } from '@punyts/state-sync/authority';
 import { createStateUiTools } from '@punyts/stateui-mcp';
 import type { PreviewBrowser, Services, UiToolDefinition } from '@punyts/stateui-mcp';
@@ -64,10 +65,11 @@ describe('Requests of people using your apps (docs/design/statenet-requests.md, 
         const authority = await services.hostInstance(address());
         if (authority === undefined) throw new Error('the dataset is not hosted');
         const received: Array<{ type: string; id?: string; result?: string }> = [];
-        const session = authority.connect({ send: (text) => received.push(JSON.parse(text)), close: () => undefined }, access);
-        session.receive(JSON.stringify({ type: 'hello', namespace: address().replaceAll('/', '.'), revision: 0, clientId: `bob-${price}`, protocol: 3 }));
+        const wire = testWire();
+        const session = authority.connect({ send: (data) => received.push(wire.read(data)), close: () => undefined }, access);
+        session.receive(wire.write({ type: 'hello', namespace: address().replaceAll('/', '.'), revision: 0, clientId: `bob-${price}`, protocol: 4 }));
         const id = `ask-${price}`;
-        session.receive(JSON.stringify({ type: 'change', change: { id, path: '$.data.records.tea', op: 'set', value: { name: 'Tea', price }, base: authority.revision() } }));
+        session.receive(wire.write({ type: 'change', change: { id, path: '$.data.records.tea', op: 'set', value: { name: 'Tea', price }, base: authority.revision() } }));
         expect(received.filter((message) => message.type === 'ack')).toEqual([{ type: 'ack', id, result: 'requested' }]);
         session.close();
         return id;

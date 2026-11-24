@@ -1,3 +1,4 @@
+import { testWire } from '../testing/syncWire.js';
 import { randomUUID } from 'node:crypto';
 import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -50,6 +51,7 @@ async function signIn(origin: string, user: string): Promise<string> {
 /** A connected view: the frames it received, in order, and a way to wait for one */
 interface View {
     readonly ws: WebSocket;
+    send(message: object): void;
     readonly frames: { type: string; [key: string]: unknown }[];
     next(type: string): Promise<{ type: string; [key: string]: unknown }>;
     readonly closed: Promise<{ code: number; reason: string }>;
@@ -60,8 +62,9 @@ function connect(magnetic: RunningMagnetic, appId: string, cookie: string): Prom
         const ws = new WebSocket(`${magnetic.origin.replace('http', 'ws')}/apps/${appId}/sync?view=${randomUUID()}`, { headers: { Origin: magnetic.origin, Cookie: cookie } });
         const frames: View['frames'] = [];
         const waiting: { type: string; resolve: (frame: View['frames'][number]) => void }[] = [];
-        ws.on('message', (data) => {
-            const frame = JSON.parse(data.toString()) as View['frames'][number];
+        const wire = testWire();
+        ws.on('message', (data, isBinary) => {
+            const frame = wire.readSocket(data, isBinary) as View['frames'][number];
             frames.push(frame);
             for (const wait of [...waiting]) {
                 if (wait.type !== frame.type) continue;
@@ -72,6 +75,7 @@ function connect(magnetic: RunningMagnetic, appId: string, cookie: string): Prom
         const closed = new Promise<{ code: number; reason: string }>((done) => ws.once('close', (code, reason) => done({ code, reason: reason.toString() })));
         const view: View = {
             ws,
+            send: (message) => ws.send(wire.write(message)),
             frames,
             closed,
             next: (type) => {
@@ -92,7 +96,7 @@ async function open(magnetic: RunningMagnetic, appId: string, cookie: string): P
     return view;
 }
 
-const hello = (view: View, namespace: string): void => view.ws.send(JSON.stringify({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 1 }));
+const hello = (view: View, namespace: string): void => view.send({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 4 });
 
 const namespaceOf = (html: string): string => /data-namespace="([^"]+)"/.exec(html)?.[1] as string;
 
@@ -234,7 +238,7 @@ describe('Magnetic sharing', () => {
         await view.next('welcome');
 
         // Act
-        view.ws.send(JSON.stringify({ type: 'change', change: { id: 'c1', op: 'set', path: '$.app.note', value: 'mine' } }));
+        view.send({ type: 'change', change: { id: 'c1', op: 'set', path: '$.app.note', value: 'mine', base: 0 } });
         const ack = await view.next('ack');
         const upload = await fetch(`${magnetic.origin}/apps/${appId}/files`, { method: 'POST', headers: { Cookie: bob, Origin: magnetic.origin, 'Content-Type': 'text/plain' }, body: 'x' });
 
@@ -379,7 +383,7 @@ describe('Magnetic sharing', () => {
         const view = await open(magnetic, appId, bob);
         hello(view, namespace);
         const welcome = await view.next('welcome');
-        view.ws.send(JSON.stringify({ type: 'change', change: { id: 'c1', op: 'set', path: '$.app.note', value: 'mine', base: welcome['revision'] as number } }));
+        view.send({ type: 'change', change: { id: 'c1', op: 'set', path: '$.app.note', value: 'mine', base: welcome['revision'] as number } });
         await view.next('ack');
         const heads = async (): Promise<number> => (await db.query("SELECT 1 FROM namespace_head WHERE address LIKE '%/apps/' || $1", [appId])).rowCount ?? 0;
         await vi.waitFor(async () => expect(await heads()).toBeGreaterThan(0), { timeout: 5000 });
