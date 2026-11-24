@@ -3,6 +3,7 @@ import { FAVICON_LINK } from './logo.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
+import { APPS_BOARD, ZOOM_CSS } from './zoom.js';
 
 /** One tile on a board: an app on a workspace's board, or a workspace on the Orgs level */
 export interface AppTile {
@@ -29,6 +30,8 @@ export interface AppsPageOptions {
     readonly out?: string;
     /** The query parameter that names the tile to select: `app` on a workspace's board, `org` on the Orgs level */
     readonly pick: 'app' | 'org';
+    /** The tile the query selects, when it is one of the tiles: zooming out arrives on it, so the transition ends there */
+    readonly selected?: string;
     /** The panel's label for a screen reader */
     readonly label: string;
     readonly tiles: readonly AppTile[];
@@ -38,9 +41,6 @@ export interface AppsPageOptions {
     readonly pageBundle: string;
     readonly look: PageLook;
 }
-
-/** The size of a card on the board and the room between two, in the board's pixels; five cards to a row */
-export const APPS_BOARD = { columns: 5, width: 320, height: 120, gap: 48 } as const;
 
 /**
  * A level of boards (docs/design/magnetic-zoom.md): `GET /orgs`, the person's own space and their orgs (stage 4), and
@@ -67,6 +67,8 @@ export function appsPage(options: AppsPageOptions): string {
                 : `<a class="level" href="${escapeHtml(level.href)}">${escapeHtml(level.label)}</a>`).join('<span class="level-gap" aria-hidden="true">›</span>')
             + '</nav>',
         '<div class="apps" id="apps"></div>',
+        // What a zoom grows or shrinks (zoom.ts): the selected tile, in the middle, or else the whole board
+        `<div class="zoom-mark${options.selected !== undefined && options.tiles.some((tile) => tile.id === options.selected) ? ' tile' : ''}" id="zoom-mark" aria-hidden="true"></div>`,
         `<script type="application/json" id="apps-tiles">${JSON.stringify(options.tiles).replace(/</g, '\\u003c')}</script>`,
         textBlock(options.look.language),
         `<script src="/assets/page/${escapeHtml(options.pageBundle)}.js"></script>`,
@@ -90,7 +92,7 @@ body.view.apps-board { display: block; font-family: system-ui, sans-serif; color
 .levels .level { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: inherit; text-decoration: none; border-radius: 0.3rem; padding: 0.15rem 0.3rem; }
 .levels a.level:hover, .levels a.level:focus-visible { color: var(--accent); background: var(--paper); outline: none; }
 .levels .here { color: var(--ink); font-weight: 600; }
-`;
+${ZOOM_CSS}`;
 
 /**
  * \`/assets/apps.js\`: a board of tiles, a workspace's apps or the Orgs level. It mounts the board's page, writes the tiles
@@ -165,10 +167,25 @@ function mostInView() {
     return most;
 }
 
-/** Zooming in on a card: its app, where the person may go */
+const mark = document.getElementById('zoom-mark');
+
+/** Zooming in on a card: where it goes, growing out of the card (the mark moves over it first) */
 function zoomInto(id) {
-    const tile = TILES.find((candidate) => candidate.id === id);
-    if (tile) location.assign(tile.href);
+    const index = TILES.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return;
+    const box = boxOf(index);
+    const at = holder.getBoundingClientRect();
+    mark.classList.remove('tile');
+    Object.assign(mark.style, { left: at.left + view.x + box.x * view.zoom + 'px', top: at.top + view.y + box.y * view.zoom + 'px', width: box.width * view.zoom + 'px', height: box.height * view.zoom + 'px', right: 'auto', bottom: 'auto' });
+    location.assign(TILES[index].href);
+}
+
+/** Zooming out: the level outside, the whole board shrinking into its tile there */
+function zoomOut() {
+    if (!OUT) return;
+    mark.classList.remove('tile');
+    mark.removeAttribute('style');
+    location.assign(OUT);
 }
 
 function draw() {
@@ -216,7 +233,7 @@ document.addEventListener('keydown', (event) => {
     const level = zoomChord(event);
     if (!level) return;
     event.preventDefault();
-    if (level === 'out') { if (OUT) location.assign(OUT); return; }
+    if (level === 'out') { zoomOut(); return; }
     const id = selected ?? mostInView();
     if (id) zoomInto(id);
 });

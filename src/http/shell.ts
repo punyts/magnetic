@@ -7,6 +7,7 @@ import { SCREENS_APP } from '../screens/ScreensPage.js';
 import { SIDE_APP } from '../side/SidePage.js';
 import { STATENET_APP } from '../statenet/StatenetPage.js';
 import { THEME_APP } from '../theme/ThemePage.js';
+import { ZOOM_CSS, ZOOM_JS } from './zoom.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
 export interface ShellPageOptions {
@@ -128,6 +129,8 @@ body.shell:not(.editing) .editor * { pointer-events: none !important; }
 body.shell.editing .alone { display: none; }
 .levels { position: fixed; top: 0; left: 0; right: 0; z-index: 2; box-sizing: border-box; height: 2.25rem; display: flex; align-items: center; gap: 0.4rem; padding: 0 0.75rem; overflow: hidden; white-space: nowrap; border-bottom: 1px solid var(--dot); background: var(--soft); color: var(--muted); font: 0.85rem system-ui, sans-serif; }
 body.shell.editing .levels { display: none; }
+/* The whole page is what a zoom to or from a board grows or shrinks (zoom.ts) */
+body.shell { view-transition-name: zoom; }
 .levels .level { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: inherit; text-decoration: none; border-radius: 0.3rem; padding: 0.15rem 0.3rem; }
 .levels a.level:hover, .levels a.level:focus-visible { color: var(--accent); background: var(--paper); outline: none; }
 .levels .here { color: var(--ink); font-weight: 600; }
@@ -153,7 +156,7 @@ body.view.shell[data-status]::after { top: 0.9rem; right: auto; left: 50%; trans
 .hint.gone { opacity: 0; }
 .hint kbd { font: inherit; font-weight: 600; }
 body.shell.editing .hint { display: none; }
-`;
+${ZOOM_CSS}`;
 
 /**
  * `/assets/layers.css`: the inspector's layer (`/assets/inspect.js`) and the views' layers (`/assets/views.js`) over
@@ -1105,16 +1108,17 @@ function zoomChord(event) {
 /** What screens.js picks to zoom into: the selected screen, else the one most in view; null leaves the screen as it is */
 let zoomPick = () => null;
 
+${ZOOM_JS}
 /** Zooming in: from the editor to the running app, on the screen picked, in one entry; the running app goes no further */
 function zoomIn() {
     if (!editing()) return;
     const screen = zoomPick();
-    setEditing(false, false, screen ? { screen } : {});
+    zoomInPage('in', () => setEditing(false, false, screen ? { screen } : {}));
 }
 
 /** Zooming out: from the running app to the editor, on the screen that was showing; from the editor to the board of apps of its workspace, on its tile */
 function zoomOut() {
-    if (!editing()) setEditing(true);
+    if (!editing()) zoomInPage('out', () => setEditing(true));
     else location.assign(document.body.dataset.board || '/');
 }
 

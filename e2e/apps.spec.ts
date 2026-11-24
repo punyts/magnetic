@@ -63,4 +63,22 @@ test.describe("A workspace's apps", () => {
         await expect(page).toHaveURL(/\/orgs\/me$/);
         await expect(page.locator('#apps').getByText(name, { exact: true })).toBeVisible();
     });
+
+    test('should grow the editor out of the tile as a view transition, and name the editor page to shrink back', async ({ page }) => {
+        // Arrange: each page notes whether the browser ran a view transition as it was left
+        await page.addInitScript(() => addEventListener('pageswap', (event) => sessionStorage.setItem('zoomed', String((event as Event & { viewTransition: unknown }).viewTransition !== null))));
+        await page.goto(`/orgs/me?app=${appId}`);
+        const tile = page.locator('#apps').getByText(name, { exact: true });
+        await expect(tile).toBeVisible();
+        await expect(page.locator('#zoom-mark')).toHaveClass(/(^| )tile( |$)/);
+
+        // Act
+        await tile.click();
+        await expect(page).toHaveURL(new RegExp(`/edit/${appId}$`));
+        const grown = await page.evaluate(() => sessionStorage.getItem('zoomed'));
+
+        // Assert
+        expect(grown).toBe('true');
+        expect(await page.evaluate(() => getComputedStyle(document.body).viewTransitionName)).toBe('zoom');
+    });
 });

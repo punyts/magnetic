@@ -267,6 +267,9 @@ workspace, and stops when you sign out of that browser.
 - **The Orgs level** (`/orgs`; docs/design/magnetic-zoom.md, stage 4) is the same board with the person's own space
   (Yours) and each org they are in as cards; a card opens that workspace's board, and `?org=<id>` (`?org=me`) selects
   one. Its bar links back to Your apps.
+- **Zooming is a scale transition** (docs/design/magnetic-zoom.md, stage 5): a view transition grows the next level's
+  page out of the tile, or shrinks the page into its tile on the level outside (`src/http/zoom.ts`). Reduced motion
+  skips it.
 - **The address** (docs/design/magnetic-zoom.md, stage 1) says where the person is, so Back, Forward, a reload and a
   link go there: the screen as `/screens/<name>` after the app's path (choosing one pushes an entry; the board following
   the view replaces it), the board's view as `#x,y,zoom` while it is not the fit, and `?open=` with the open panel
@@ -638,7 +641,7 @@ The org settings, Shared by me, Data, Agent use and privacy pages are plain HTML
 | `editor.spec.ts` | The bars and tools; the ideas of a blank app; a turn of the agent and the chat; frame sizes; zoom and fit; selecting a part, its properties, and editing its text by hand; zooming into the app and out again; going home. The library: shown and hidden (button, `A`, phone), narrowed by letter and category, a component pressed then placed, dragged and dropped onto the app, and dropped outside it. Layout and placement: a column made a grid, a part spanning two columns, a setting kept across types |
 | `address.spec.ts` | (Desktop only) The address: opening on the screen it names and Back to the screen before one chosen; a sheet in `?open=`, closed by Back and opened from a link; Ctrl+Shift+= and Ctrl+Shift+- each pushing an entry, and zooming out of the editor to its workspace's board |
 | `levels.spec.ts` | The level bar over the running app: the workspace, the app and the screen named, the app zooming out to the editor and Back |
-| `apps.spec.ts` | A workspace's board of apps: zooming out of the editor to it, on the app's card, and back in with the chord; Back; a press on a card opening the app; zooming out of a workspace to the Orgs level and back in |
+| `apps.spec.ts` | A workspace's board of apps: zooming out of the editor to it, on the app's card, and back in with the chord; Back; a press on a card opening the app; zooming out of a workspace to the Orgs level and back in; the editor growing out of a tile as a view transition |
 | `screens.spec.ts` | (Desktop only) The Screens panel and a frame per screen in order; pressing a preview to work on it in its place; copy, rename, open-on and delete; a bad name refused; previews out of view not running |
 | `connections.spec.ts` | The Connections page from Your apps; a key connection made, its endpoint added and tried, with the key never on the page; a URL that is not https refused; an OAuth connection connected through the stand-in provider (port + 3) and called with its token; deleting only with the box ticked; the page in German for someone who chose no language; the editor's Connections panel listing an endpoint and asking the agent, with "Yours" in the top bar; an org with connections turned off: its page says so with no Try, and its app's editor names the org and says so too |
 | `feedback.spec.ts` | The editor's bug button: a feature request sent and emailed to the operator with the frame size, the box cleared; an empty one refused, and the sheet closed by its button |

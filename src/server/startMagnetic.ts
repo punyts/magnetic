@@ -1242,6 +1242,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const t = textsOf(look.language);
         const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
         const newest = (a: { readonly updatedAt: Date }, b: { readonly updatedAt: Date }): number => b.updatedAt.getTime() - a.updatedAt.getTime();
+        const query = new URL(request.url ?? '/', 'http://localhost').searchParams;
         const page = { runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, look };
         if (which === undefined) {
             const orgWords = orgTextsOf(look.language);
@@ -1250,7 +1251,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 { id: 'me', title: t['shell.ownWorkspace'], note: t['apps.ownSpace'], href: '/orgs/me' },
                 ...(await orgs.of(user.id)).map((org) => ({ id: org.id, title: org.name, note: fill(t['home.orgNote'], { role: roleWords(org.role) }), href: `/orgs/${encodeURIComponent(org.id)}` }))
             ];
-            sendAppPage(request, response, appsPage({ ...page, name: t['apps.orgs'], label: t['apps.orgsBoard'], pick: 'org', levels: [{ label: t['apps.yourApps'], href: '/' }, { label: t['apps.orgs'] }], tiles: spaces }));
+            sendAppPage(request, response, appsPage({ ...page, name: t['apps.orgs'], label: t['apps.orgsBoard'], pick: 'org', ...(query.get('org') !== null && { selected: query.get('org') as string }), levels: [{ label: t['apps.yourApps'], href: '/' }, { label: t['apps.orgs'] }], tiles: spaces }));
             return;
         }
         let name: string;
@@ -1285,7 +1286,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 });
         }
         const out = `/orgs?org=${encodeURIComponent(which)}`;
-        sendAppPage(request, response, appsPage({ ...page, name, label: t['apps.board'], pick: 'app', out, levels: [{ label: t['apps.orgs'], href: out }, { label: name }], tiles }));
+        sendAppPage(request, response, appsPage({ ...page, name, label: t['apps.board'], pick: 'app', ...(query.get('app') !== null && { selected: query.get('app') as string }), out, levels: [{ label: t['apps.orgs'], href: out }, { label: name }], tiles }));
     }
 
     /** `GET /`: the person's "Your apps", with the lists written into its data first */

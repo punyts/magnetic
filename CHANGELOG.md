@@ -1,6 +1,11 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Zooming between levels is a scale transition** (docs/design/magnetic-zoom.md, stage 5). Between pages the browser's
+  cross-document view transition grows the next page out of the tile zoomed into, or shrinks the page into its tile on
+  the level outside (`src/http/zoom.ts`, a `#zoom-mark` on the board pages, the shell's body named `zoom`); between the
+  editor and the running app a same-document view transition scales one into the other. Reduced motion and browsers
+  without view transitions go straight there. Test: `e2e/apps.spec.ts`.
 - **The Orgs level at `/orgs`: the person's own space and each org they are in, as tiles** (docs/design/magnetic-zoom.md,
   stage 4). It is the same board page as a workspace's apps; a press or Ctrl+Shift+= opens that workspace's board, and
   `?org=<id>` (`?org=me`) selects a tile. A workspace's board now zooms out to `/orgs?org=<id>`, and its bar reads
