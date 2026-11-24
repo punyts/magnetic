@@ -59,6 +59,8 @@ const HEAD = 40;
 const CORNER = 96;
 /** How far a card's head and its corner in names stand in from the screen's edges, in the screens' pixels */
 const EDGE = 24;
+/** The width of the border of a screen's frame on the board, in the screens' pixels */
+const FRAME = 1;
 /** The zoom below which every card shows only its name, however few are in view: a screen there is too small to read */
 const NAMES_BELOW_ZOOM = 0.4;
 /** The share of the zoom that fits a card below which every card shows only its name: on a small window, where the fit is under NAMES_BELOW_ZOOM, a step or two out from it still shows the apps */
@@ -246,12 +248,17 @@ function boardTheme() {
     const rows = Math.ceil(Math.max(1, screens.length) / columns);
     return {
         // In names a card has no head, so its row's room under it is the head's and the gap: what a dragged card's place leaves out
-        board: { column: width + 'px', card: card + 'px', gap: (names ? HEAD + GAP : GAP) + 'px', height: (rows * card) + 'px' },
+        // A column holds a screen's frame: the screen and the frame's border on either side
+        board: { column: (width + 2 * FRAME) + 'px', card: card + 'px', gap: (names ? HEAD + GAP : GAP) + 'px', height: (rows * card) + 'px' },
         space: { gap: { md: GAP + 'px' } },
+        border: { width: { thin: FRAME + 'px' } },
+        // The frame is square, as the app's own edges are: rounded corners would cover the app's corners
+        embed: { radius: '0px' },
         // The corner over a card in names: a button of a size of the board's, which shrinks with the card
         size: { control: { lg: CORNER + 'px' }, icon: { lg: Math.round(CORNER / 2) + 'px' } },
         // A head's title and ⋯ stand in from the screen's edges
-        panel: { padding: '0px ' + EDGE + 'px' },
+        // and a card's panels draw no border, so the frame is as wide as the card
+        panel: { padding: '0px ' + EDGE + 'px', border: { width: '0px' } },
         ...(names && { text: { title: { size: Math.round(20 / Math.max(0.01, view.zoom)) + 'px' } } })
     };
 }
@@ -308,6 +315,7 @@ function measure() {
         if (at) places.set(screen.name, { x: at.x, y: at.y + Math.floor(index / columns) * card, width, height: HEAD + height });
     });
     if (!placedOnce) { placedOnce = true; place(); following = keptView !== null; }
+    else if (refit) { refit = false; fit(); }
     settle();
     // The board opens where it was left: once the cards are placed, the screen with the most in view there is the one worked on
     if (following && places.size > 0) { following = false; followView(); }
@@ -315,6 +323,8 @@ function measure() {
 
 /** The view the board opens on: where it was left, kept on the server, or the live card fitted */
 let placedOnce = false;
+/** The frame changed size while the view was the fit: fit again once the cards are measured at the new size */
+let refit = false;
 let keptView = null;
 /** True from opening on a kept view until the cards are placed and the one most in view is worked on */
 let following = false;
@@ -328,17 +338,17 @@ function place() {
     shell.canvas.showZoom(view.zoom, 'base');
 }
 
-/** The zoom that fits a card into the free area, never past 100% */
+/** The zoom that fits a card into the stage area, never past 100%: a panel opening over the canvas does not shrink it */
 function fitZoom(box) {
-    const free = shell.canvas.freeArea();
+    const free = shell.canvas.stageArea();
     return Math.max(0.1, Math.min(1, free.width / box.width, free.height / box.height));
 }
 
-/** Fits the live card, or the first, into the free area, never past 100% */
+/** Fits the live card, or the first, into the stage area, never past 100% */
 function fit() {
     const box = places.get(current || '') || places.values().next().value;
     if (!box) { pageCommand('fit'); fitted = false; return; }
-    const free = shell.canvas.freeArea();
+    const free = shell.canvas.stageArea();
     const zoom = fitZoom(box);
     Object.assign(view, { x: free.left + (free.width - box.width * zoom) / 2 - box.x * zoom, y: free.top + (free.height - box.height * zoom) / 2 - box.y * zoom, zoom });
     pageWrite({ view: { ...view } });
@@ -823,7 +833,8 @@ if (shell && editor && host) {
     editor.onReady(() => show());
     shell.page(SCREENS_APP, { mounted: boardMounted, disposed: boardDisposed });
     shell.canvas.base({ zoomIn: () => pageCommand('zoomIn'), zoomOut: () => pageCommand('zoomOut'), zoomReset: () => pageCommand('zoomReset'), fit: () => fit() });
-    shell.canvas.onSize(() => draw());
+    // A new frame size (Desktop follows the stage area) draws the board again; a view that is still the fit fits again once the cards are measured
+    shell.canvas.onSize(() => { refit = refit || fitted; draw(); });
     // The editor's panels moved: what they cover goes to the canvas, and a view that is still the board's fit fits again
     shell.canvas.onArea(() => {
         pageWrite({ inset: insetOf() });

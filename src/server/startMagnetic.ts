@@ -59,6 +59,7 @@ import { COMPONENT_CATEGORIES, PAGES_WORKSPACE_ID, SYSTEM_USER_ID } from '../ins
 import { SitePages } from '../pages/SitePages.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
 import { EDITOR, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
+import { isBlankApp, STARTER_APP_LAYOUT, starterScreen } from '../editor/StarterScreen.js';
 import { PAGE_APPS, PageApps } from '../pages/PageApps.js';
 import { SCREENS } from '../screens/ScreensPage.js';
 import { STATENET } from '../statenet/StatenetPage.js';
@@ -158,15 +159,6 @@ const EDITOR_PAGES: ReadonlyMap<string, PageSpec> = new Map([
 
 /** An app part, as the views find it */
 type AppPart = NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>;
-
-/** True when no screen of an app has anything on it yet: a new app, before the agent builds it */
-function isBlank(body: unknown): boolean {
-    const screens = isRecord(body) && isRecord(body['screens']) ? Object.values(body['screens']) : [];
-    return screens.every((screen) => {
-        const root = isRecord(screen) ? screen['root'] : undefined;
-        return !isRecord(root) || !isRecord(root['children']) || Object.keys(root['children']).length === 0;
-    });
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -705,7 +697,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
-        .map((component) => ({ name: component.name, category: component.category, summary: component.summary }));
+        .map((component) => ({ name: component.name, category: component.category, summary: component.summary, layout: component.layout === true }));
     let system: string | undefined;
     const budgetLimits = options.agent?.budgets ?? DEFAULT_BUDGETS;
     const budgets = new Budgets(db, { ...budgetLimits, canBuy: options.payments !== undefined && budgetLimits.perUserTotal !== undefined });
@@ -1651,7 +1643,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const services = await workspaces.get(who.user.id);
             const name = appNameOf((await readForm(request)).get('name') ?? '');
             const create = toolsOf(services).find((tool) => tool.name === 'ui_app_create');
-            const outcome = name === undefined || create === undefined ? undefined : await create.run({ name });
+            const outcome = name === undefined || create === undefined ? undefined : await create.run({ name, app: { layout: STARTER_APP_LAYOUT }, home: starterScreen(true) });
             const created = outcome?.body as { id?: unknown; message?: unknown } | undefined;
             if (outcome === undefined || outcome.isError || typeof created?.id !== 'string') {
                 const why = name === undefined ? 'Give the app a name that starts with a letter.' : typeof created?.message === 'string' ? created.message : 'The app could not be made.';
@@ -1718,7 +1710,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             namespace: services.instanceViews.namespace(app, persona),
             models: models.map(modelChoice),
             editing,
-            blank: isBlank(app.body),
+            blank: isBlankApp(app.body),
             ...(workspace !== undefined && { workspace })
         });
     }
@@ -2002,7 +1994,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const { document } = await services.instanceViews.message(app, 'attach');
             const screens = isRecord((document as Record<string, unknown>)['screens']) ? ((document as Record<string, unknown>)['screens'] as Record<string, unknown>) : {};
             try {
-                if (action === 'add') await call('ui_screen_create', { app: app.name, name, title: titleOf(name), root: { component: 'panel', layout: { type: 'column', gap: 'md' }, children: {} } });
+                if (action === 'add') {
+                    // An app made before the starter has an app node without a layout, which refuses a screen's grow
+                    const appNode = (document as Record<string, unknown>)['app'];
+                    await call('ui_screen_create', { app: app.name, name, title: titleOf(name), root: starterScreen(isRecord(appNode) && isRecord(appNode['layout'])) });
+                }
                 else if (action === 'copy') {
                     const from = screens[name];
                     if (!isRecord(from)) throw new HttpError(404, 'No such screen.', 'not_found');

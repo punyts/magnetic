@@ -42,7 +42,7 @@ export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } 
 export const EDITOR_EMITS = [
     'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'view', 'layerLayout', 'layerData', 'layerLogic',
     'share', 'shareClose', 'shareRight', 'shareMake', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
-    'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'focusClear', 'addToChat',
+    'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'hintClose', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'screenColumns', 'path', 'ask',
     'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk',
     'feedback', 'feedbackClose', 'feedbackKind', 'feedbackText', 'feedbackSend'
@@ -395,7 +395,8 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
         },
         // Below 760px the name corner has no room for the workspace and the frame size
         ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, screensOnly) })
-    }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden` });
+    // The divider and the Layers label get the room the buttons' own padding gives their icons, not the tools' tight gap
+    }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden`, layout: { type: 'column', gap: 'md' } });
 }
 
 /** The zoom at the bottom right, above the chat bar when the window is too narrow for both; hidden in the views without the board (Theme, Logic) */
@@ -509,7 +510,10 @@ function blankHint(t: Texts): Record<string, unknown> {
     return float(
         { center: 'both', width: fit('480px') },
         {
-            title: { component: 'text', textRole: 'heading', _text: t['shell.blankTitle'] },
+            head: row({
+                title: { component: 'text', textRole: 'heading', placement: { grow: 1 }, _text: t['shell.blankTitle'] },
+                close: icon(t['shell.blankClose'], 'hintClose', 'x')
+            }),
             text: caption(t['shell.blankText']),
             idea1: idea(1),
             idea2: idea(2),
