@@ -160,7 +160,7 @@ test.describe("The editor's views", () => {
         await expect(appCard(page)).toBeVisible();
         await expect(node(page, `${appPath}.screens.home`)).toBeVisible();
         // The person editing, and no one else
-        await expect(graph(page).locator('[role="treeitem"][data-id^="$.people."]').filter({ hasText: 'You' })).toHaveCount(1);
+        await expect(graph(page).locator('[role="treeitem"][data-id^="$.people."]:not([data-id*=".apps."])')).toHaveCount(1);
         // Read from one layout at once: a change to the app may draw a new one. The branches of $ share its two sides,
         // the first ones right in order and the rest left; on each side a part stands further out than its branch
         const paths = ['$', '$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath];
