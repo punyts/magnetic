@@ -110,7 +110,7 @@ export const STATENET: PageSpec = {
         const t = textsOf('en');
         return {
             title: t['shell.view.statenet'],
-            data: { statenet: { model: STATENET_APP, scope: 'persona' } },
+            data: { statenet: { model: STATENET_APP, scope: 'person' } },
             home: {
                 component: 'panel',
                 padding: 'none',

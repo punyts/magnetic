@@ -336,16 +336,17 @@ export class StateGrants {
     }
 
     /**
-     * The access an instance's binding of a workspace's dataset connects with, as the persona it acts for
-     * (docs/design/statenet-requests.md, R3b): the workspace itself for its own persona (`default`), otherwise a token
+     * The access an instance's binding of a workspace's dataset connects with, as the person it acts for (an owner id;
+     * docs/design/statenet-requests.md, R3b): the workspace itself for its own instance (the person is the workspace's
+     * owner), otherwise a token
      * for the person's standing `bound` entry on the dataset, made the first time they bind it and kept until revoked,
      * with the rights the dataset's setting gives (R3c: read and write, or read and request). The token's keys are
      * loaded, so a check with `accessContext` reads them synchronously
      */
-    async boundAccess(persona: string, workspaceId: string, dataset: string, now: Date = new Date()): Promise<Access> {
+    async boundAccess(personId: string, workspaceId: string, dataset: string, now: Date = new Date()): Promise<Access> {
         const owner = await this.owners.nameOf(workspaceId);
-        if (persona === 'default' || persona.toLowerCase() === workspaceId.toLowerCase()) return { subject: owner };
-        const person = await this.owners.nameOf(persona);
+        if (personId.toLowerCase() === workspaceId.toLowerCase()) return { subject: owner };
+        const person = await this.owners.nameOf(personId);
         const table = this.table(now);
         const subject = ownerSubject(person);
         const pattern = `$.data.${dataset}`;

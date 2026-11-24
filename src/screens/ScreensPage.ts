@@ -142,7 +142,7 @@ export const SCREENS: PageSpec = {
         const t = textsOf('en');
         return {
             title: t['screens.board'],
-            data: { screens: { model: SCREENS_APP, scope: 'persona' } },
+            data: { screens: { model: SCREENS_APP, scope: 'person' } },
             home: {
                 component: 'panel',
                 padding: 'none',

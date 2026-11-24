@@ -109,7 +109,7 @@ export const LOGIC: PageSpec = {
         const t = textsOf('en');
         return {
             title: t['shell.view.logic'],
-            data: { logic: { model: LOGIC_APP, scope: 'persona' } },
+            data: { logic: { model: LOGIC_APP, scope: 'person' } },
             home: {
                 component: 'panel',
                 elevation: 'raised',

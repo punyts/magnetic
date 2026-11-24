@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, DEFAULT_PERSONA, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, MemoryGrantKeys, requestHostName, SharedChromium, startHttpServer } from '@punyts/stateui-mcp';
+import { APP_PAGE_CSP, appNamespace, buildServerInstructions, COMMON_HEADERS, copyAppParts, createServices, createStateUiTools, HttpError, installShowcaseInto, isNetworkRequest, loadCatalogFile, loadChunk3d, loadHostScript, loadRuntimeBundle, MemoryGrantKeys, requestHostName, SharedChromium, startHttpServer } from '@punyts/stateui-mcp';
 import type { AppLogicLimits, GrantKeys, HttpTenant, InstanceNamespaceStore, NetworkListener, PreviewBrowser, Services, ServicesStorage, TenantAnswer, UiToolDefinition } from '@punyts/stateui-mcp';
 import { createAggregate } from '@punyts/statenet';
 import { isReported, report } from '@punyts/core';
@@ -661,7 +661,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     ...(sharedData !== undefined && { sharedData: sharedData.forReader(workspaceId) }),
                     // Who may write the workspace's datasets: each binding connects as its person (docs/design/statenet-requests.md, R3b)
                     ...(stateGrants !== undefined && {
-                        datasetAccess: { context: () => stateGrants.accessContext(), accessFor: (persona: string, dataset: string) => stateGrants.boundAccess(persona, workspaceId, dataset) }
+                        datasetAccess: { context: () => stateGrants.accessContext(), accessFor: (person: string, dataset: string) => stateGrants.boundAccess(person, workspaceId, dataset) }
                     })
                 });
                 await services.recoverParts();
@@ -925,10 +925,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         connections,
         changeConnection: (user, form) => handleConnections.change(user, form),
         sharedDatasets: async (workspaceId) => (stateGrants === undefined ? [] : sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)),
-        personaApps: async (workspaceId, ownerId) => {
-            // The person's own state of each app is at `<ownerId>/apps/<appId>`
-            await owners.ensure(ownerId);
-            const like = owners.of(ownerId) + '/apps/%';
+        personApps: async (workspaceId, person) => {
+            // The person's own state of each app is at `<person>/apps/<appId>`
+            await owners.ensure(person);
+            const like = owners.of(person) + '/apps/%';
             const rows = await db.transaction(
                 async (tx) => (await tx.query<{ address: string; updated_at: Date }>("SELECT address, updated_at FROM namespace_head WHERE workspace_id = $1 AND address LIKE $2 ORDER BY updated_at DESC, address", [workspaceId, like])).rows,
                 { workspaceIds: [workspaceId] }
@@ -1090,7 +1090,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const key = Sessions.keyOf(who.token);
         const appId = APP_PATH.exec(new URL(request.url ?? '/', 'http://localhost').pathname)?.[1]?.toLowerCase();
         if (appId !== undefined && (await services.instanceViews.find(appId)) === undefined) {
-            // An app of one of their orgs: their own instance (persona = their id), as far as their permission goes
+            // An app of one of their orgs: their own instance (the person is their id), as far as their permission goes
             const place = await reach(who.user.id, appId);
             if (place?.orgId !== undefined) {
                 const orgAnswer: HttpTenant = {
@@ -1098,7 +1098,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     hub: place.services.hub,
                     liveViews: place.services.liveViews,
                     instances: place.services.instanceViews,
-                    persona: who.user.id,
+                    person: who.user.id,
                     access: allows(place.permission, 'edit') ? 'owner' : place.permission === 'use' ? 'use' : 'view',
                     reader: { subject: await owners.nameOf(who.user.id) },
                     retain: (close) => {
@@ -1118,8 +1118,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             const shared = await grants.access(appId, who.user.id);
             if (shared !== undefined && 'revoked' in shared) {
                 const grant = shared.revoked;
-                const persona = grant.right === 'use' ? who.user.id : DEFAULT_PERSONA;
-                return { revoked: { message: REVOKED_MESSAGE, namespace: appNamespace({ persona, ownerId: grant.ownerId, appId }), title: REVOKED_TITLE } };
+                const person = grant.right === 'use' ? who.user.id : grant.ownerId;
+                return { revoked: { message: REVOKED_MESSAGE, namespace: appNamespace({ person, ownerId: grant.ownerId, appId }), title: REVOKED_TITLE } };
             }
             if (shared !== undefined) {
                 // An org that keeps its links to members: someone who left it, or never joined, no longer reaches its apps
@@ -1156,9 +1156,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             hub: owner.hub,
             liveViews: owner.liveViews,
             instances: owner.instanceViews,
-            persona: grant.right === 'use' ? userId : DEFAULT_PERSONA,
+            person: grant.right === 'use' ? userId : grant.ownerId,
             access: grant.right,
-            ...(forgetUse && { forget: [appNamespace({ persona: userId, ownerId: grant.ownerId, appId: grant.appId })] }),
+            ...(forgetUse && { forget: [appNamespace({ person: userId, ownerId: grant.ownerId, appId: grant.appId })] }),
             retain: (close) => {
                 const release = workspaces.retain(grant.ownerId);
                 const untrackSession = track(sessionSockets, sessionKey, close);
@@ -1851,7 +1851,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>,
         editing: boolean,
         look: PageLook,
-        persona?: string,
+        /** The person whose instance the page syncs with: the signed-in person, the owner's own in their own workspace */
+        person: string,
         models: readonly string[] = turns.models,
         workspace?: string,
         org?: string
@@ -1863,7 +1864,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             pageBundle,
             ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
-            namespace: services.instanceViews.namespace(app, persona),
+            namespace: services.instanceViews.namespace(app, person),
             models: models.map(modelChoice),
             editing,
             blank: isBlankApp(app.body),
@@ -1884,7 +1885,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendShellPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place), place.orgId));
+        sendShellPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place), place.orgId));
         return true;
     }
 
@@ -1905,10 +1906,9 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return;
         }
         const { services, app, workspaceId } = place;
-        const persona = place.orgId === undefined ? undefined : who.user.id;
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendShellPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await workspaceNameOf(place), place.orgId));
+            sendShellPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place), place.orgId));
             return;
         }
         if (what === '/events' && method === 'GET') {

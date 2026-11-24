@@ -89,7 +89,7 @@ export class SharedData {
                 })
                 .catch((error: unknown) => this.report('A shared dataset could not be read', { owner, dataset, error: error instanceof Error ? error.message : String(error) }));
         };
-        const followed = await services.datasetSessions.follow(dataset, () => this.grants.boundAccess('default', owner, dataset), send);
+        const followed = await services.datasetSessions.follow(dataset, () => this.grants.boundAccess(owner, owner, dataset), send);
         if (followed === undefined) {
             this.end(read, `No dataset ${dataset} is shared with this workspace by that owner.`);
             return;

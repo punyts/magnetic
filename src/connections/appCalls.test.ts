@@ -79,7 +79,7 @@ describe("An app's logic calling an outside API through a connection", () => {
         const weather = await magnetic.connections.create(aliceId, aliceId, { name: 'weather', baseUrl: apiUrl, auth: { kind: 'key', in: 'header', name: 'X-Api-Key' } });
         await magnetic.connections.setSecret(weather.id, 'key', 'secret-123');
         await magnetic.connections.setEndpoint(weather.id, { name: 'today', method: 'GET', path: '/today/{city}' });
-        const created = await tool(tools, 'ui_app_create', { name: 'weather-board', data: { weather: { model: 'api-call', scope: 'persona' } }, home: { component: 'panel' } });
+        const created = await tool(tools, 'ui_app_create', { name: 'weather-board', data: { weather: { model: 'api-call', scope: 'person' } }, home: { component: 'panel' } });
         await tool(tools, 'ui_logic_write', {
             app: 'weather-board',
             expectedRevision: created['revision'],
@@ -99,7 +99,7 @@ describe("An app's logic calling an outside API through a connection", () => {
     });
 
     it('should put a refusal in the status, with its reason, and call nothing', async () => {
-        const created = await tool(tools, 'ui_app_create', { name: 'bad-board', data: { call: { model: 'api-call', scope: 'persona' } }, home: { component: 'panel' } });
+        const created = await tool(tools, 'ui_app_create', { name: 'bad-board', data: { call: { model: 'api-call', scope: 'person' } }, home: { component: 'panel' } });
         await tool(tools, 'ui_logic_write', {
             app: 'bad-board',
             expectedRevision: created['revision'],
@@ -135,7 +135,7 @@ describe("An app's logic calling an outside API through a connection", () => {
         await tool(orgTools, 'ui_model_write', { model: 'api-call', operations: [{ op: 'set', field: 'request', type: 'object' }, { op: 'set', field: 'status', type: 'object' }, { op: 'set', field: 'answer', type: 'object' }] });
         const weather = await magnetic.connections.create(org.workspaceId, aliceId, { name: 'weather', baseUrl: apiUrl, auth: { kind: 'none' } });
         await magnetic.connections.setEndpoint(weather.id, { name: 'today', method: 'GET', path: '/today/{city}' });
-        const created = await tool(orgTools, 'ui_app_create', { name: 'org-board', data: { weather: { model: 'api-call', scope: 'persona' } }, home: { component: 'panel' } });
+        const created = await tool(orgTools, 'ui_app_create', { name: 'org-board', data: { weather: { model: 'api-call', scope: 'person' } }, home: { component: 'panel' } });
         await tool(orgTools, 'ui_logic_write', {
             app: 'org-board',
             expectedRevision: created['revision'],

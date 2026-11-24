@@ -49,6 +49,7 @@ type Answer = { status: number; body: Record<string, any> };
 describe("The editor's view routes", () => {
     let magnetic: RunningMagnetic;
     let alice: string;
+    let aliceId: string;
     let appId: string;
     let tools: readonly UiToolDefinition[];
 
@@ -68,7 +69,7 @@ describe("The editor's view routes", () => {
     beforeAll(async () => {
         magnetic = await startMagnetic({ database: await freshDb(), host: '127.0.0.1', port: 0, report: silent, devUsers: ['alice'], starter: 'none', browser: noBrowser, secretKey: 'a-test-secret-key-of-length' });
         alice = await signIn(magnetic.origin, 'alice');
-        const aliceId = (await magnetic.sessions.find(alice.split('=')[1]))?.userId as string;
+        aliceId = (await magnetic.sessions.find(alice.split('=')[1]))?.userId as string;
         tools = createStateUiTools(await magnetic.workspaces.get(aliceId));
         await tool(tools, 'ui_model_write', { model: 'note', operations: [{ op: 'set', field: 'title', type: 'string', required: true }, { op: 'set', field: 'done', type: 'boolean' }] });
         await tool(tools, 'ui_data_write', { dataset: 'notes', model: 'note', operations: [{ op: 'set', path: 'n1', value: { title: 'First', done: false } }] });
@@ -76,7 +77,7 @@ describe("The editor's view routes", () => {
         const created = await tool(tools, 'ui_app_create', {
             name: 'notes',
             themes: ['calm'],
-            data: { notes: { dataset: 'notes' }, mine: { model: 'note', scope: 'persona' } },
+            data: { notes: { dataset: 'notes' }, mine: { model: 'note', scope: 'person' } },
             home: {
                 component: 'panel',
                 layout: { type: 'column', gap: 'md' },
@@ -158,7 +159,7 @@ describe("The editor's view routes", () => {
         expect(outside.status).toBe(400);
     });
 
-    it("should show the person's own persona under $.personas, with the app once they have state in it, and no one else's", async () => {
+    it("should show the person editing under $.people, at their own id, with the app once they have state in it, and no one else's", async () => {
         // Arrange: state of the person's own in the app
         await post('state', { path: '$.data.mine.m2', value: { title: 'Kept', done: false } });
 
@@ -167,10 +168,11 @@ describe("The editor's view routes", () => {
 
         // Assert
         const nodes = answer.body['nodes'] as { id: string; parent: string | null; kind: string; current?: boolean; appId?: string }[];
-        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.personas.default', parent: '$.personas', kind: 'persona', label: 'default' }));
-        expect(nodes.filter((node) => node.parent === '$.personas')).toHaveLength(1);
+        const person = `$.people.${aliceId.toLowerCase()}`;
+        expect(nodes).toContainEqual(expect.objectContaining({ id: person, parent: '$.people', kind: 'person' }));
+        expect(nodes.filter((node) => node.parent === '$.people')).toHaveLength(1);
         const instance = nodes.find((node) => node.kind === 'instance' && node.current === true);
-        expect(instance?.id).toMatch(new RegExp(`^\\$\\.personas\\.default\\.apps\\.[^.]+\\.${appId}$`));
+        expect(instance?.id).toBe(`${person}.apps.${appId.toLowerCase()}`);
         expect(answer.body['edges']).toContainEqual({ from: '$.apps.notes', to: instance?.id, kind: 'instance' });
     });
 

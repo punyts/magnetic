@@ -67,7 +67,7 @@ async function folders(path: string): Promise<string[]> {
  * Copies the people of a file data folder of an earlier Magnetic into the database: `accounts.json` (users and
  * identities), `sessions.json` (live sessions), `grants.json` (links and who opened them), `budgets.json` (spend, as
  * one ledger row per user and day, and per month for spend no day still holds), every chat
- * (`users/<id>/magnetic/chats/<appId>.json`), and each user's workspace (`users/<id>`: parts, instances, persona
+ * (`users/<id>/magnetic/chats/<appId>.json`), and each user's workspace (`users/<id>`: parts, instances, person
  * records, files with their bytes and preview errors). Rows already in the database are left as they are, and a
  * workspace that already has parts is skipped, so running it twice writes nothing the second time. The folder is only
  * read
@@ -99,7 +99,7 @@ async function files(path: string): Promise<string[]> {
 
 /**
  * Copies one user's workspace folder (stateui-mcp's `PartFolders` layout) into the workspace tables: every part as it
- * is, each persona's instances and binding records, the apps' files with their bytes, and their preview errors. A
+ * is, each person's instances and binding records (`people/<person>`, the owner's own under the owner's id), the apps' files with their bytes, and their preview errors. A
  * workspace that already has a part is skipped whole
  */
 async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, report: ImportReport): Promise<void> {
@@ -130,25 +130,25 @@ async function importWorkspace(tx: Queryable, dir: string, workspaceId: string, 
             copied = true;
         }
     }
-    for (const persona of await folders(join(dir, 'personas'))) {
-        for (const owner of await folders(join(dir, 'personas', persona, 'apps'))) {
-            for (const name of (await files(join(dir, 'personas', persona, 'apps', owner))).filter((file) => file.endsWith('.json'))) {
+    for (const person of await folders(join(dir, 'people'))) {
+        for (const owner of await folders(join(dir, 'people', person, 'apps'))) {
+            for (const name of (await files(join(dir, 'people', person, 'apps', owner))).filter((file) => file.endsWith('.json'))) {
                 const appId = name.slice(0, -'.json'.length);
-                const diff = await readJson<object>(join(dir, 'personas', persona, 'apps', owner, name)).catch(() => undefined);
+                const diff = await readJson<object>(join(dir, 'people', person, 'apps', owner, name)).catch(() => undefined);
                 if (!UUID.test(appId) || diff === undefined) continue;
                 // Stored as it was: the diff over an empty definition is the diff itself
-                await txInstances(tx, workspaceId, persona).write(appId.toLowerCase(), {}, diff as never);
+                await txInstances(tx, workspaceId, person).write(appId.toLowerCase(), {}, diff as never);
                 report.instances++;
             }
         }
-        for (const appId of await folders(join(dir, 'personas', persona, 'data'))) {
+        for (const appId of await folders(join(dir, 'people', person, 'data'))) {
             if (!UUID.test(appId)) continue;
-            for (const name of (await files(join(dir, 'personas', persona, 'data', appId))).filter((file) => file.endsWith('.json'))) {
+            for (const name of (await files(join(dir, 'people', person, 'data', appId))).filter((file) => file.endsWith('.json'))) {
                 // A capital is kept as ^ and its small letter, so two bindings never share a file on a case-blind disk
                 const binding = name.slice(0, -'.json'.length).replace(/\^([a-z])/g, (_match, letter: string) => letter.toUpperCase());
-                const dataset = await readJson<{ model: string; records: object }>(join(dir, 'personas', persona, 'data', appId, name)).catch(() => undefined);
+                const dataset = await readJson<{ model: string; records: object }>(join(dir, 'people', person, 'data', appId, name)).catch(() => undefined);
                 if (dataset === undefined || typeof dataset.model !== 'string') continue;
-                await txInstances(tx, workspaceId, persona).writeData(appId.toLowerCase(), binding, { model: dataset.model, records: (dataset.records ?? {}) as never });
+                await txInstances(tx, workspaceId, person).writeData(appId.toLowerCase(), binding, { model: dataset.model, records: (dataset.records ?? {}) as never });
             }
         }
     }

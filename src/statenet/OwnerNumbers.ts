@@ -19,7 +19,7 @@ interface OwnerRow {
  * number; the ids stay what Magnetic's own tables and pages use, so this is where the two meet.
  *
  * A person's own workspace has the person's id and goes by the person's number; an org's workspace goes by the org's.
- * A number stands for the workspace that is the owner's tree. Anything that is not an id (a named test persona) goes
+ * A number stands for the workspace that is the owner's tree. Anything that is not an id (a named test person) goes
  * by itself.
  *
  * `of` and `idOf` answer at once, from what is known here; an id that was never looked up is an error, never passed

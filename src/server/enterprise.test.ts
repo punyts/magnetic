@@ -309,7 +309,7 @@ describe('Enterprise controls', () => {
         await magnetic.database.transaction(
             async (tx) => {
                 await tx.query("INSERT INTO chat_entry (workspace_id, app_id, user_id, role, text, at) VALUES ($1, $2, $3, 'person', 'old', $4), ($1, $2, $3, 'person', 'new', $5)", [workspaceId, appId, aliceId, new Date('2026-09-01T00:00:00Z'), new Date('2026-11-14T00:00:00Z')]);
-                for (const persona of ['left-person', aliceId]) await txInstances(tx, workspaceId, persona, magnetic.owners).write(appId, {}, { route: { screen: 'x' } } as never);
+                for (const person of ['left-person', aliceId]) await txInstances(tx, workspaceId, person, magnetic.owners).write(appId, {}, { route: { screen: 'x' } } as never);
                 await tx.query('UPDATE namespace_head SET updated_at = $2 WHERE workspace_id = $1', [workspaceId, new Date('2026-09-01T00:00:00Z')]);
             },
             { workspaceIds: [workspaceId] }
@@ -318,14 +318,14 @@ describe('Enterprise controls', () => {
         // Act
         const removed = await magnetic.policies.applyRetention(now);
         const left = await magnetic.database.transaction(
-            async (tx) => ({ chats: (await tx.query('SELECT text FROM chat_entry WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows, instances: (await tx.query("SELECT split_part(address, '/', 1) AS persona FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 3) = $2", [workspaceId, appId])).rows }),
+            async (tx) => ({ chats: (await tx.query('SELECT text FROM chat_entry WHERE workspace_id = $1 AND app_id = $2', [workspaceId, appId])).rows, instances: (await tx.query("SELECT split_part(address, '/', 1) AS person FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 3) = $2", [workspaceId, appId])).rows }),
             { workspaceIds: [workspaceId] }
         );
 
         // Assert
         expect(removed).toBe(2);
         expect(left.chats).toEqual([{ text: 'new' }]);
-        expect(left.instances).toEqual([{ persona: magnetic.owners.of(aliceId) }]);
+        expect(left.instances).toEqual([{ person: magnetic.owners.of(aliceId) }]);
     });
 
     it('should export the org for its owners, and delete it only when its short name is typed', async () => {

@@ -286,7 +286,7 @@ export type TreeKind =
     | 'pattern'
     | 'connection'
     | 'endpoint'
-    | 'persona'
+    | 'person'
     | 'instance'
     | 'library'
     | 'function';
@@ -380,13 +380,12 @@ export interface TreeInput {
     /** Whether the person manages the workspace's connections: only then does `$.connections` have a + */
     readonly manages: boolean;
     /**
-     * The person's own persona: its name (a persona is the person's own context, such as `work`; Magnetic gives each
-     * person `default` only), the owner of the apps (the workspace), and the apps of it they have state in, the most
-     * recently used first. Never another person's. The person themself is `$.user`, not a persona
+     * The person editing: their owner id, under which their state of each app is kept (`<person>/apps/<app>`), their
+     * name, and the apps of the workspace they have state in, the most recently used first. Never another person's
      */
-    readonly persona: {
+    readonly person: {
+        readonly id: string;
         readonly name: string;
-        readonly owner: string;
         readonly apps: readonly { readonly id: string; readonly updatedAt: string }[];
     };
     /** The functions the server runs: the host's under `$.functions.host`, others under `$.functions.<group>`, and each library component's under `$.components.<component>.functions` */
@@ -443,11 +442,11 @@ function places(node: unknown, component: string): boolean {
 
 /**
  * The owner's statenet as a tree of state paths: `$`, then `$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
- * `$.components`, `$.patterns`, `$.connections`, `$.functions` and `$.personas`, each holding every part of that kind the owner has. A part the
+ * `$.components`, `$.patterns`, `$.connections`, `$.functions` and `$.people`, each holding every part of that kind the owner has. A part the
  * app being edited does not use is drawn dimmed (`used: false`). One level is drawn below a part: the app's screens,
  * bindings (`uses.data`), own state (`data`) and outside reads (`uses.external`); a dataset's records (the first
- * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints; the person's own persona with the apps
- * they have state in (`$.personas.<persona>.apps.<owner>.<app id>`: the app being edited and the most recent others,
+ * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints; the person editing with the apps
+ * they have state in (`$.people.<person>.apps.<app id>`, their own state at their own id: the app being edited and the most recent others,
  * `TREE_RECORDS` in all); the server's functions by group
  * (`$.functions.<group>.<name>`), and a library component's under it (`$.components.<component>.functions.<name>`). A branch the person can add to has
  * `add`. The edges are what the tree does not show: what the app uses, a binding's dataset, a dataset's model, an
@@ -646,21 +645,21 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
         for (const each of from) edges.push({ from: each, to: path, kind: 'run' });
     }
 
-    // $.personas: the person's own, with their state of each app laid over its definition. Others' state is theirs
+    // $.people: the person editing, with their state of each app laid over its definition. Others' state is theirs
     const titles = new Map(input.apps.map((each) => [each.id.toLowerCase(), each]));
-    const persona = `$.personas.${input.persona.name}`;
-    const mine = input.persona.apps.filter((each) => titles.has(each.id.toLowerCase()));
-    branch('$.personas', '$', '$.personas', mine.some((each) => each.id.toLowerCase() === input.app.id.toLowerCase()));
+    const person = `$.people.${input.person.id.toLowerCase()}`;
+    const mine = input.person.apps.filter((each) => titles.has(each.id.toLowerCase()));
+    branch('$.people', '$', '$.people', mine.some((each) => each.id.toLowerCase() === input.app.id.toLowerCase()));
     // The app being edited and the most recent others, `TREE_RECORDS` in all, as a dataset shows its first records
     const isCurrent = (each: { id: string }): boolean => each.id.toLowerCase() === input.app.id.toLowerCase();
     const others = mine.filter((each) => !isCurrent(each)).slice(0, TREE_RECORDS - (mine.some(isCurrent) ? 1 : 0));
     const shownApps = mine.filter((each) => isCurrent(each) || others.includes(each));
-    add({ id: persona, parent: '$.personas', kind: 'persona', label: input.persona.name, note: '', used: true, ...(mine.length > shownApps.length && { more: mine.length - shownApps.length }) });
+    add({ id: person, parent: '$.people', kind: 'person', label: input.person.name, note: '', used: true, ...(mine.length > shownApps.length && { more: mine.length - shownApps.length }) });
     for (const each of shownApps) {
         const of = titles.get(each.id.toLowerCase()) as { id: string; name: string; title: string };
         const current = of.id.toLowerCase() === input.app.id.toLowerCase();
-        const id = `${persona}.apps.${input.persona.owner}.${of.id.toLowerCase()}`;
-        add({ id, parent: persona, kind: 'instance', label: current ? input.app.title : of.title, note: of.name, used: current, appId: of.id, updatedAt: each.updatedAt, ...(current && { current: true }) });
+        const id = `${person}.apps.${of.id.toLowerCase()}`;
+        add({ id, parent: person, kind: 'instance', label: current ? input.app.title : of.title, note: of.name, used: current, appId: of.id, updatedAt: each.updatedAt, ...(current && { current: true }) });
         edges.push({ from: `$.apps.${of.name}`, to: id, kind: 'instance' });
     }
     return { nodes: [...nodes.values()], edges };

@@ -418,7 +418,7 @@ function noteText(node) {
         case 'unit': return T['views.unit.' + (UNIT_KINDS[node.note] || '')] || node.note;
         case 'shared': return fill(T['views.note.sharedBy'], { name: node.note || T['views.note.anotherOwner'] });
         case 'otherApp': return fill(T['views.note.otherApp'], { path: node.note });
-        case 'persona': return T['views.note.persona'];
+        case 'person': return T['views.note.person'];
         case 'instance': return fill(T['views.note.lastUsed'], { date: new Date(node.updatedAt).toLocaleDateString(document.documentElement.lang || undefined) });
         case 'endpoint': return node.missing ? fill(T['views.note.missing'], { connection: node.note }) : node.note;
         case 'function': return joined(fill(T['views.note.function'], { kind: T['views.fn.' + node.note] || node.note, runs: node.fn.runs.map((side) => T['views.fn.' + side] || side).join(', ') }));
@@ -861,7 +861,7 @@ async function openNode(node) {
             case 'unit': return moduleUnitEditor(node);
             case 'component': return componentEditor(node);
             case 'connection': return connectionEditor(await part('connections', nameOf(node)), undefined, node.id);
-            case 'persona': return sideShow(node.id, { title: node.label, ...notes(T['views.personaNote']) });
+            case 'person': return sideShow(node.id, { title: node.label, ...notes(T['views.personNote']) });
             case 'instance': {
                 const open = node.current ? {} : { noOpenApp: false };
                 return sideShow(node.id, { title: node.label, ...notes(T['views.instanceNote'], noteText(node)), ...open }, { openApp: () => { location.href = '/edit/' + encodeURIComponent(node.appId); } });

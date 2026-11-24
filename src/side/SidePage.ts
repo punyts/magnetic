@@ -161,7 +161,7 @@ export const SIDE: PageSpec = {
         const t = textsOf('en');
         return {
             title: 'Side panel',
-            data: { side: { model: SIDE_APP, scope: 'persona' } },
+            data: { side: { model: SIDE_APP, scope: 'person' } },
             home: {
                 component: 'panel',
                 elevation: 'raised',

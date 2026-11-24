@@ -158,7 +158,7 @@ describe('Grants of state', () => {
             // Act
             const first = await grants.boundAccess(bobId, aliceId, 'prices');
             const again = await grants.boundAccess(bobId, aliceId, 'prices');
-            const owner = await grants.boundAccess('default', aliceId, 'prices');
+            const owner = await grants.boundAccess(aliceId, aliceId, 'prices');
 
             // Assert
             const claims = readGrant(first.grant as string);

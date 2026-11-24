@@ -24,7 +24,7 @@ export interface InstanceSummary {
 export interface SupportView extends InstanceSummary {
     /** What differs in their instance from the app's starting state: route, form values, choices */
     readonly instance: unknown;
-    /** The records of their own (persona) bindings, by binding */
+    /** The records of their own (person) bindings, by binding */
     readonly data: Readonly<Record<string, { readonly model: string; readonly records: unknown }>>;
 }
 
@@ -49,19 +49,19 @@ export class AppInstances {
         const rows = await this.db.transaction(
             async (tx) =>
                 (
-                    await tx.query<{ persona: string; updated_at: Date; name: string | null }>(
-                        `SELECT u.id::text AS persona, h.updated_at, u.name
+                    await tx.query<{ person: string; updated_at: Date; name: string | null }>(
+                        `SELECT u.id::text AS person, h.updated_at, u.name
                            FROM namespace_head h
                            JOIN app_user u ON u.owner_number::text = split_part(h.address, '/', 1)
                            JOIN org_member m ON m.org_id = $3 AND m.user_id = u.id
                           WHERE h.workspace_id = $1 AND h.address = split_part(h.address, '/', 1) || '/apps/' || $2
-                          ORDER BY h.updated_at DESC, persona`,
+                          ORDER BY h.updated_at DESC, person`,
                         [workspaceId, appId, orgId]
                     )
                 ).rows,
             { workspaceIds: [workspaceId] }
         );
-        return rows.map((row) => ({ userId: row.persona, name: row.name ?? '', updatedAt: row.updated_at.toISOString() }));
+        return rows.map((row) => ({ userId: row.person, name: row.name ?? '', updatedAt: row.updated_at.toISOString() }));
     }
 
     /** One member's instance of the app, read only, for an org admin or owner; written to the audit log */
@@ -71,7 +71,7 @@ export class AppInstances {
         if (this.grants !== undefined && (await this.db.query('SELECT 1 FROM org_member WHERE org_id = $1 AND user_id::text = $2', [orgId, userId])).rowCount === 1) {
             grantId = await this.grants.orgRead(orgId, userId);
             const token = await this.grants.tokenFor(grantId);
-            const checked = await this.grants.check({ subject: orgSubject(orgId), grant: token }, { address: userStateAddress(workspaceId, userId, appId), path: '$', right: 'read' });
+            const checked = await this.grants.check({ subject: orgSubject(orgId), grant: token }, { address: userStateAddress(userId, appId), path: '$', right: 'read' });
             if (!checked.ok) throw new OrgError(403, `The org may not read that person's state: ${checked.reason}`);
         }
         return this.db.transaction(
@@ -84,7 +84,7 @@ export class AppInstances {
                 if (member === undefined || !app) throw new OrgError(404, 'That person has no instance of this app.');
                 // Their own state of the app, at its statenet address
                 await this.owners?.ensure(userId, workspaceId);
-                const address = userStateAddress(workspaceId, userId, appId, this.owners);
+                const address = userStateAddress(userId, appId, this.owners);
                 const head = (await tx.query<{ updated_at: Date }>('SELECT updated_at FROM namespace_head WHERE address = $1 AND workspace_id = $2', [address, workspaceId])).rows[0];
                 const state = await STATE.read(tx, address);
                 if (head === undefined || state.value === undefined) throw new OrgError(404, 'That person has no instance of this app.');

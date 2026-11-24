@@ -121,7 +121,7 @@ export const THEME: PageSpec = {
         const modeTitle = (mode: string): string => t[`views.mode.${mode}` as 'views.mode.light'];
         return {
             title: t['shell.view.theme'],
-            data: { theme: { model: THEME_APP, scope: 'persona' } },
+            data: { theme: { model: THEME_APP, scope: 'person' } },
             home: {
                 component: 'panel',
                 elevation: 'raised',

@@ -51,7 +51,7 @@ export const APPS: PageSpec = {
         const t = textsOf('en');
         return {
             title: t['apps.board'],
-            data: { apps: { model: APPS_APP, scope: 'persona' } },
+            data: { apps: { model: APPS_APP, scope: 'person' } },
             home: {
                 component: 'panel',
                 padding: 'none',

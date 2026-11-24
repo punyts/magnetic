@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { DEFAULT_PERSONA } from '@punyts/stateui-mcp';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { User } from '../accounts/Accounts.js';
 import type { Connections } from '../connections/Connections.js';
@@ -28,8 +27,8 @@ export interface ViewRouteContext {
     readonly changeConnection: (user: User, form: URLSearchParams) => Promise<{ readonly tried?: { readonly status: string; readonly body: string }; readonly continueTo?: { readonly url: string; readonly host: string } }>;
     /** The datasets other owners shared with a workspace */
     readonly sharedDatasets: (workspaceId: string) => Promise<readonly { readonly owner: string; readonly ownerName: string; readonly dataset: string; readonly fields: readonly string[] }[]>;
-    /** The apps a persona has state in, by the id its state is kept under, the most recently used first */
-    readonly personaApps: (workspaceId: string, ownerId: string) => Promise<readonly { readonly id: string; readonly updatedAt: string }[]>;
+    /** The apps of a workspace a person (an owner id) has state in, the most recently used first */
+    readonly personApps: (workspaceId: string, person: string) => Promise<readonly { readonly id: string; readonly updatedAt: string }[]>;
     /** How many links the app is shared through */
     readonly sharedCount: (workspaceId: string, appId: string) => Promise<number>;
     /** Where each person left a view of the editor */
@@ -136,7 +135,7 @@ export function viewRoutes(context: ViewRouteContext) {
             return Object.fromEntries(found.filter((entry): entry is readonly [string, string] => entry[1] !== undefined));
         };
         const appRead = appNow(place);
-        const [app, document, apps, datasets, models, modules, themes, components, patterns, shared, listed, sharedWith, personaApps, appNames] = await Promise.all([
+        const [app, document, apps, datasets, models, modules, themes, components, patterns, shared, listed, sharedWith, personApps, appNames] = await Promise.all([
             appRead,
             documentOf(place),
             each('apps', async (name, id) => {
@@ -163,7 +162,7 @@ export function viewRoutes(context: ViewRouteContext) {
             context.sharedDatasets(place.workspaceId),
             context.connections.list(place.workspaceId),
             appRead.then((found) => context.sharedCount(place.workspaceId, found.id)),
-            context.personaApps(place.workspaceId, place.user.id),
+            context.personApps(place.workspaceId, place.user.id),
             appRead.then((found) => appNamesOf(usesOf(found)))
         ]);
         const uses = usesOf(app);
@@ -189,9 +188,8 @@ export function viewRoutes(context: ViewRouteContext) {
             ownerNames,
             appNames,
             manages: place.manages,
-            // Their own persona only, never another person's. Magnetic gives each person the default persona, whose state
-            // it keeps under their id
-            persona: { name: DEFAULT_PERSONA, owner: place.workspaceId, apps: personaApps },
+            // Their own state only, never another person's: it is kept under their id
+            person: { id: place.user.id, name: place.user.name, apps: personApps },
             // The functions this server runs: the host's and the component library's, shown as hard IP
             functions: place.services.functions
         });

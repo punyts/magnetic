@@ -1,5 +1,5 @@
 import type { UiToolDefinition } from '@punyts/stateui-mcp';
-import { PART_SOURCE, partSource, PERSONA_RECORD_SOURCE, personaRecordSource, RECORD_SOURCE, recordSource } from '@punyts/stateui-pg';
+import { PART_SOURCE, partSource, PERSON_RECORD_SOURCE, personRecordSource, RECORD_SOURCE, recordSource } from '@punyts/stateui-pg';
 import type { Database, EmbeddingIndex, EmbeddingSource } from '@punyts/stateui-pg';
 import { CHAT_SOURCE } from '../agent/Chats.js';
 import type { AppAccess } from '../orgs/AppAccess.js';
@@ -16,7 +16,7 @@ export const EMBEDDING_SOURCES: Readonly<Record<string, EmbeddingSource>> = {
     [PART_SOURCE]: partSource,
     [CHAT_SOURCE]: chatSource,
     [RECORD_SOURCE]: recordSource,
-    [PERSONA_RECORD_SOURCE]: personaRecordSource
+    [PERSON_RECORD_SOURCE]: personRecordSource
 };
 
 /** An app found by a search, as the home page shows it */

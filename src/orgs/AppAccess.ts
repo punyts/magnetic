@@ -241,8 +241,8 @@ export interface MovedApp {
 /**
  * Moves an app from a person's own workspace into an org's, in one transaction: the app keeps its id (so its URLs and
  * links keep working), the parts it reaches are copied into the org (the personal workspace keeps its copies, so its
- * other apps keep working), and its instances, persona records, files with their bytes, preview errors, chats and links
- * go with it. The owner's own instance becomes their instance as a member (persona = their user id). The person who
+ * other apps keep working), and its instances, person records, files with their bytes, preview errors, chats and links
+ * go with it. The owner's own instance becomes their instance as a member: it was already at their own id. The person who
  * moved it manages it in the org, and nobody else has it until they give access. The person must be a builder or
  * above in the org
  */
@@ -272,7 +272,7 @@ export async function moveAppToOrg(
             if (copied.kind !== 'copied') throw new OrgError(409, copied.kind === 'failed' ? copied.reason : 'The app could not be moved.');
             await tx.query("DELETE FROM part WHERE workspace_id = $1 AND kind = 'apps' AND id = $2", [personal, appId]);
             // People's state of the app keeps its addresses: the mover's own was already at their number (the personal
-            // workspace's default persona), which is their persona in the org. The aggregate moves it after this commits
+            // workspace's owner is them), which is where their state is in the org too. The aggregate moves it after this commits
             const stateAddresses = (
                 await tx.query<{ address: string }>("SELECT address FROM namespace_head WHERE workspace_id = $1 AND split_part(address, '/', 3) = $2 AND split_part(address, '/', 2) = 'apps'", [personal, appId.toLowerCase()])
             ).rows.map((row) => row.address);

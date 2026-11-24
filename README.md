@@ -47,7 +47,7 @@ Gia ($3 more given by the admin); and Theo (bought $10). Testers hold the other 
 `beta-full`. The seed runs on every start and adds only what is missing.
 
 Magnetic keeps everything in Postgres (`docs/design/magnetic-postgres.md` in the workspace): people, links, spend,
-chats and preferences in its own tables, and each workspace's parts, instances, persona records, uploaded files with
+chats and preferences in its own tables, and each workspace's parts, instances, person records, uploaded files with
 their bytes and preview errors in `@punyts/stateui-pg`'s. Nothing is written to disk. `npm run magnetic` applies the
 migrations as it starts (`--migrate`); a server started any other way refuses a database that is behind, so run
 `magnetic migrate` first.
@@ -93,7 +93,7 @@ The commands are:
 - `migrate`: apply the migrations, then exit;
 - `import`: copy the people of an earlier, file-based Magnetic's `--data-dir` into the database (`accounts.json`, live
   sessions, `grants.json`, `budgets.json` as ledger rows, every chat, and each user's workspace folder with its parts,
-  instances, persona records, files and preview errors); rows already there are left alone and a workspace that has
+  instances, person records, files and preview errors); rows already there are left alone and a workspace that has
   parts is skipped, so it can run twice;
 - `reindex`: queue every part, chat and embedded record field to be embedded again with the current model, embed them,
   then exit (after changing `--embedding`);
@@ -307,7 +307,7 @@ workspace, and stops when you sign out of that browser.
 
     **Statenet**, **Theme** and **Logic** each have their tools in a head and an editor at the side:
     - **Statenet:** the owner's tree by state path (`$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
-      `$.components`, `$.patterns`, `$.connections`, `$.functions`, `$.personas` with only your own persona), every part with what this app does not use dimmed and one level
+      `$.components`, `$.patterns`, `$.connections`, `$.functions`, `$.people` with only you, at your own id), every part with what this app does not use dimmed and one level
       below each. It is a page of Magnetic's (`magnetic-statenet`, a canvas that pans and zooms around a tree of
       cards) shown over the board in place of the screens; the editor's zoom and Fit drive its canvas, and its view is
       kept per app. A + on each branch
@@ -395,7 +395,7 @@ workspace, and stops when you sign out of that browser.
 
 - **Sharing** (`Grants`, as `link.*` entries of the `permission` table and the `opened` entries passed on from them). The editor's Share panel makes links to the app:
   - `use` (the default): each person who opens it gets their own instance of the app, with their own data
-    (persona = their user id);
+    (kept under their own id, `<person>/apps/<app>`);
   - `view`: the owner's instance, live and read only. Changes are rejected and file uploads refused;
   - `remix`: a copy of the app, and the parts it reaches, in the person's own workspace, theirs to change. No data
     or uploaded files are copied.
@@ -424,12 +424,12 @@ list (`src/orgs/`, `docs/design/magnetic-postgres.md`).
 
 An app's permission for a person is the highest of their own entry and their groups' entries on its access list
 (`manage`, `edit`, `use`, `view`), or `use` when the app is open to the org; owners, admins and whoever made the app
-manage it. Each member has their own instance of an org app (persona = their user id): their route, form values and
-the records of its persona bindings are theirs, and its datasets are shared. Only `edit` and up open the editor and the
+manage it. Each member has their own instance of an org app, kept under their own id: their route, form values and
+the records of its person bindings are theirs, and its datasets are shared. Only `edit` and up open the editor and the
 agent, and only `manage` shares it. Losing an app, or leaving the org, closes its open views at once.
 
 Moving an app of one's own into an org (`POST /apps/<id>/move`) keeps its id, so its address and links still work; its
-instances, persona records, files, chat and links go with it in one transaction, and the parts it reaches are copied
+instances, person records, files, chat and links go with it in one transaction, and the parts it reaches are copied
 (the person's own workspace keeps its copies). The org's apps show on Your apps beside the apps shared with the person.
 
 People manage their orgs at `/settings/orgs` (the **Orgs** button on Your apps): make an org, and on its page see the
@@ -568,10 +568,10 @@ that made it, and a search compares only that model's vectors, through the model
   weak, and merge the two lists by reciprocal rank; a hit found that way says `byMeaning: true`, and the result is weak
   only when the closest meaning is not close. The library is embedded once per catalog version and model
   (`catalog_embedding`), for every workspace and every server on the database.
-- A model's string field marked `embed: true` makes that field of every record searchable, in datasets and persona
+- A model's string field marked `embed: true` makes that field of every record searchable, in datasets and person
   bindings; a record edit queues only that record and field, and a model that starts or stops embedding a field queues
   its records. An app's logic asks with `call` (target `similar`, value `{ binding, field, text, limit? }`) and gets
-  `{ results: [{ key, score }] }`; over a persona binding, only the records of the person whose instance asks. The
+  `{ results: [{ key, score }] }`; over a person binding, only the records of the person whose instance asks. The
   agent gets `data_similar` for the same search.
 
 `--embedding local` (the default) runs all-MiniLM-L6-v2 on the CPU through ONNX Runtime: no key, and no text leaves

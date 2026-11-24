@@ -323,7 +323,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
 }
 
 /**
- * The fields of an app card. They have no defaults: a persona binding starts as its model's defaults, which on a map of
+ * The fields of an app card. They have no defaults: a person binding starts as its model's defaults, which on a map of
  * cards would be keys beside the cards, and the server writes `own` and `answered` on every app card
  */
 const CARD_FIELDS = [
@@ -390,10 +390,10 @@ export const HOME: PageSpec = {
         return {
             title: t['home.appsTitle'],
             data: {
-                home: { model: HOME_MODEL, scope: 'persona' },
-                apps: { model: CARD_MODEL, scope: 'persona' },
-                orgs: { model: CARD_MODEL, scope: 'persona' },
-                invites: { model: CARD_MODEL, scope: 'persona' }
+                home: { model: HOME_MODEL, scope: 'person' },
+                apps: { model: CARD_MODEL, scope: 'person' },
+                orgs: { model: CARD_MODEL, scope: 'person' },
+                invites: { model: CARD_MODEL, scope: 'person' }
             },
             home: homeScreen(t)
         };

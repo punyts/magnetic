@@ -22,13 +22,13 @@ The short path for a new app: (1) ui_theme_create from a preset; (2) ui_model_wr
 How behavior works:
 - A link "<-name": "$.path" shows the value at the path, and a field, checkbox or select the person changes writes it back. In a list row, "$row.field" is a field of that row's record, so a checkbox linked to "$row.done" saves the record.
 - A node's "on" entries (a button's press) run only set, toggle, emit and navigate, each with command, target and value (or from). Anything more, such as saving a new record, goes in a rule (ui_logic_write) that watches a flag the button sets. A rule's commands include save-data (a new record with a new key), set, toggle, merge, increment and delete-data, and "{{ }}" holds an expression.
-- Values a person types but does not keep (a draft, a flag) go in a model bound with scope "persona": a single record of its fields with their defaults, for each person.
+- Values a person types but does not keep (a draft, a flag) go in a model bound with scope "person": a single record of its fields with their defaults, for each person.
 
 The example: a to-do list app named "todo", built in seven calls.
 1. ui_theme_create { name: "todo", preset: "clean" }
 2. ui_model_write { model: "task", operations: [{ op: "set", field: "title", type: "string", required: true }, { op: "set", field: "done", type: "boolean", default: false }] }, and ui_data_write { dataset: "tasks", model: "task", operations: [{ op: "set", path: "t1", value: { title: "Buy milk", done: false } }] }
 3. ui_model_write { model: "todo-draft", operations: [{ op: "set", field: "text", type: "string", default: "" }, { op: "set", field: "add", type: "boolean", default: false }] }
-4. ui_app_configure { name: "todo", expectedRevision: 1, title: "To-do list", uses: { themes: ["todo"], data: { tasks: { dataset: "tasks" }, draft: { model: "todo-draft", scope: "persona" } } } }
+4. ui_app_configure { name: "todo", expectedRevision: 1, title: "To-do list", uses: { themes: ["todo"], data: { tasks: { dataset: "tasks" }, draft: { model: "todo-draft", scope: "person" } } } }
 5. ui_nodes_write { app: "todo", screen: "home", expectedRevision: 2, operations: [
   { op: "set", path: "root", value: { component: "panel", _title: "To-do list", layout: { type: "column", gap: "md" }, children: {} } },
   { op: "set", path: "root.children.add", value: { component: "toolbar", children: {

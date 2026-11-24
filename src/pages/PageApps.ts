@@ -104,7 +104,7 @@ export const SIGN_IN: PageSpec = {
         const t = textsOf('en');
         return {
             title: t['signin.title'],
-            data: { signin: { model: 'magnetic-signin', scope: 'persona' } },
+            data: { signin: { model: 'magnetic-signin', scope: 'person' } },
             home: centred({
                 brand: brand(),
                 tagline: { component: 'text', _text: t['signin.tagline'] },
@@ -156,7 +156,7 @@ export const LINK: PageSpec = {
         const t = textsOf('en');
         return {
             title: 'Magnetic',
-            data: { link: { model: 'magnetic-linkpage', scope: 'persona' } },
+            data: { link: { model: 'magnetic-linkpage', scope: 'person' } },
             home: centred({
                 brand: brand(),
                 top: {

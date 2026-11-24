@@ -57,10 +57,10 @@ beforeEach(async () => {
     await json(join(ws, 'apps', `${APP}.json`), { id: APP, kind: 'apps', name: 'notes', revision: 3, createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-06T00:00:00.000Z', body: { home: 'home', screens: { home: { root: { component: 'column', children: { zeta: {}, alpha: {} } } } } } });
     await mkdir(join(dir, ws, 'data'), { recursive: true });
     await json(join(ws, 'data', `${DATASET}.json`), { id: DATASET, kind: 'data', name: 'notes', revision: 2, createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-06T00:00:00.000Z', body: { model: 'note', records: { n2: { text: 'b' }, n1: { text: 'a' } } } });
-    await mkdir(join(dir, ws, 'personas', 'default', 'apps', ANA), { recursive: true });
-    await json(join(ws, 'personas', 'default', 'apps', ANA, `${APP}.json`), { route: { screen: 'edit' } });
-    await mkdir(join(dir, ws, 'personas', BEN, 'data', APP), { recursive: true });
-    await json(join(ws, 'personas', BEN, 'data', APP, 'my^notes.json'), { model: 'note', records: { b: { text: 'two' }, a: { text: 'one' } } });
+    await mkdir(join(dir, ws, 'people', ANA, 'apps', ANA), { recursive: true });
+    await json(join(ws, 'people', ANA, 'apps', ANA, `${APP}.json`), { route: { screen: 'edit' } });
+    await mkdir(join(dir, ws, 'people', BEN, 'data', APP), { recursive: true });
+    await json(join(ws, 'people', BEN, 'data', APP, 'my^notes.json'), { model: 'note', records: { b: { text: 'two' }, a: { text: 'one' } } });
     await mkdir(join(dir, ws, APP, 'files'), { recursive: true });
     await json(join(ws, APP, 'files.json'), [{ id: FILE, name: 'hello.txt', size: 5, type: 'text/plain', sha256: 'x', createdAt: '2026-10-07T00:00:00.000Z' }]);
     await writeFile(join(dir, ws, APP, 'files', FILE), 'hello');
@@ -92,7 +92,7 @@ describe('importPeople', () => {
         expect(Object.keys((app?.body as unknown as { screens: { home: { root: { children: object } } } }).screens.home.root.children)).toEqual(['zeta', 'alpha']);
         expect((await storage.parts.findById('data', DATASET))?.body).toEqual({ model: 'note' });
         expect(((await storage.datasets.load(datasetStateAddress(ANA, 'notes')))?.state['data'] as { records: object }).records).toEqual({ n2: { text: 'b' }, n1: { text: 'a' } });
-        expect((await storage.instances('default').get(APP)).value).toEqual({ route: { screen: 'edit' } });
+        expect((await storage.instances(ANA).get(APP)).value).toEqual({ route: { screen: 'edit' } });
         expect(Object.keys((await storage.instances(BEN).getData(APP, 'myNotes')).value?.records ?? {})).toEqual(['b', 'a']);
         expect(new TextDecoder().decode(await storage.fileStore.read(APP, '66666666-6666-4666-8666-666666666666'))).toBe('hello');
         expect((await storage.errorLog.list(APP)).map((error) => error.code)).toEqual(['E1']);

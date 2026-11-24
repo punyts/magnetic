@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A person's state of an app is kept under their own id, and personas are gone** (docs/design/person-state.md, stage
+  4). Breaking: an instance is keyed by the person (the user id), with no `default` persona: the owner's own instance
+  is the one whose person is the owner, and each member or `use` link opener has theirs under their own id. Bindings
+  say `scope: "person"`, record search keeps person records (`person-record`), and import reads `people/<person>`
+  folders. The editor's Statenet view shows `$.people.<your id>` with the apps you have state in. Tests:
+  `src/inspector/viewInfo.test.ts`, `src/server/viewRoutes.test.ts`, `src/server/enterprise.test.ts`,
+  `src/storage/importFiles.test.ts`.
 - **Magnetic is the first tile of a person's own space** (docs/design/magnetic-starter-apps.md). `/orgs/me` shows the
   person's own copy of the editor first, titled Magnetic, and zooming into it opens it in the editor. Your apps still
   leaves it out. Test: `src/apps/AppsPage.test.ts`.

@@ -113,7 +113,7 @@ export class OrgPolicies {
     }
 
     /**
-     * Applies each org's `retentionDays`: deletes the chats of its apps older than that, and the instances and persona
+     * Applies each org's `retentionDays`: deletes the chats of its apps older than that, and the instances and person
      * records of people no longer in the org not changed for that long, through the aggregate. Answers how many chat
      * entries and namespaces went
      */

@@ -147,7 +147,7 @@ describe('Semantic search', () => {
             kind: 'apps',
             name: 'helpdesk',
             body: {
-                uses: { data: { tickets: { dataset: 'tickets' }, ask: { model: 'ask', scope: 'persona' } } },
+                uses: { data: { tickets: { dataset: 'tickets' }, ask: { model: 'ask', scope: 'person' } } },
                 start: 'home',
                 app: { component: 'app' },
                 screens: { home: { root: { component: 'form', children: { question: { component: 'textField', _label: 'Question' } } } } },

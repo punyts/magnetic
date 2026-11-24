@@ -80,7 +80,7 @@ export function requestsRoutes(context: RequestsRouteContext) {
     async function showOne(response: ServerResponse, request: IncomingMessage, user: User, workspace: ManagedWorkspace, dataset: string, id: string): Promise<void> {
         if (grants === undefined) return showList(response, request, user, { error: { key: 'requests.gone' } }, 404);
         const services = await context.workspace(workspace.id);
-        const listed = await services.datasetSessions.list(dataset, await grants.boundAccess('default', workspace.id, dataset));
+        const listed = await services.datasetSessions.list(dataset, await grants.boundAccess(workspace.id, workspace.id, dataset));
         const found = listed?.requests.find((each) => each.id === id);
         if (listed === undefined || found === undefined) return showList(response, request, user, { error: { key: 'requests.gone' } }, 404);
         const look = await context.lookOf(request, user.id);
@@ -109,7 +109,7 @@ export function requestsRoutes(context: RequestsRouteContext) {
         if ((action !== 'approve' && action !== 'reject') || grants === undefined) return { error: { key: 'requests.gone' } };
         const note = (form.get('note') ?? '').trim().slice(0, MAX_NOTE);
         const services = await context.workspace(workspace.id);
-        const decided = await services.datasetSessions.decide(dataset, await grants.boundAccess('default', workspace.id, dataset), action, id, note === '' ? undefined : note);
+        const decided = await services.datasetSessions.decide(dataset, await grants.boundAccess(workspace.id, workspace.id, dataset), action, id, note === '' ? undefined : note);
         if (decided === undefined) return { error: { key: 'requests.noAnswer' } };
         context.report('Request decided', { workspace: workspace.id, dataset, id, status: decided.status, ...(decided.code !== undefined && { code: decided.code }) });
         if (decided.status === 'approved') return { notice: { key: 'requests.approved', values: { dataset } } };

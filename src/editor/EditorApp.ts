@@ -916,16 +916,16 @@ function editorScreen(t: Texts): Record<string, unknown> {
 function definition(): Record<string, unknown> {
     const t = textsOf('en');
     const data = {
-        editor: { model: 'magnetic-editor', scope: 'persona' },
-        messages: { model: 'magnetic-message', scope: 'persona' },
-        calls: { model: 'magnetic-call', scope: 'persona' },
-        links: { model: 'magnetic-link', scope: 'persona' },
-        components: { model: 'inspector-component', scope: 'persona' },
-        screens: { model: 'magnetic-screen', scope: 'persona' },
-        connections: { model: 'magnetic-connection', scope: 'persona' },
-        shared: { model: 'magnetic-connection', scope: 'persona' },
-        paths: { model: 'inspector-path', scope: 'persona' },
-        feed: { model: 'inspector-change', scope: 'persona' }
+        editor: { model: 'magnetic-editor', scope: 'person' },
+        messages: { model: 'magnetic-message', scope: 'person' },
+        calls: { model: 'magnetic-call', scope: 'person' },
+        links: { model: 'magnetic-link', scope: 'person' },
+        components: { model: 'inspector-component', scope: 'person' },
+        screens: { model: 'magnetic-screen', scope: 'person' },
+        connections: { model: 'magnetic-connection', scope: 'person' },
+        shared: { model: 'magnetic-connection', scope: 'person' },
+        paths: { model: 'inspector-path', scope: 'person' },
+        feed: { model: 'inspector-change', scope: 'person' }
     };
     return { title: t['editor.title'], data, icons: EDITOR_ICONS, app: { seeThrough: true }, home: editorScreen(t) };
 }

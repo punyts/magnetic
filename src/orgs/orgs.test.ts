@@ -188,7 +188,7 @@ describe('moveAppToOrg', () => {
         await appIn(org.workspaceId, 'tracker');
         const app = await appIn(ana, 'tracker');
         const mine = pgWorkspaceStorage(test.db, ana);
-        await mine.instances('default').write(app, {}, { route: { screen: 'edit' } });
+        await mine.instances(ana).write(app, {}, { route: { screen: 'edit' } });
         await mine.instances(ben).writeData(app, 'notes', { model: 'note', records: { a: { text: 'one' } } });
         await mine.fileStore.save(
             app,

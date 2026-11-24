@@ -1,4 +1,3 @@
-import { DEFAULT_PERSONA } from '@punyts/stateui-mcp';
 import type { AppProcedure, UiPartRepository, UiToolDefinition } from '@punyts/stateui-mcp';
 import type { RecordSimilarity, SimilarRequest } from '@punyts/stateui-pg';
 
@@ -22,14 +21,14 @@ export function similarRequestOf(value: unknown): SimilarRequest | string {
 
 /**
  * The `similar` server procedure of one workspace: Full-mode logic calls it with `{ binding, field, text, limit? }` and
- * gets `{ results: [{ key, score }] }` for the records of the app's binding, a persona binding's for the persona whose
- * instance calls (the workspace's default persona when the call comes from no instance)
+ * gets `{ results: [{ key, score }] }` for the records of the app's binding, a person binding's for the person whose
+ * instance calls (the workspace's owner when the call comes from no instance)
  */
 export function similarProcedure(similarity: RecordSimilarity, workspaceId: string, parts: () => Parts): AppProcedure {
     return async (payload, context) => {
         const request = similarRequestOf(payload);
         if (typeof request === 'string') return { status: 'rejected', reason: request };
-        const answer = await similarity.similar({ workspaceId, parts: parts(), appId: context.appId, persona: context.persona ?? DEFAULT_PERSONA }, request);
+        const answer = await similarity.similar({ workspaceId, parts: parts(), appId: context.appId, person: context.person ?? workspaceId }, request);
         return answer.kind === 'found' ? { status: 'accepted', value: { results: answer.results.map((found) => ({ key: found.key, score: found.score })) } } : { status: 'rejected', reason: answer.reason };
     };
 }
@@ -39,7 +38,7 @@ export function similarTool(similarity: RecordSimilarity, userId: string, worksp
     return {
         name: 'data_similar',
         description:
-            "Find the records of an app's data binding whose field is closest in meaning to a text, best first: the keys with a score from 0 to 1. The field must be a string field its model marks embed: true (ui_model_write). Over a persona binding, only the records of the person you work for. Read the records themselves with ui_data_query or ui_state_get.",
+            "Find the records of an app's data binding whose field is closest in meaning to a text, best first: the keys with a score from 0 to 1. The field must be a string field its model marks embed: true (ui_model_write). Over a person binding, only the records of the person you work for. Read the records themselves with ui_data_query or ui_state_get.",
         inputSchema: {
             type: 'object',
             properties: {
@@ -57,9 +56,8 @@ export function similarTool(similarity: RecordSimilarity, userId: string, worksp
             if (typeof request === 'string') return { isError: true, body: { error: 'invalid-argument', message: request } };
             const app = typeof args['app'] === 'string' ? await parts.findByName('apps', args['app']) : undefined;
             if (app === undefined) return { isError: true, body: { error: 'not-found', message: `No app named "${String(args['app'] ?? '')}"; ui_list lists the apps` } };
-            // The person's own instance in an org's workspace; the workspace's default persona in their own
-            const persona = workspaceId === userId ? DEFAULT_PERSONA : userId;
-            const answer = await similarity.similar({ workspaceId, parts, appId: app.id, persona }, request);
+            // The person's own instance: in their own workspace, the workspace's owner is them
+            const answer = await similarity.similar({ workspaceId, parts, appId: app.id, person: userId }, request);
             if (answer.kind === 'refused') return { isError: true, body: { error: 'refused', message: answer.reason } };
             return { isError: false, body: { results: answer.results } };
         }
