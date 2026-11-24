@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A workspace's apps are a board at `/orgs/<org>` and `/orgs/me`, and zooming out of the editor goes there**
+  (docs/design/magnetic-zoom.md, stage 3). The page `magnetic-apps` (`src/apps/AppsPage.ts`, `/assets/apps.json`)
+  shows the apps the person may open as cards in rows of five on a canvas, under a level bar; the server writes the
+  cards into the page (`src/http/apps.ts`). A press or Ctrl+Shift+= opens the editor or, for `use` and `view`, the
+  running app; Ctrl+Shift+- goes to Your apps. `?app=<id>` selects and centers that card. Ctrl+Shift+- in the editor
+  and the level bar's workspace now go to `/orgs/<org>?app=<id>` (`/orgs/me` for the person's own) instead of `/`.
+  Anyone not in the org gets 404. Tests: `src/apps/AppsPage.test.ts`, `e2e/apps.spec.ts`, `e2e/address.spec.ts`,
+  `e2e/levels.spec.ts`.
 - **Ctrl+Shift+= and Ctrl+Shift+- zoom between the editor and the running app, under a level bar**
   (docs/design/magnetic-zoom.md, stage 2). Breaking: Ctrl+Shift+E is removed. Zooming in from the editor goes to the
   running app on the selected screen, or else the one most in view, in one history entry; zooming out of the running

@@ -86,7 +86,7 @@ test.describe('The address', () => {
         await expect(liveFrame(page, 'About')).toBeVisible();
     });
 
-    test('should zoom out of the editor to the person\'s apps', async ({ page }) => {
+    test('should zoom out of the editor to the board of its workspace\'s apps', async ({ page }) => {
         // Arrange
         await page.goto(`/edit/${appId}`);
         await editor.ready();
@@ -96,6 +96,6 @@ test.describe('The address', () => {
         await page.keyboard.press('Control+Shift+Minus');
 
         // Assert
-        await expect(page).toHaveURL(/\/$/);
+        await expect(page).toHaveURL(new RegExp(`/orgs/me\\?app=${appId}$`));
     });
 });

@@ -28,6 +28,6 @@ test.describe('The level bar', () => {
         await expect(bar).toBeHidden();
         await page.goBack();
         await expect(page).toHaveURL(new RegExp(`/apps/${appId}$`));
-        await expect(bar.getByRole('link', { name: 'Yours' })).toHaveAttribute('href', '/');
+        await expect(bar.getByRole('link', { name: 'Yours' })).toHaveAttribute('href', `/orgs/me?app=${appId}`);
     });
 });

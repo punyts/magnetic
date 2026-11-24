@@ -30,6 +30,8 @@ export interface ShellPageOptions {
     readonly look: PageLook;
     /** The org whose workspace holds the app, shown beside its name; absent for the person's own */
     readonly workspace?: string;
+    /** The org whose workspace holds the app, by id; absent for the person's own. Zooming out of the editor goes to its board of apps */
+    readonly org?: string;
 }
 
 /**
@@ -66,7 +68,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${ZOOM_KEYS.in} ${ZOOM_KEYS.out}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${ZOOM_KEYS.in} ${ZOOM_KEYS.out}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}" data-board="${escapeHtml(boardOf(options))}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="editor" id="editor"></div>',
         levelBar(options, t),
         '<div class="alone" id="alone"></div>',
@@ -85,15 +87,20 @@ export function shellPage(options: ShellPageOptions): string {
     ].join('\n');
 }
 
+/** The board of apps of the app's workspace, with the app's tile selected: where zooming out of the editor goes */
+function boardOf(options: ShellPageOptions): string {
+    return '/orgs/' + (options.org === undefined ? 'me' : encodeURIComponent(options.org)) + '?app=' + encodeURIComponent(options.appId);
+}
+
 /**
- * The level bar over the running app: the workspace (to the person's apps), the app (out to the editor) and the screen
+ * The level bar over the running app: the workspace (to its board of apps), the app (out to the editor) and the screen
  * showing, which `/assets/screens.js` names (`magneticShell.levelScreen`). On a phone it is the way out, with no keys
  */
 function levelBar(options: ShellPageOptions, t: ReturnType<typeof textsOf>): string {
     const app = '/edit/' + encodeURIComponent(options.appId);
     return [
         `<nav class="levels" id="levels" aria-label="${escapeHtml(t['shell.levels'])}">`,
-        `<a class="level" id="level-workspace" href="/">${escapeHtml(options.workspace ?? t['shell.ownWorkspace'])}</a>`,
+        `<a class="level" id="level-workspace" href="${escapeHtml(boardOf(options))}">${escapeHtml(options.workspace ?? t['shell.ownWorkspace'])}</a>`,
         '<span class="level-gap" aria-hidden="true">›</span>',
         `<a class="level" id="level-app" href="${escapeHtml(app)}">${escapeHtml(options.name)}</a>`,
         '<span class="level-gap" aria-hidden="true">›</span>',
@@ -1105,10 +1112,10 @@ function zoomIn() {
     setEditing(false, false, screen ? { screen } : {});
 }
 
-/** Zooming out: from the running app to the editor, on the screen that was showing; from the editor to the person's apps */
+/** Zooming out: from the running app to the editor, on the screen that was showing; from the editor to the board of apps of its workspace, on its tile */
 function zoomOut() {
     if (!editing()) setEditing(true);
-    else location.assign('/');
+    else location.assign(document.body.dataset.board || '/');
 }
 
 /**

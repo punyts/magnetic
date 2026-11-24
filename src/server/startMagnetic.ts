@@ -22,6 +22,9 @@ import { Chats } from '../agent/Chats.js';
 import { agentSystemPrompt } from '../agent/instructions.js';
 import { AGENT_MODELS, modelChoice } from '../agent/models.js';
 import { HOME_CSS, HOME_JS, homePage } from '../http/home.js';
+import { APPS_CSS, APPS_JS, appsPage } from '../http/apps.js';
+import type { AppTile } from '../http/apps.js';
+import { APPS } from '../apps/AppsPage.js';
 import { privacyPage } from '../http/privacy.js';
 import type { PrivacyContact } from '../http/privacy.js';
 import { databaseExclusive } from '../storage/exclusive.js';
@@ -159,7 +162,8 @@ const EDITOR_PAGES: ReadonlyMap<string, PageSpec> = new Map([
     ['/assets/statenet.json', STATENET],
     ['/assets/theme.json', THEME],
     ['/assets/logic.json', LOGIC],
-    ['/assets/side.json', SIDE]
+    ['/assets/side.json', SIDE],
+    ['/assets/apps.json', APPS]
 ]);
 
 /** An app part, as the views find it */
@@ -702,7 +706,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     // The server's orgs, made before the pages: the company org holds Magnetic's own pages (docs/design/magnetic-orgs-and-invites.md)
     const serverOrgs = options.serverOrgs === undefined || options.serverOrgs.length === 0 ? [] : await exclusive('server-orgs', () => ensureServerOrgs({ orgs, policies, report: (message, fields) => options.report.info(message, fields) }, options.serverOrgs ?? []));
     const pagesWorkspaceId = serverOrgs.find((org) => org.pages === true)?.workspaceId ?? PAGES_WORKSPACE_ID;
-    const sitePages = new SitePages(db, pagesWorkspaceId, fixedWorkspace(pagesWorkspaceId), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC, SIDE], exclusive);
+    const sitePages = new SitePages(db, pagesWorkspaceId, fixedWorkspace(pagesWorkspaceId), toolsOf, stamps, pageApps, [PAGE_APPS.signIn, PAGE_APPS.link, HOME, EDITOR, STATENET, SCREENS, THEME, LOGIC, SIDE, APPS], exclusive);
     /** Each person's "Your apps", made from Magnetic's version and kept when they change it */
     const homes = new HomeApps(toolsOf, stamps, exclusive, () => sitePages);
     /** Each person's editor, made from Magnetic's version and kept when they change it */
@@ -1221,6 +1225,56 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         response.end(html);
     }
 
+    /**
+     * `GET /orgs/<org>` and `GET /orgs/me`: the apps of a workspace the person may open, as a board
+     * (docs/design/magnetic-zoom.md, stage 3). Their own space holds their own apps and the apps shared with them by
+     * link; an org's holds the apps of its workspace they may open. Anyone not in the org gets 404
+     */
+    async function appsBoardRoute(request: IncomingMessage, response: ServerResponse, which: string): Promise<void> {
+        const who = await signedIn(request);
+        if (who === undefined) {
+            redirect(response, `/signin?next=${encodeURIComponent(safeNext(request.url))}`);
+            return;
+        }
+        const user = who.user;
+        const look = await lookOf(request, user.id);
+        const t = textsOf(look.language);
+        const changed = (at: Date): string => fill(t['home.changed'], { date: at.toLocaleDateString(look.language === 'en' ? 'en-GB' : look.language, { day: 'numeric', month: 'short', year: 'numeric' }) });
+        const newest = (a: { readonly updatedAt: Date }, b: { readonly updatedAt: Date }): number => b.updatedAt.getTime() - a.updatedAt.getTime();
+        let name: string;
+        let tiles: AppTile[];
+        if (which === 'me') {
+            const services = await workspaces.get(user.id);
+            const homeId = await homes.id(services, user.id);
+            name = t['shell.ownWorkspace'];
+            tiles = [...(await services.instanceViews.list())]
+                .filter((app) => app.id !== homeId && app.name !== EDITOR_APP && app.name !== HOME_APP)
+                .sort(newest)
+                .map((app) => ({ id: app.id, title: app.name, note: changed(app.updatedAt), href: `/edit/${encodeURIComponent(app.id)}` }));
+            // The apps shared with them by link, but not those they rejected
+            const answers = await shareAnswers.of(user.id);
+            for (const grant of await grants.sharedWith(user.id)) {
+                if (answers.get(grant.appId) === 'rejected' || tiles.some((tile) => tile.id === grant.appId)) continue;
+                const owner = await accounts.user(grant.ownerId);
+                tiles.push({ id: grant.appId, title: grant.appName, note: fill(t[grant.right === 'use' ? 'home.sharedUse' : 'home.sharedView'], { owner: owner?.name ?? 'Someone' }), href: `/apps/${encodeURIComponent(grant.appId)}` });
+            }
+        } else {
+            const org = await orgs.get(which);
+            if (org === undefined || (await orgs.role(org.id, user.id)) === undefined) throw new HttpError(404, 'No org with this id', 'not_found');
+            name = org.name;
+            const visible = await access.visibleApps(user.id, org.workspaceId);
+            tiles = [...(await (await workspaces.get(org.workspaceId)).instanceViews.list())]
+                .filter((app) => visible.has(app.id) && app.name !== EDITOR_APP && app.name !== HOME_APP)
+                .sort(newest)
+                .map((app) => {
+                    const permission = visible.get(app.id);
+                    const edits = permission === 'manage' || permission === 'edit';
+                    return { id: app.id, title: app.name, note: changed(app.updatedAt), href: `/${edits ? 'edit' : 'apps'}/${encodeURIComponent(app.id)}` };
+                });
+        }
+        sendAppPage(request, response, appsPage({ name, tiles, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, look }));
+    }
+
     /** `GET /`: the person's "Your apps", with the lists written into its data first */
     async function homeRoute(request: IncomingMessage, response: ServerResponse, user: User): Promise<void> {
         const services = await workspaces.get(user.id);
@@ -1595,6 +1649,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             sendAsset(response, 'text/javascript', SCREENS_JS);
             return true;
         }
+        if (method === 'GET' && path === '/assets/apps.js') {
+            sendAsset(response, 'text/javascript', APPS_JS);
+            return true;
+        }
+        if (method === 'GET' && path === '/assets/apps.css') {
+            sendAsset(response, 'text/css', APPS_CSS);
+            return true;
+        }
         if (method === 'GET' && path === '/assets/views.js') {
             sendAsset(response, 'text/javascript', VIEWS_JS);
             return true;
@@ -1734,6 +1796,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             return true;
         }
         if (await handleScim(request, response, method, path, url.searchParams)) return true;
+        const board = /^\/orgs\/(me|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(path);
+        if (board !== null && method === 'GET') {
+            await appsBoardRoute(request, response, board[1] as string);
+            return true;
+        }
         if (await handleOrgRoute(request, response, method, path)) return true;
         if (await handleOrgSettings(request, response, method, path, url.searchParams)) return true;
         if (await handleInvite(request, response, method, path)) return true;
@@ -1769,7 +1836,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         look: PageLook,
         persona?: string,
         models: readonly string[] = turns.models,
-        workspace?: string
+        workspace?: string,
+        org?: string
     ): string {
         return shellPage({
             look,
@@ -1782,7 +1850,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             models: models.map(modelChoice),
             editing,
             blank: isBlankApp(app.body),
-            ...(workspace !== undefined && { workspace })
+            ...(workspace !== undefined && { workspace }),
+            ...(org !== undefined && { org })
         });
     }
 
@@ -1798,7 +1867,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             redirect(response, '/');
             return true;
         }
-        sendShellPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place)));
+        sendShellPage(request, response, appShellPage(request, services, app, false, await lookOf(request, who.user.id), place.orgId === undefined ? undefined : who.user.id, await modelsFor(place.orgId), await workspaceNameOf(place), place.orgId));
         return true;
     }
 
@@ -1822,7 +1891,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const persona = place.orgId === undefined ? undefined : who.user.id;
         const userId = who.user.id;
         if (what === undefined && method === 'GET') {
-            sendShellPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await workspaceNameOf(place)));
+            sendShellPage(request, response, appShellPage(request, services, app, true, await lookOf(request, who.user.id), persona, await modelsFor(place.orgId), await workspaceNameOf(place), place.orgId));
             return;
         }
         if (what === '/events' && method === 'GET') {
