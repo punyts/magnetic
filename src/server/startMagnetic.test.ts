@@ -289,7 +289,7 @@ describe('Magnetic limits', () => {
         await expect(start({ host: '0.0.0.0' })).rejects.toThrow('Development users are only offered on a loopback host');
     });
 
-    it('should give a new workspace the component showcase as its starter', async () => {
+    it('should give a new workspace the component showcase, Northwind Ops and the Lumen desktop as its starters', async () => {
         // Arrange
         const magnetic = await start({ starter: 'showcase' });
         try {
@@ -299,7 +299,7 @@ describe('Magnetic limits', () => {
             const home = await homeOf(magnetic, cookie);
 
             // Assert
-            expect(home.apps.map((app) => app.name)).toEqual(['component-showcase']);
+            expect(home.apps.map((app) => app.name).sort()).toEqual(['component-showcase', 'lumen-desktop', 'northwind-ops']);
         } finally {
             await magnetic.stop();
         }

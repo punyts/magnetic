@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A new person's own space starts with Northwind Ops and the Lumen desktop beside the showcase**
+  (docs/design/magnetic-starter-apps.md). The starters come with stateui-mcp's showcase parts, so every new workspace
+  gets the component showcase, both apps and their datasets. Test: `src/server/startMagnetic.test.ts` (a new
+  workspace's starters).
 - **A person's state of an app is kept under their own id, and personas are gone** (docs/design/person-state.md, stage
   4). Breaking: an instance is keyed by the person (the user id), with no `default` persona: the owner's own instance
   is the one whose person is the owner, and each member or `use` link opener has theirs under their own id. Bindings
