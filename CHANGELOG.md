@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The editor is a test run; the app at its address is real use** (docs/design/stateui-test-runs.md). Breaking: the
+  editor (`/edit/<id>`), the agent's tools and its browser run an app as the workspace's test run, whose shared
+  datasets are copies that `ui_state_reset` throws away, while `/apps/<id>` syncs with the person's own instance and
+  writes the datasets. Zooming between them reconnects the page's view to the other instance. The tenant reads
+  `run=test` from the view's socket and exports; the State view's graph lists the person's real state only. Your apps
+  writes its lists into the person's own instance and its page syncs with it (`HomeApps`). Tests:
+  `src/server/viewRoutes.test.ts` (the two namespaces of the page, the State tab writing a copy),
+  `src/server/statenet.test.ts` (the test run's address across servers), the e2e suites of Your apps
+  (`e2e/home.spec.ts`, `e2e/profile.spec.ts`).
 - **A new person's own space starts with Northwind Ops and the Lumen desktop beside the showcase**
   (docs/design/magnetic-starter-apps.md). The starters come with stateui-mcp's showcase parts, so every new workspace
   gets the component showcase, both apps and their datasets. Test: `src/server/startMagnetic.test.ts` (a new

@@ -101,6 +101,25 @@ describe("The editor's view routes", () => {
         await magnetic.stop();
     });
 
+    it("should sync the app at its address with the owner's own instance, and the editor with the test run", async () => {
+        // Arrange
+        const page = async (path: string): Promise<string> => (await fetch(`${magnetic.origin}${path}`, { headers: { Cookie: alice } })).text();
+        const attribute = (html: string, name: string): string | undefined => new RegExp(`${name}="([^"]+)"`).exec(html)?.[1];
+
+        // Act
+        const app = await page(`/apps/${appId}`);
+        const editor = await page(`/edit/${appId}`);
+
+        // Assert
+        const own = `instances.${aliceId}.${aliceId}.${appId}`.toLowerCase();
+        const test = `instances.test-${aliceId}.${aliceId}.${appId}`.toLowerCase();
+        expect(attribute(app, 'data-namespace')).toBe(own);
+        expect(attribute(app, 'data-run')).toBeUndefined();
+        expect(attribute(editor, 'data-namespace')).toBe(test);
+        expect(attribute(editor, 'data-run')).toBe('test');
+        expect([attribute(editor, 'data-test-namespace'), attribute(editor, 'data-own-namespace')]).toEqual([test, own]);
+    });
+
     it("should answer a screen's layout, the paths it uses, its handlers and the units touching it", async () => {
         // Act
         const answer = await get('screen?screen=home');
@@ -145,23 +164,32 @@ describe("The editor's view routes", () => {
         expect(refused.status).toBe(400);
     });
 
-    it("should read and set a path of the person's state, and refuse a shared dataset or a path outside $.data", async () => {
+    it("should read and set a path of the test run's state, write a shared dataset to its copy, and refuse a path outside $.data", async () => {
+        // Arrange
+        const dataset = (await get('part?kind=data&name=notes')).body['records'];
+
         // Act
         const set = await post('state', { path: '$.data.mine.m1', value: { title: 'Mine', done: true } });
         const read = await get('state?path=' + encodeURIComponent('$.data.mine.m1.title'));
         const shared = await post('state', { path: '$.data.notes.n1.title', value: 'Open' });
+        const copy = await get('state?path=' + encodeURIComponent('$.data.notes.n1.title'));
         const outside = await post('state', { path: '$.theme.active', value: {} });
 
         // Assert
         expect(set.status, JSON.stringify(set.body)).toBe(200);
         expect(read.body['value']).toBe('Mine');
-        expect(shared.status).toBe(400);
+        expect(shared.status, JSON.stringify(shared.body)).toBe(200);
+        expect(copy.body['value']).toBe('Open');
+        expect((await get('part?kind=data&name=notes')).body['records']).toEqual(dataset);
         expect(outside.status).toBe(400);
     });
 
     it("should show the person editing under $.people, at their own id, with the app once they have state in it, and no one else's", async () => {
-        // Arrange: state of the person's own in the app
-        await post('state', { path: '$.data.mine.m2', value: { title: 'Kept', done: false } });
+        // Arrange: state of the person's own in the app, from using it at its address; the editor's test run is not theirs
+        const services = await magnetic.workspaces.get(aliceId);
+        const app = (await services.parts.findById('apps', appId)) as NonNullable<Awaited<ReturnType<typeof services.parts.findById<'apps'>>>>;
+        (await services.instanceViews.authority(app, aliceId)).write({ op: 'set', path: '$.data.mine.m2', value: { title: 'Kept', done: false } });
+        await post('state', { path: '$.data.mine.m3', value: { title: 'Tried', done: false } });
 
         // Act
         const answer = await get('graph');

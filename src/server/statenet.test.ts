@@ -46,9 +46,10 @@ interface View {
     readonly closed: Promise<number>;
 }
 
+/** A view socket of the editor: a test run (docs/design/stateui-test-runs.md) */
 function openView(magnetic: RunningMagnetic, appId: string, cookie: string): Promise<View> {
     return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`${magnetic.origin.replace('http', 'ws')}/apps/${appId}/sync?view=${randomUUID()}`, { headers: { Origin: magnetic.origin, Cookie: cookie } });
+        const ws = new WebSocket(`${magnetic.origin.replace('http', 'ws')}/apps/${appId}/sync?view=${randomUUID()}&run=test`, { headers: { Origin: magnetic.origin, Cookie: cookie } });
         const frames: Frame[] = [];
         const waiting: Array<{ type: string; where: (frame: Frame) => boolean; resolve: (frame: Frame) => void }> = [];
         const wire = testWire();
@@ -148,9 +149,9 @@ describe('several Magnetic servers on one database', () => {
         return (await services.parts.findById('apps', created.id)) as UiPart<'apps'>;
     }
 
-    /** A view at a server of alice's instance of the app, welcomed */
+    /** A view at a server of alice's test run of the app, as her editor opens it, welcomed */
     async function viewAt(at: RunningMagnetic, app: UiPart<'apps'>): Promise<View> {
-        const namespace = namespaceOf(await (await fetch(`${at.origin}/apps/${app.id}`, { headers: { Cookie: cookie } })).text());
+        const namespace = namespaceOf(await (await fetch(`${at.origin}/edit/${app.id}`, { headers: { Cookie: cookie } })).text());
         const view = await openView(at, app.id, cookie);
         view.send({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 4 });
         await view.next('welcome');
@@ -161,7 +162,7 @@ describe('several Magnetic servers on one database', () => {
         // Arrange: server one runs the instance, as a tool there made it
         const app = await newApp(one, 'ledger');
         await one.owners.ensure(aliceId);
-        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}.test`;
         const authority = await (await one.workspaces.get(aliceId)).instanceViews.authority(app);
         authority.write({ op: 'set', path: '$.app.note', value: 'from one' });
 
@@ -216,7 +217,7 @@ describe('several Magnetic servers on one database', () => {
         // Arrange
         const app = await newApp(one, 'notes');
         await one.owners.ensure(aliceId);
-        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}.test`;
         (await (await one.workspaces.get(aliceId)).instanceViews.authority(app)).write({ op: 'set', path: '$.app.kept', value: 'yes' });
         const viewAtOne = await viewAt(one, app);
 
@@ -238,7 +239,7 @@ describe('several Magnetic servers on one database', () => {
         // Arrange: the instance is held, for a while yet, by a server that is no longer there
         const app = await newApp(two, 'accounts');
         await one.owners.ensure(aliceId);
-        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}.test`;
         await two.database.query(
             "INSERT INTO namespace_owner (address, node, epoch, lease_until) VALUES ($1, 'gone-in-the-deploy', 7, now() + interval '1 second') ON CONFLICT (address) DO UPDATE SET node = EXCLUDED.node, epoch = EXCLUDED.epoch, lease_until = EXCLUDED.lease_until",
             [address]
@@ -274,7 +275,7 @@ describe('several Magnetic servers on one database', () => {
         // Arrange
         const app = await newApp(two, 'journal');
         await two.owners.ensure(aliceId);
-        const address = `${two.owners.of(aliceId)}/apps/${app.id}`;
+        const address = `${two.owners.of(aliceId)}/apps/${app.id}.test`;
         const savesBefore = aggregate.node.aggregate.stats().saves;
 
         // Act
@@ -295,7 +296,7 @@ describe('several Magnetic servers on one database', () => {
         // Arrange
         const app = await newApp(one, 'diary');
         await one.owners.ensure(aliceId);
-        const address = `${one.owners.of(aliceId)}/apps/${app.id}`;
+        const address = `${one.owners.of(aliceId)}/apps/${app.id}.test`;
         (await (await one.workspaces.get(aliceId)).instanceViews.authority(app)).write({ op: 'set', path: '$.app.before', value: 'stopped' });
 
         // Act
@@ -411,7 +412,7 @@ describe('Magnetic servers in two groups', () => {
 
         // Act
         const westCookie = await signIn(west.origin, 'alice');
-        const namespace = namespaceOf(await (await fetch(`${west.origin}/apps/${app.id}`, { headers: { Cookie: westCookie } })).text());
+        const namespace = namespaceOf(await (await fetch(`${west.origin}/edit/${app.id}`, { headers: { Cookie: westCookie } })).text());
         const view = await openView(west, app.id, westCookie);
         view.send({ type: 'hello', namespace, revision: 0, clientId: randomUUID(), protocol: 4 });
         const welcome = await view.next('welcome');

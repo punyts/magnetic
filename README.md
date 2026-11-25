@@ -255,7 +255,11 @@ workspace, and stops when you sign out of that browser.
   to the running app on the selected screen, or else the one most in view, and Ctrl+Shift+- out to the board of its
   workspace's apps. Each zoom pushes a history entry. The page names both chords in `data-host-keys`, so the runtime hands them over while
   the app has focus. The level bar names the workspace (to its board of apps), the app (out to the editor) and the screen; on a
-  phone it is the way out. Another person's app, or a shared one, is served by stateui-mcp as before.
+  phone it is the way out. The app at its address is real use and syncs with the person's own instance; the editor is
+  a test run (docs/design/stateui-test-runs.md) and syncs with the workspace's test instance, whose shared datasets are
+  copies a reset throws away. The page carries both namespaces (`data-own-namespace`, `data-test-namespace`), and each
+  zoom between the two moves the view to the other one (`stateuiHost.reconnect`); the editor's socket and exports send
+  `run=test`, which the tenant answers with the test run (an org app's too, for someone who may edit it). Another person's app, or a shared one, is served by stateui-mcp as before.
 - **A workspace's apps** (`/orgs/<org>`, `/orgs/me` for the person's own; docs/design/magnetic-zoom.md, stage 3) are
   a board of cards under a level bar (Your apps › the workspace), in rows of five on a canvas that pans and zooms. An
   org's are the apps of its workspace the person may open; their own are their own apps and those shared with them by

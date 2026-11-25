@@ -926,11 +926,11 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         changeConnection: (user, form) => handleConnections.change(user, form),
         sharedDatasets: async (workspaceId) => (stateGrants === undefined ? [] : sharedWithWorkspace(stateGrants, db, (id) => workspaces.get(id), workspaceId)),
         personApps: async (workspaceId, person) => {
-            // The person's own state of each app is at `<person>/apps/<appId>`
+            // The person's own state of each app is at `<person>/apps/<appId>`; a test run's (`<appId>.test`) is not theirs
             await owners.ensure(person);
             const like = owners.of(person) + '/apps/%';
             const rows = await db.transaction(
-                async (tx) => (await tx.query<{ address: string; updated_at: Date }>("SELECT address, updated_at FROM namespace_head WHERE workspace_id = $1 AND address LIKE $2 ORDER BY updated_at DESC, address", [workspaceId, like])).rows,
+                async (tx) => (await tx.query<{ address: string; updated_at: Date }>("SELECT address, updated_at FROM namespace_head WHERE workspace_id = $1 AND address LIKE $2 AND address NOT LIKE '%.test' ORDER BY updated_at DESC, address", [workspaceId, like])).rows,
                 { workspaceIds: [workspaceId] }
             );
             return rows.map((row) => ({ id: row.address.split('/')[2] as string, updatedAt: row.updated_at.toISOString() }));
@@ -1078,6 +1078,14 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         return { tenant: { useCases: services.useCases, hub: services.hub, liveViews: services.liveViews, instances: services.instanceViews, retain: () => workspaces.retain(workspaceId) } };
     }
 
+    /**
+     * Whether a request comes from the editor, a test run (`run=test` on the view's socket and export,
+     * docs/design/stateui-test-runs.md): it reaches the workspace's test instance, whose shared datasets are copies
+     */
+    function testRun(request: IncomingMessage): boolean {
+        return new URL(request.url ?? '/', 'http://localhost').searchParams.get('run') === 'test';
+    }
+
     async function tenant(request: IncomingMessage): Promise<TenantAnswer> {
         const who = await signedIn(request);
         if (who === undefined) {
@@ -1090,7 +1098,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         const key = Sessions.keyOf(who.token);
         const appId = APP_PATH.exec(new URL(request.url ?? '/', 'http://localhost').pathname)?.[1]?.toLowerCase();
         if (appId !== undefined && (await services.instanceViews.find(appId)) === undefined) {
-            // An app of one of their orgs: their own instance (the person is their id), as far as their permission goes
+            // An app of one of their orgs: their own instance (the person is their id), as far as their permission goes; the
+            // org's test run in the editor of someone who may edit it
             const place = await reach(who.user.id, appId);
             if (place?.orgId !== undefined) {
                 const orgAnswer: HttpTenant = {
@@ -1098,7 +1107,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     hub: place.services.hub,
                     liveViews: place.services.liveViews,
                     instances: place.services.instanceViews,
-                    person: who.user.id,
+                    ...(!(allows(place.permission, 'edit') && testRun(request)) && { person: who.user.id }),
                     access: allows(place.permission, 'edit') ? 'owner' : place.permission === 'use' ? 'use' : 'view',
                     reader: { subject: await owners.nameOf(who.user.id) },
                     retain: (close) => {
@@ -1127,11 +1136,13 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 return { tenant: { ...(await sharedTenant(shared.live, who.user.id, key, shared.usedBefore === true)), reader: { subject: await owners.nameOf(who.user.id), entry: shared.live.entry } } };
             }
         }
+        // Their own workspace: the app at its address is real use, their own instance; the editor is the test run
         const answer: HttpTenant = {
             useCases: services.useCases,
             hub: services.hub,
             liveViews: services.liveViews,
             instances: services.instanceViews,
+            ...(!testRun(request) && { person: who.user.id }),
             retain: (close) => {
                 const release = workspaces.retain(who.user.id);
                 const open = sessionSockets.get(key) ?? new Set();
@@ -1356,7 +1367,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         if (home === undefined) throw new HttpError(500, 'Your apps could not be opened', 'internal');
         sendHomePage(
             response,
-            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home), look })
+            homePage({ appId: homeId, runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`, pageBundle, ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }), namespace: services.instanceViews.namespace(home, user.id), look })
         );
     }
 
@@ -1851,7 +1862,10 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
         app: NonNullable<Awaited<ReturnType<Services['instanceViews']['find']>>>,
         editing: boolean,
         look: PageLook,
-        /** The person whose instance the page syncs with: the signed-in person, the owner's own in their own workspace */
+        /**
+         * The person whose instance the app alone syncs with: the signed-in person, the owner's own in their own
+         * workspace. The editor syncs with the test run's (docs/design/stateui-test-runs.md)
+         */
         person: string,
         models: readonly string[] = turns.models,
         workspace?: string,
@@ -1864,7 +1878,8 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             runtimeUrl: `${runtimeOriginOf(request)}/runtime/${runtime.hash}.html`,
             pageBundle,
             ...(chunk3d !== undefined && { chunk3d: chunk3d.hash }),
-            namespace: services.instanceViews.namespace(app, person),
+            namespace: services.instanceViews.namespace(app),
+            ownNamespace: services.instanceViews.namespace(app, person),
             models: models.map(modelChoice),
             editing,
             blank: isBlankApp(app.body),

@@ -19,8 +19,10 @@ export interface ShellPageOptions {
     readonly pageBundle: string;
     /** The hash of the 3D chunk, when the server has one */
     readonly chunk3d?: string;
-    /** The sync namespace of the app's instance */
+    /** The sync namespace of the app's test run, which the editor syncs with (docs/design/stateui-test-runs.md) */
     readonly namespace: string;
+    /** The sync namespace of the person's own instance, real use, which the app alone syncs with */
+    readonly ownNamespace: string;
     /** The models the person may pick, the default first; no menu when there is one or none */
     readonly models?: readonly { readonly id: string; readonly label: string }[];
     /** True: the editor shows (`/edit/<appId>`); false: the app fills the window (`/apps/<appId>`) until Ctrl+Shift+- */
@@ -69,7 +71,7 @@ export function shellPage(options: ShellPageOptions): string {
         '<link rel="stylesheet" href="/assets/page.css">',
         '<link rel="stylesheet" href="/assets/shell.css">',
         '</head>',
-        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${ZOOM_KEYS.in} ${ZOOM_KEYS.out}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}" data-board="${escapeHtml(boardOf(options))}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.namespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
+        `<body class="view shell${options.editing ? ' editing' : ''}" data-host-keys="${ZOOM_KEYS.in} ${ZOOM_KEYS.out}" data-app-id="${escapeHtml(options.appId)}" data-app-name="${escapeHtml(options.name)}" data-board="${escapeHtml(boardOf(options))}"${options.workspace === undefined ? '' : ` data-workspace-name="${escapeHtml(options.workspace)}"`} data-runtime-url="${escapeHtml(options.runtimeUrl)}" data-surface="page"${options.chunk3d === undefined ? '' : ` data-chunk-3d="${escapeHtml(options.chunk3d)}"`} data-view-kind="browser" data-namespace="${escapeHtml(options.editing ? options.namespace : options.ownNamespace)}"${options.editing ? ' data-run="test"' : ''} data-test-namespace="${escapeHtml(options.namespace)}" data-own-namespace="${escapeHtml(options.ownNamespace)}" data-mode="${options.look.mode}" data-locale="${options.look.language}"${options.blank === true ? ' data-blank="true"' : ''} data-status="loading">`,
         '<div class="editor" id="editor"></div>',
         levelBar(options, t),
         '<div class="alone" id="alone"></div>',
@@ -1128,6 +1130,8 @@ function zoomOut() {
  */
 function setEditing(on, fromHistory = false, also = {}) {
     document.body.classList.toggle('editing', on);
+    // The editor runs the app as a test run, the app alone as real use: the view moves to the other instance
+    if (host && host.reconnect) host.reconnect(on ? document.body.dataset.testNamespace : document.body.dataset.ownNamespace, on ? 'test' : undefined);
     if (!fromHistory) go({ ...also, editing: on }, { push: true });
     if (on) {
         hideHint();

@@ -1,3 +1,4 @@
+import type { Authority } from '@punyts/state-sync/authority';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
 import type { Preferences } from '../prefs/Preferences.js';
@@ -6,7 +7,6 @@ import type { Texts } from '../http/text.js';
 import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
 import type { PageSource } from '../pages/PersonPages.js';
 import type { PageSpec } from '../pages/PageSpec.js';
-import { run } from '../stateui/run.js';
 import type { Stamps } from '../storage/Stamps.js';
 import { alone } from '../storage/exclusive.js';
 import type { Exclusive } from '../storage/exclusive.js';
@@ -417,14 +417,19 @@ export class HomeApps extends PersonPages {
         super(HOME, 'home', toolsOf, stamps, source, exclusive);
     }
 
+    /** The person's own instance of their home app: the page is real use, never a test run (docs/design/stateui-test-runs.md) */
+    private async own(services: Services, userId: string): Promise<Authority> {
+        const app = await services.instanceViews.find(await this.id(services, userId));
+        if (app === undefined) throw new Error('Your apps could not be opened');
+        return services.instanceViews.authority(app, userId);
+    }
+
     /** The lists the home app holds now, in their order */
     async read(services: Services, userId: string): Promise<HomeData> {
-        await this.id(services, userId);
-        const tools = this.toolsOf(services);
+        const own = await this.own(services, userId);
         const list = async (path: string): Promise<HomeCard[]> => {
-            const body = await run(tools, 'ui_state_get', { app: HOME_APP, path, full: true });
-            const value = body['value'];
-            return typeof value === 'object' && value !== null ? (Object.values(value) as HomeCard[]) : [];
+            const value = own.get(path);
+            return typeof value === 'object' && value !== null ? (Object.values(value) as unknown as HomeCard[]) : [];
         };
         return { apps: await list('$.data.apps') };
     }
@@ -435,11 +440,9 @@ export class HomeApps extends PersonPages {
      * person's copy refuses (they took its data out) is left out
      */
     async show(services: Services, userId: string, data: HomeData, prefs: Preferences = { mode: 'system', language: 'en' }, report?: (message: string, fields: Record<string, unknown>) => void): Promise<void> {
-        await this.id(services, userId);
-        const tools = this.toolsOf(services);
-        // Each write assembles the app again, so the state is read once and only what differs is written: most
-        // loads of the page change nothing
-        const state = (await run(tools, 'ui_state_get', { app: HOME_APP, path: '$', full: true }).catch((): Record<string, unknown> => ({})))['value'];
+        const own = await this.own(services, userId);
+        // The state is read once and only what differs is written: most loads of the page change nothing
+        const state = own.get('$');
         const tab = valueAt(state, `${H}.tab`);
         const usage = data.usage ?? { line: '', today: '', usedCents: 0, totalCents: 1, tone: 'accent' };
         const wanted: Array<[string, unknown]> = [
@@ -468,8 +471,9 @@ export class HomeApps extends PersonPages {
                 }
             ]
         ];
-        const set = (path: string, value: unknown): Promise<unknown> =>
-            run(tools, 'ui_state_set', { app: HOME_APP, path, value, logic: false }).catch((error: unknown) => report?.('Your apps refused a write', { path, error: error instanceof Error ? error.message.slice(0, 200) : String(error) }));
+        const set = async (path: string, value: unknown): Promise<void> => {
+            if (own.write({ op: 'set', path, value } as Parameters<Authority['write']>[0]) === undefined) report?.('Your apps refused a write', { path });
+        };
         for (const [path, value] of wanted) {
             const now = valueAt(state, path);
             if (JSON.stringify(now) === JSON.stringify(value)) continue;
