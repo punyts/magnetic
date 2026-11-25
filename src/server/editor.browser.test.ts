@@ -378,8 +378,8 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
             if ('width' in old) expect(Math.abs((now?.width ?? 0) - old.width), `${key} width ${now?.width}`).toBeLessThanOrEqual(old.width * 0.15);
             expect(Math.abs((now?.height ?? 0) - old.height), `${key} height ${now?.height}`).toBeLessThanOrEqual(Math.max(8, old.height * 0.04));
         }
-        // The corner holds the app's name and its workspace's: under 400px on Windows, 437 with Linux's wider fonts (CI)
-        expect(measured['nameCorner']?.width).toBeLessThan(480);
+        // The corner holds the app's name, its workspace's and the device and screen size pickers: about 546px on Windows, Linux's fonts are wider (CI)
+        expect(measured['nameCorner']?.width).toBeLessThan(620);
         // The share corner holds the view selector too (docs/design/magnetic-show-views.md)
         expect(measured['shareCorner']?.width).toBeLessThan(440);
         expect(measured['chatBar']?.width).toBe(640);
@@ -388,7 +388,7 @@ describe.skipIf(!installed)("The editor's inspector in a browser (Chromium throu
     it('should space the top corners and the chat bar evenly: one gap between their parts, the same padding at both ends, one height', async () => {
         // Arrange: each floating bar with its parts, left to right
         const CORNERS: [string, string[]][] = [
-            ['nameCorner', ['home', 'name', 'workspace', 'size', 'turn', 'open']],
+            ['nameCorner', ['home', 'name', 'workspace', 'size', 'frame', 'turn', 'open']],
             ['shareCorner', ['views', 'feedback', 'prefs', 'share']],
             ['chatBar', ['chat', 'view', 'input', 'budget', 'model', 'send']]
         ];

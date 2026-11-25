@@ -250,16 +250,15 @@ workspace, and stops when you sign out of that browser.
   to make an app and Sign out. Magnetic writes the two lists into its data on each visit. The page listens for
   the app's `emit`s (`stateui:emit`): `open` goes to `/apps/<appId>`, `create` posts `/new`, `signout` posts
   `/signout`. The agent cannot edit it: `/edit/<its id>` and `/apps/<its id>` go to `/`.
-- **An app** (`/apps/<appId>`) of the person's own fills the page under the level bar, with the editor hidden.
-  Ctrl+Shift+- (Cmd on a Mac) zooms out to the editor on the screen showing; in the editor Ctrl+Shift+= zooms back in
-  to the running app on the selected screen, or else the one most in view, and Ctrl+Shift+- out to the board of its
-  workspace's apps. Each zoom pushes a history entry. The page names both chords in `data-host-keys`, so the runtime hands them over while
-  the app has focus. The level bar names the workspace (to its board of apps), the app (out to the editor) and the screen; on a
-  phone it is the way out. The app at its address is real use and syncs with the person's own instance; the editor is
+- **An app** (`/apps/<appId>`) of the person's own is the app alone: it fills the window with nothing over it, and
+  the page loads no editor. Ctrl+Shift+- (Cmd on a Mac) loads the editor's page (`/edit/<appId>`) on the screen
+  showing; in the editor Ctrl+Shift+= loads the running app's page on the selected screen, or else the one most in
+  view, and Ctrl+Shift+- the board of its workspace's apps. Each zoom is a page load. The page names both chords in
+  `data-host-keys`, so the runtime hands them over while the app has focus. On a phone, with no keys, the editor is
+  reached by its address. The app at its address is real use and syncs with the person's own instance; the editor is
   a test run (docs/design/stateui-test-runs.md) and syncs with the workspace's test instance, whose shared datasets are
-  copies a reset throws away. The page carries both namespaces (`data-own-namespace`, `data-test-namespace`), and each
-  zoom between the two moves the view to the other one (`stateuiHost.reconnect`); the editor's socket and exports send
-  `run=test`, which the tenant answers with the test run (an org app's too, for someone who may edit it). Another person's app, or a shared one, is served by stateui-mcp as before.
+  copies a reset throws away. Each page names its one instance in `data-namespace`, and the editor's `data-run="test"`
+  makes its socket and exports send `run=test`, which the tenant answers with the test run (an org app's too, for someone who may edit it). Another person's app, or a shared one, is served by stateui-mcp as before.
 - **A workspace's apps** (`/orgs/<org>`, `/orgs/me` for the person's own; docs/design/magnetic-zoom.md, stage 3) are
   a board of cards under a level bar (Your apps › the workspace), in rows of five on a canvas that pans and zooms. An
   org's are the apps of its workspace the person may open; their own are their own apps and those shared with them by
@@ -282,14 +281,16 @@ workspace, and stops when you sign out of that browser.
   (`screens`, `connections`, `shared`) and sheet (`share`, `prefs`, `feedback`). Opening one pushes an entry; closing it
   goes back. Someone else's `/apps/<id>/screens/<name>` is redirected to `/apps/<id>?screen=<name>`.
 - **The editor** (`/edit/<appId>`): the app is a frame on a canvas, and the editor floats on it in rounded
-  panels. At the top left are the way back to the apps, the name, the frame size (Desktop 1280×800, Tablet
-  834×1112, Phone 390×844) and Open; at the top right, the view selector (Screens, Statenet, Theme, Logic) and Share, whose links open in a panel
+  panels. At the top left are the way back to the apps, the name, the device (Desktop, Tablet, Phone),
+  its screen size (common sizes of the device: Desktop 1280×800 to 2560×1440, Tablet 834×1112 to 1024×1366, Phone
+  390×844 to 430×932; each device starts at the first) and Open; at the top right, the view selector (Screens, Statenet, Theme, Logic) and Share, whose links open in a panel
   under it; on a rail at the left, the tools and the layers; at the bottom right, the zoom.
   - **The canvas** pans and zooms. Scrolling on the board pans it, Ctrl+scroll or a pinch zooms about the
     pointer, and dragging the board pans it. Over the app, the app gets the pointer as usual; with the Move tool
     (H) or Space held, a cover lies over the frame and the pointer moves the board. V goes back to Use; +, - and
     0 zoom in, out and to 100%; 1 fits the frame in the free space, never past 100%. The zoom control does the
-    same. The view and the frame size are kept per app in the browser; a new app opens fitted, in the phone
+    same. The view, the device, its screen size and whether
+    it is turned are kept per app in the browser; every device turns, Desktop too; a new app opens fitted, in the phone
     frame on a narrow screen.
   - At the bottom centre is a chat bar: the request, the model menu and Send. Focusing it, or its chat button,
     opens the chat above it; the close button or Escape closes it. Enter sends and Shift+Enter starts a new line.
@@ -645,8 +646,7 @@ The org settings, Shared by me, Data, Agent use and privacy pages are plain HTML
 | `signin.spec.ts` | The sign-in choices; a dev user and a provider sign-in landing on Your apps; back to the page asked for; sign out; the privacy page without a session |
 | `home.spec.ts` | Making an app (and the name it needs); its card opening it; Orgs; appearance and language kept across a reload |
 | `editor.spec.ts` | The bars and tools; the ideas of a blank app; a turn of the agent and the chat; frame sizes; zoom and fit; selecting a part, its properties, and editing its text by hand; zooming into the app and out again; going home. The library: shown and hidden (button, `A`, phone), narrowed by letter and category, a component pressed then placed, dragged and dropped onto the app, and dropped outside it. Layout and placement: a column made a grid, a part spanning two columns, a setting kept across types |
-| `address.spec.ts` | (Desktop only) The address: opening on the screen it names and Back to the screen before one chosen; a sheet in `?open=`, closed by Back and opened from a link; Ctrl+Shift+= and Ctrl+Shift+- each pushing an entry, and zooming out of the editor to its workspace's board |
-| `levels.spec.ts` | The level bar over the running app: the workspace, the app and the screen named, the app zooming out to the editor and Back |
+| `address.spec.ts` | (Desktop only) The address: opening on the screen it names and Back to the screen before one chosen; a sheet in `?open=`, closed by Back and opened from a link; Ctrl+Shift+= loading the app alone, with nothing over it, and Ctrl+Shift+- the editor on that screen, and zooming out of the editor to its workspace's board |
 | `apps.spec.ts` | A workspace's board of apps: zooming out of the editor to it, on the app's card, and back in with the chord; Back; a press on a card opening the app; zooming out of a workspace to the Orgs level and back in; the editor growing out of a tile as a view transition |
 | `screens.spec.ts` | (Desktop only) The Screens panel and a frame per screen in order; pressing a preview to work on it in its place; copy, rename, open-on and delete; a bad name refused; previews out of view not running |
 | `connections.spec.ts` | The Connections page from Your apps; a key connection made, its endpoint added and tried, with the key never on the page; a URL that is not https refused; an OAuth connection connected through the stand-in provider (port + 3) and called with its token; deleting only with the box ticked; the page in German for someone who chose no language; the editor's Connections panel listing an endpoint and asking the agent, with "Yours" in the top bar; an org with connections turned off: its page says so with no Try, and its app's editor names the org and says so too |

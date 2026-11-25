@@ -34,7 +34,7 @@ import { SCRIPT_TEXTS } from './text.js';
  * - **No screens:** with the last one deleted the board holds one card, Add a screen, which adds `home` (the app opens
  *   on it) and works on it.
  * - **Without the editor** the live app fills the window, attached in `#alone`; the editor showing attaches it on its
- *   card again. The level bar over it names the screen showing (`magneticShell.levelScreen`).
+ *   card again.
  * - **Zooming in** (Ctrl+Shift+=, the shell's `onZoomIn`) goes to the running app on the selected screen, or else the
  *   one with the most in view, which becomes the one worked on, in the same entry of the address.
  * - The live app moving to another screen itself (`navigated`) makes that screen the one worked on.
@@ -177,7 +177,6 @@ function show() {
     })));
     if (current !== renameFor) { renameFor = current; typedRename = current || ''; }
     editor.set({ screenName: current || '', screenRename: current || '', isHome: current === start, notHome: current !== start, screenColumns: 'n' + columns });
-    shell.levelScreen(current ? titleOf(current) : '');
 }
 
 /** The screen to zoom into from the editor: the selected one, else the one most in view, else the one worked on */
@@ -901,7 +900,6 @@ if (shell && editor && host) {
     });
     addEventListener('resize', () => { pageWrite({ inset: insetOf() }); settle(); });
     shell.onEscape(() => deselect());
-    shell.onEditing((on) => placeLive(on));
     shell.onZoomIn(zoomPick);
     shell.address.onChange((address) => addressMoved(address));
     // A new document: the list again

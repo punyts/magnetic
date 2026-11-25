@@ -1,10 +1,23 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Each zoom between the running app and its editor is a page load; the running app is the app alone.** Breaking:
+  `/apps/<id>` loads no editor and shows nothing over the app (the level bar is gone). Ctrl+Shift+- loads
+  `/edit/<id>` on the screen showing and Ctrl+Shift+= loads `/apps/<id>` on the screen worked on, so each page syncs
+  with its one instance (`data-namespace`, with `data-run="test"` in the editor) and the view is never moved between
+  instances. `setEditing`, `onEditing`, `levelScreen` and the in-page zoom transition (`ZOOM_JS`) are removed; the
+  cross-document transition still animates. Tests: `e2e/address.spec.ts` (the app alone with nothing over it, and out
+  again to the editor on that screen), `src/server/viewRoutes.test.ts` (each page with its own namespace only).
+- **The frame takes a common screen size of its device, and every device turns.** A Screen size menu beside the
+  device lists six sizes each (Desktop 1280×800 to 2560×1440, Tablet 834×1112 to 1024×1366, Phone 390×844 to
+  430×932); a new device starts at its first, and the choice is kept per app with the device and the turn. Desktop no
+  longer grows with the window and turns like the others. Feedback sends the device with its size. Tests:
+  `e2e/editor.spec.ts` (the frame keeping 1920 × 1080 across a reload and taking the Phone's default, Desktop turned
+  to 800 × 1280), `src/server/editor.browser.test.ts` (the name corner with the screen size).
 - **The editor is a test run; the app at its address is real use** (docs/design/stateui-test-runs.md). Breaking: the
   editor (`/edit/<id>`), the agent's tools and its browser run an app as the workspace's test run, whose shared
   datasets are copies that `ui_state_reset` throws away, while `/apps/<id>` syncs with the person's own instance and
-  writes the datasets. Zooming between them reconnects the page's view to the other instance. The tenant reads
+  writes the datasets. Each is its own page, with its own instance. The tenant reads
   `run=test` from the view's socket and exports; the State view's graph lists the person's real state only. Your apps
   writes its lists into the person's own instance and its page syncs with it (`HomeApps`). Tests:
   `src/server/viewRoutes.test.ts` (the two namespaces of the page, the State tab writing a copy),

@@ -101,7 +101,7 @@ describe("The editor's view routes", () => {
         await magnetic.stop();
     });
 
-    it("should sync the app at its address with the owner's own instance, and the editor with the test run", async () => {
+    it("should sync the app at its address with the owner's own instance, and the editor with the test run, each page with its own only", async () => {
         // Arrange
         const page = async (path: string): Promise<string> => (await fetch(`${magnetic.origin}${path}`, { headers: { Cookie: alice } })).text();
         const attribute = (html: string, name: string): string | undefined => new RegExp(`${name}="([^"]+)"`).exec(html)?.[1];
@@ -117,7 +117,8 @@ describe("The editor's view routes", () => {
         expect(attribute(app, 'data-run')).toBeUndefined();
         expect(attribute(editor, 'data-namespace')).toBe(test);
         expect(attribute(editor, 'data-run')).toBe('test');
-        expect([attribute(editor, 'data-test-namespace'), attribute(editor, 'data-own-namespace')]).toEqual([test, own]);
+        // Each page names only its own instance: a zoom loads the other page
+        expect([app.includes(test), editor.includes(own)]).toEqual([false, false]);
     });
 
     it("should answer a screen's layout, the paths it uses, its handlers and the units touching it", async () => {

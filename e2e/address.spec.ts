@@ -64,8 +64,10 @@ test.describe('The address', () => {
         await expect(sheet).toBeVisible();
     });
 
-    test('should zoom into the running app on the screen worked on, and out again, each an entry Back undoes', async ({ page }) => {
-        // Arrange
+    test('should zoom into the running app on the screen worked on, with nothing over it, and out again to the editor on that screen, each an entry Back undoes', async ({ page }) => {
+        // Arrange: each zoom is a page load, and Playwright's Chromium (149) never shows a page reached by a cross-document
+        // view transition (Chrome 158 does), so this test asks for reduced motion, which loads the pages without one
+        await page.emulateMedia({ reducedMotion: 'reduce' });
         await page.goto(`/edit/${appId}/screens/about`);
         await editor.ready();
         await expect(liveFrame(page, 'About')).toBeVisible();
@@ -73,7 +75,9 @@ test.describe('The address', () => {
         // Act
         await page.keyboard.press('Control+Shift+Equal');
         await expect(page).toHaveURL(new RegExp(`/apps/${appId}/screens/about$`));
-        await expect(page.getByRole('navigation', { name: 'Where you are' })).toContainText('About');
+        // The running app is all there is: no bar over it, its frame at the top of the window
+        await expect(page.getByRole('navigation', { name: 'Where you are' })).toHaveCount(0);
+        expect(await page.evaluate(() => document.getElementById('alone')?.getBoundingClientRect().top)).toBe(0);
         await page.keyboard.press('Control+Shift+Minus');
         await expect(page).toHaveURL(new RegExp(`/edit/${appId}/screens/about$`));
         await page.goBack();

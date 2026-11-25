@@ -211,9 +211,13 @@ export class EditorPage {
         await expect(this.app.getByText(text, { exact: true })).toBeVisible({ timeout: 30_000 });
         await expect(this.button('Stop')).toBeHidden({ timeout: 30_000 });
     }
-    /** The frame size: Desktop, Tablet or Phone */
+    /** The frame's device: Desktop, Tablet or Phone */
     get sizeSelect(): Locator {
         return this.editor.getByRole('combobox').filter({ hasText: 'Desktop' });
+    }
+    /** The frame's size among the common sizes of its device */
+    get screenSizeSelect(): Locator {
+        return this.editor.getByRole('combobox', { name: 'Screen size' });
     }
     /** The live screen's size, "W × H", in its card's head */
     get artboardSize(): Locator {

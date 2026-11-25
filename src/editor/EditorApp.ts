@@ -40,7 +40,7 @@ export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } 
 
 /** What the editor emits, for the page's script */
 export const EDITOR_EMITS = [
-    'home', 'open', 'size', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'view', 'layerLayout', 'layerData', 'layerLogic',
+    'home', 'open', 'size', 'frame', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'view', 'layerLayout', 'layerData', 'layerLogic',
     'share', 'shareClose', 'shareRight', 'shareMake', 'orgOpen', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
     'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'hintClose', 'focusClear', 'addToChat',
     'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'screenColumns', 'path', 'ask',
@@ -63,6 +63,9 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
     'magnetic-editor': [
         ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note', 'feedbackText', 'feedbackStatus', 'budgetLine'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
         { op: 'set', field: 'size', type: 'string', default: 'desktop' },
+        // The frame's size among the common sizes of the device chosen (`1280x800`), and those sizes as options
+        { op: 'set', field: 'frame', type: 'string', default: '1280x800' },
+        { op: 'set', field: 'frames', type: 'object', default: {} },
         { op: 'set', field: 'feedbackKind', type: 'string', default: 'bug' },
         { op: 'set', field: 'tool', type: 'string', default: 'use' },
         { op: 'set', field: 'shareRight', type: 'string', default: 'use' },
@@ -278,7 +281,7 @@ const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64
 /** The row of a top corner: the gap between its parts as wide as the corner's own padding, so the spaces are even */
 const CORNER_ROW = { layout: { type: 'row', gap: 'md', align: 'center' } };
 
-/** The frame size: Desktop, Tablet or Phone; in the name corner, or below 760px on the top rail */
+/** The device of the frame: Desktop, Tablet or Phone; in the name corner, or below 760px on the top rail */
 function frameSize(t: Texts, extra: Record<string, unknown>): Record<string, unknown> {
     return {
         component: 'selectField',
@@ -290,6 +293,22 @@ function frameSize(t: Texts, extra: Record<string, unknown>): Record<string, unk
         options: { desktop: { _label: t['shell.size.desktop'] }, tablet: { _label: t['shell.size.tablet'] }, phone: { _label: t['shell.size.phone'] } },
         '<-value': `${E}.size`,
         on: { change: emit('size') },
+        ...extra
+    };
+}
+
+/** The frame's size among the common sizes of its device (the page writes them to `frames`), beside the device */
+function frameDimensions(t: Texts, extra: Record<string, unknown>): Record<string, unknown> {
+    return {
+        component: 'selectField',
+        size: 'sm',
+        variant: 'soft',
+        width: 'auto',
+        titlePosition: 'hidden',
+        _label: t['shell.frameDimensions'],
+        '<-options': `${E}.frames`,
+        '<-value': `${E}.frame`,
+        on: { change: emit('frame') },
         ...extra
     };
 }
@@ -306,6 +325,7 @@ function nameCorner(t: Texts): Record<string, unknown> {
             // name and Open, all on one line: the workspace and the frame size are on the top rail
             workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1, '<-hidden': `${E}.isNarrow` }),
             size: frameSize(t, { '<-hidden': `${E}.isNarrow` }),
+            frame: frameDimensions(t, { '<-hidden': `${E}.isNarrow` }),
             // Turns the frame between landscape and portrait: its width and height swap. Below 760px the corner has no room
             turn: icon(t['shell.turn'], 'turn', 'rotate-rectangle', { '<-hidden': `${E}.isNarrow` }),
             // Soft, so its box shows: every part of the bar is then a box with the same space either side
@@ -394,7 +414,7 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
             children: { layerLayout: layer('layout', 'layerLayout'), layerData: layer('data', 'layerData'), layerLogic: layer('logic', 'layerLogic') }
         },
         // Below 760px the name corner has no room for the workspace and the frame size
-        ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, screensOnly) })
+        ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, screensOnly), frame: frameDimensions(t, screensOnly) })
     // The divider and the Layers label get the room the buttons' own padding gives their icons, not the tools' tight gap
     }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden`, layout: { type: 'column', gap: 'md' } });
 }
