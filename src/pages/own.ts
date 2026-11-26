@@ -157,48 +157,34 @@ export function ownTree(definition: Record<string, unknown>, models: Readonly<Re
     };
 }
 
+/** A state write of a page: a path and its value, with whatever else the page's panel takes (`optional`) */
+export interface OwnWrite {
+    readonly path: string;
+    readonly value: unknown;
+    readonly optional?: boolean;
+}
+
 /**
  * State writes with each field that is a node's own state taken to its node: a write at the field's path goes to each
- * place by id (`#notice.hidden`), and an object written above such fields loses them to their places. The same thing
- * `ownWrites` does in a page script (`OWN_JS`)
+ * place, and an object written above such fields loses them to their places. A place is `place(target)` when the
+ * caller knows the node's state path, or else the node by its id (`#notice.hidden`), marked `optional` because a
+ * person's copy may be without the node.
+ *
+ * This function is also the page scripts' `ownWrites`: `OWN_JS` is its own text. So it must stay self-contained,
+ * using nothing of this module or of Node, only its arguments and the language
  */
-export function ownWrites(own: OwnMap, writes: readonly { path: string; value: unknown }[], place: (target: string) => string = (target) => `#${target}`): { path: string; value: unknown }[] {
-    const out: { path: string; value: unknown }[] = [];
+export function ownWrites(own: OwnMap, writes: readonly OwnWrite[], place?: (target: string) => string): OwnWrite[] {
+    const out: OwnWrite[] = [];
+    const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+    const names = Object.keys(own);
     const split = (path: string, value: unknown): unknown => {
         const places = own[path];
         if (places !== undefined) {
-            for (const target of places) out.push({ path: place(target), value });
+            for (const target of places) out.push(place === undefined ? { path: '#' + target, value, optional: true } : { path: place(target), value });
             return undefined;
         }
-        if (!isObject(value) || !Object.keys(own).some((key) => key.startsWith(`${path}.`))) return value;
-        const rest: Json = {};
-        for (const [key, inner] of Object.entries(value)) {
-            const kept = split(`${path}.${key}`, inner);
-            if (kept !== undefined || own[`${path}.${key}`] === undefined) rest[key] = kept;
-        }
-        return rest;
-    };
-    for (const write of writes) {
-        const at = out.length;
-        const kept = split(write.path, write.value);
-        if (own[write.path] === undefined) out.splice(at, 0, { path: write.path, value: kept });
-    }
-    return out;
-}
-
-/** `ownWrites(own, writes)` in a page script: see `ownWrites` */
-export const OWN_JS = String.raw`function ownWrites(own, writes) {
-    const out = [];
-    const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
-    const names = Object.keys(own);
-    const split = (path, value) => {
-        const places = own[path];
-        if (places !== undefined) {
-            for (const target of places) out.push({ path: '#' + target, value, optional: true });
-            return undefined;
-        }
-        if (!isObject(value) || !names.some((key) => key.startsWith(path + '.'))) return value;
-        const rest = {};
+        if (!isRecord(value) || !names.some((key) => key.startsWith(path + '.'))) return value;
+        const rest: Record<string, unknown> = {};
         for (const [key, inner] of Object.entries(value)) {
             const kept = split(path + '.' + key, inner);
             if (kept !== undefined || own[path + '.' + key] === undefined) rest[key] = kept;
@@ -212,7 +198,9 @@ export const OWN_JS = String.raw`function ownWrites(own, writes) {
     }
     return out;
 }
-`;
+
+/** `ownWrites(own, writes)` in a page script: the text of `ownWrites` itself, so the two cannot differ */
+export const OWN_JS = `${ownWrites.toString()}\n`;
 
 /** A node's `hidden` from a path: a field of the page's data is the node's own state, a row's field (`$row.…`) a link */
 export function hiddenBy(path: string): Record<string, string> {

@@ -1,5 +1,6 @@
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { hiddenBy, ownTree, ownWrites, pathOfId } from './own.js';
+import { hiddenBy, OWN_JS, ownTree, ownWrites, pathOfId } from './own.js';
 
 const MODELS = {
     page: [
@@ -88,14 +89,48 @@ describe("a node's own state in a page", () => {
         // Assert
         expect(placed).toEqual([
             { path: '$.data.page', value: { notice: 'Full' } },
-            { path: '#noticePart.hidden', value: false },
+            { path: '#noticePart.hidden', value: false, optional: true },
             { path: '$.data.bar', value: { zoom: '50%', look: {} } },
-            { path: '#save.variant', value: 'solid' },
-            { path: '#openPart.variant', value: 'ghost' },
-            { path: '#openPart.hidden', value: true },
-            { path: '#barNoticePart.hidden', value: true },
+            { path: '#save.variant', value: 'solid', optional: true },
+            { path: '#openPart.variant', value: 'ghost', optional: true },
+            { path: '#openPart.hidden', value: true, optional: true },
+            { path: '#barNoticePart.hidden', value: true, optional: true },
             { path: '$.data.other', value: 1 }
         ]);
+    });
+
+    it('should take a write to the state path a caller gives for a place, and keep what else a write carries', () => {
+        // Arrange
+        const { own, paths } = ownTree(definition(), MODELS, RECORDS);
+
+        // Act
+        const placed = ownWrites(own, [{ path: '$.data.bar.narrow', value: true }, { path: '$.data.other', value: 1, optional: true }], (target) => paths[target] as string);
+
+        // Assert
+        expect(placed).toEqual([
+            { path: '$.screens.home.children.bar.children.open.hidden', value: true },
+            { path: '$.screens.home.children.bar.children.notice.hidden', value: true },
+            { path: '$.data.other', value: 1, optional: true }
+        ]);
+    });
+
+    it('should give the page scripts the text of ownWrites itself, which runs alone and answers the same', () => {
+        // Arrange
+        const { own } = ownTree(definition(), MODELS, RECORDS);
+        const writes = [
+            { path: '$.data.page', value: { notice: 'Full', noNotice: false } },
+            { path: '$.data.bar', value: { zoom: '50%', look: { save: 'solid', open: 'ghost' } }, optional: true },
+            { path: '$.data.bar.narrow', value: true }
+        ];
+
+        // Act: the script runs in a context of its own, with nothing of this module or of Node in reach
+        const inPage = JSON.parse(runInNewContext(`${OWN_JS}JSON.stringify(ownWrites(${JSON.stringify(own)}, ${JSON.stringify(writes)}))`, {}) as string) as unknown;
+
+        // Assert
+        expect(OWN_JS).toMatch(/^function ownWrites\(own, writes, place\) \{/);
+        expect(OWN_JS.endsWith('}\n')).toBe(true);
+        expect(inPage).toEqual(ownWrites(own, writes));
+        expect(inPage).toContainEqual({ path: '#noticePart.hidden', value: false, optional: true });
     });
 
     it('should find a node by its id in a document and in an app’s state, and link a row’s field instead of owning it', () => {

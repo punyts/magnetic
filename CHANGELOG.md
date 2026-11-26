@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The page scripts' `ownWrites` is the text of the server's.** `OWN_JS` (`src/pages/own.ts`) was a hand copy of
+  `ownWrites`; it is now `ownWrites.toString()`, so the two cannot differ. The function is self-contained (it uses only
+  its arguments) and takes an optional `place`: with it a place is the state path the caller gives (`PageSpec`'s
+  sample, `HomeApps.show`); without it a place is the node by id, `#<id>.<property>`, marked `optional`, which is what
+  the pages write. A write keeps whatever else it carries. Breaking: `ownWrites(own, writes)` without `place` now
+  answers the `optional: true` the page script always did. Test: `src/pages/own.test.ts` ("should give the page
+  scripts the text of ownWrites itself, which runs alone and answers the same"), which runs the script text in a
+  context of its own and fails when it stops defining `ownWrites`.
 - **Fix: Your apps applies the fields that are a node's own state.** `HomeApps.show` looked for the node of each such
   field (`notAdmin`, `noInvites`, `noRequests`, `noMakeOrg`, `usageTone`: `HOME.own`) in the state of the person's
   instance, which holds only what was written to it and so no nodes: every such write was dropped, and the Admin link,
