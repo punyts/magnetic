@@ -247,7 +247,10 @@ workspace, and stops when you sign out of that browser.
   - Every POST must come from the same origin as the server.
 - **Your apps** (`/`) is a StateUI app, `your-apps`, made in each workspace the first time and made again when
   its definition changes. It shows a grid of cards, the person's apps and then the apps shared with them, a field
-  to make an app and Sign out. Magnetic writes the two lists into its data on each visit. The page listens for
+  to make an app and Sign out. Magnetic writes the two lists into its data on each visit. Beside the lists of cards
+  (`apps`, `orgs`, `invites`) its data is a record for each thing it is about: `$.data.page` (the tab shown),
+  `$.data.newApp` (the name typed), `$.data.waiting`, `$.data.person` and `$.data.usage` (`HOME_FIELDS` in
+  `src/home/HomeApp.ts` maps each field to its path). The page listens for
   what the app's nodes with an `@id` raise (`stateui:raised`, read by `HOME_HEARING`): a card's
   press is `open`, which goes to `/apps/<appId>`, `create` posts `/new`, `signout` posts
   `/signout`. The agent cannot edit it: `/edit/<its id>` and `/apps/<its id>` go to `/`.
@@ -322,7 +325,9 @@ workspace, and stops when you sign out of that browser.
       the card clear of it: records, model fields, running state and connections (for managers); the app's and a
       component's screens; a theme's default and removal; the way to the Theme or Logic view and back. Removing
       anything asks first. The side panel is a page of Magnetic's too (`magnetic-side`): one panel of sections, each
-      shown when the part has it. The editor places it, in a float of its own (`side`) holding an `embeddedApp` the
+      shown when the part has it. Its data is a record for each part of the panel (`$.data.part`, `links`, `form`,
+      `code`, `dataset`, `model`, `connection`: `SIDE_RECORDS` in `src/side/SidePage.ts`); the views' script names a
+      field alone and `SIDE_FIELDS` says where it is. The editor places it, in a float of its own (`side`) holding an `embeddedApp` the
       page's app host opens by name, so a person's copy of the editor can move or restyle it.
       Functions are hard IP: `$.functions.<group>.<name>` and a library component's `$.components.<component>.functions.<name>`,
       each a card with its kind and where it runs, no + and no editor; its panel shows its summary and schemas, and a

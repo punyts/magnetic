@@ -1,6 +1,32 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Your apps' data is in namespaces, a record for each thing the page is about.** `$.data.home` (one model,
+  `magnetic-home`, of sixteen unrelated fields) is gone. Beside the lists of cards (`apps`, `orgs`, `invites`, as
+  they were) the page's data is five records, each with a model (`magnetic-home-<namespace>`) and a binding of its
+  own (`RECORDS` in `src/home/HomeApp.ts`): `page` (`tab`), `newApp` (`make`, the name typed), `waiting`
+  (`requestsLine`, and the flags `noInvites` and `noRequests`), `person` (`name`, `email`, `mode`,
+  `language`, and the flags `notAdmin` and `noMakeOrg`) and `usage` (`usageLine`, `usageToday`, `usedCents`,
+  `totalCents`, `usageTone`). Fields keep their names, and a name is in one namespace only: `HOME_FIELDS` maps each
+  to its data path (`tab` to `$.data.page.tab`) and is made from the models. `HomeApps.show` writes one record per
+  namespace, each only when it differs, and reads the tab the person left from `$.data.page.tab`; the page script
+  keeps the name typed at `$.data.newApp.make` (`HOME_HEARING`). The flags are still the nodes' own state.
+  Breaking: a copy of Your apps that links `$.data.home.<field>` must link the field's new path; a person's copy is
+  made again from Magnetic's when its definition changes. Tests: `src/home/HomeApp.test.ts` ("should keep each field
+  in one namespace…", "should write each record of the page in its namespace and keep the tab the person left").
+- **The side panel's data is in namespaces, a record for each part of the panel.** `$.data.side` (one model,
+  `magnetic-side`, of some fifty fields) is gone. The panel's data is seven records, each with a model
+  (`magnetic-side-<namespace>`) and a binding of its own (`SIDE_RECORDS` in `src/side/SidePage.ts`, which is also
+  each namespace's blank): `part` (the title, the notes, and which of the part's buttons show), `links`, `form`
+  (what is typed, its labels, choices and button), `code` (the JSON edited and a function's schemas), `dataset`
+  (`records`, `more`), `model` (`fields`) and `connection` (`baseUrl`, `secret`, `endpoints`, `tried`). Fields
+  keep their names, and a name is in one namespace only: `SIDE_FIELDS` maps each to its data path (`title` to
+  `$.data.part.title`, `form.record` to `$.data.form.form.record`), is made from the records, and is in
+  `/assets/views.js`, so `sideWrite` and `sideShow` still name a field alone. `SIDE_BLANK` is the records' fields
+  together. `SIDE_HEARING` keeps and reads the fields at their new paths (`$.data.code.code`,
+  `$.data.connection.baseUrl`, `$.data.form.form`). Breaking: a draft of the side panel that links
+  `$.data.side.<field>` must link the field's new path. Tests: `src/side/SidePage.test.ts` ("should keep each field
+  in one namespace…"), `e2e/views.spec.ts`.
 - **The component library's search lists the best match first.** Typing "text" in the Add tab listed `codeBlock` and
   `colorField` before `text`: the search kept the library's order and matched name and summary alike. `rankLibrary`
   (`src/http/libraryRank.ts`) lists the entry named exactly what was typed, then names that start with it, names that
