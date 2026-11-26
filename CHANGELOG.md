@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A grant may name an app's definition, `<owner>/components/<app>`** (docs/design/state-definitions-and-instances.md).
+  `StateGrants` accepts the address and its entries (`$.components.<app>`) beside `apps` and `data`. Test:
+  `src/server/grants.test.ts` ("should share read on an app's definition, at its components address").
 - **The editor names its nodes as `#name`** (docs/design/state-definitions-and-instances.md). No behaviour changes.
 - **Each zoom between the running app and its editor is a page load; the running app is the app alone.** Breaking:
   `/apps/<id>` loads no editor and shows nothing over the app (the level bar is gone). Ctrl+Shift+- loads

@@ -82,6 +82,19 @@ describe('Grants of state', () => {
         expect(after).toEqual([{ ok: false, reason: 'revoked' }, { ok: false, reason: 'revoked' }]);
     });
 
+    it("should share read on an app's definition, at its components address", async () => {
+        // Arrange
+        const address = `${aliceId}/components/${APP}`;
+
+        // Act
+        const shared = await json('/grants', alice, 'POST', { subject: bobId, address, prefix: '$', rights: ['read'] });
+        const token = ((await shared.json()) as { token: string }).token;
+
+        // Assert
+        expect(shared.status).toBe(201);
+        expect(await reads(bobId, token, address)).toEqual({ ok: true });
+    });
+
     it('should show Shared by me, with the grants on your state and Revoke', async () => {
         // Arrange
         await json('/grants', alice, 'POST', { subject: carolId, address: `${aliceId}/apps/${APP}`, prefix: '$.data.notes', rights: ['read'] });

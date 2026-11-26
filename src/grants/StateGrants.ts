@@ -83,8 +83,8 @@ export function appOf(address: string): string | undefined {
     return branch === 'apps' ? appId : undefined;
 }
 
-/** `<owner>/apps/<app>` (or `*` for every app of the owner), or `<owner>/data/<dataset>` */
-const ADDRESS = /^[^/\s]{1,200}\/(apps\/([^/\s]{1,200}|\*)|data\/[^/\s]{1,200})$/;
+/** `<owner>/apps/<app>` or `<owner>/components/<app>` (or `*` for every app of the owner), or `<owner>/data/<dataset>` */
+const ADDRESS = /^[^/\s]{1,200}\/((apps|components)\/([^/\s]{1,200}|\*)|data\/[^/\s]{1,200})$/;
 const PREFIX = /^\$(\.[^.\s]+)*$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATE_KINDS = "('share', 'passed', 'org-read')";
@@ -104,7 +104,7 @@ function subjectOfName(name: string): string {
 /** The address and prefix an entry under an owner names (`$.apps.<app>.data` is `<owner>/apps/<app>` and `$.data`) */
 export function addressOfEntry(entry: Pick<Permission, 'owner' | 'pattern'>): { readonly address: string; readonly prefix: string } {
     const [, branch, name, ...rest] = entry.pattern.split('.');
-    if ((branch === 'apps' || branch === 'data') && name !== undefined) return { address: `${entry.owner}/${branch}/${name}`, prefix: ['$', ...rest].join('.') };
+    if ((branch === 'apps' || branch === 'components' || branch === 'data') && name !== undefined) return { address: `${entry.owner}/${branch}/${name}`, prefix: ['$', ...rest].join('.') };
     return { address: entry.owner, prefix: entry.pattern };
 }
 
@@ -182,7 +182,7 @@ export class StateGrants {
         const issuer = await this.owners.nameOf(input.issuer);
         const subject = await this.owners.nameOf(input.subject);
         const address = await this.owners.address(input.address);
-        if (!ADDRESS.test(address)) throw new OrgError(400, 'An address is <owner>/apps/<app>, or <owner>/data/<dataset>.');
+        if (!ADDRESS.test(address)) throw new OrgError(400, 'An address is <owner>/apps/<app>, <owner>/components/<app>, or <owner>/data/<dataset>.');
         if (!PREFIX.test(prefix)) throw new OrgError(400, 'A prefix is a "$." path.');
         if (rights.length === 0 || !rights.every((right) => right === 'read' || right === 'write')) throw new OrgError(400, 'Rights are read, write or both.');
         if (subject.trim() === '' || subject.length > 200) throw new OrgError(400, 'A grant needs a subject.');
