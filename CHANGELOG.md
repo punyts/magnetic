@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Fix: Your apps applies the fields that are a node's own state.** `HomeApps.show` looked for the node of each such
+  field (`notAdmin`, `noInvites`, `noRequests`, `noMakeOrg`, `usageTone`: `HOME.own`) in the state of the person's
+  instance, which holds only what was written to it and so no nodes: every such write was dropped, and the Admin link,
+  the invites and the line of waiting requests never showed. The node is now found by its `@id` in the document of the
+  person's copy (`instanceViews.message(app, 'attach').document`), wherever they moved it, and
+  `<path>.<property>` is written to the instance. A value the instance never held is compared with the one the document
+  defines, so a load that changes nothing still writes nothing; a copy without the node drops the write. Covered by
+  `src/home/HomeApp.test.ts` and the e2e specs for the Admin link, invites and requests.
 - **The editor's data is in namespaces, a record for each part of the editor.** `$.data.editor` (one model,
   `magnetic-editor`, of several dozen unrelated fields) is gone. The editor's data is eleven records, each with a
   model (`magnetic-editor-<namespace>`) and a binding of its own (`RECORDS` in `src/editor/EditorApp.ts`): `app`

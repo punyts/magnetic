@@ -78,6 +78,15 @@ function valueAt(state: unknown, path: string): unknown {
     return at;
 }
 
+/** The value a document defines at a state path: a screen's nodes are under its `root` there (`$.screens.home.children.x`) */
+function definedAt(document: unknown, path: string): unknown {
+    const [, top, name, ...rest] = path.split('.');
+    if (top !== 'screens' || name === undefined) return valueAt(document, path);
+    const screen = valueAt(document, `$.screens.${name}`);
+    const rooted = typeof screen === 'object' && screen !== null && typeof (screen as Record<string, unknown>)['root'] === 'object';
+    return valueAt(document, ['$', 'screens', name, ...(rooted ? ['root'] : []), ...rest].join('.'));
+}
+
 /**
  * What the page script hears of Your apps (src/http/raised.ts): a card's or a button's id names what it does, a card
  * in a grid with its id from its row; the name typed for a new app is kept as it changes, for Make
@@ -451,9 +460,15 @@ export class HomeApps extends PersonPages {
 
     /** The person's own instance of their home app: the page is real use, never a test run (docs/design/stateui-test-runs.md) */
     private async own(services: Services, userId: string): Promise<Authority> {
+        return (await this.opened(services, userId, false)).own;
+    }
+
+    /** The person's instance and, when asked, the document of their copy, which says where each node of the page is now */
+    private async opened(services: Services, userId: string, withDocument: boolean): Promise<{ own: Authority; document: unknown }> {
         const app = await services.instanceViews.find(await this.id(services, userId));
         if (app === undefined) throw new Error('Your apps could not be opened');
-        return services.instanceViews.authority(app, userId);
+        const document = withDocument ? (await services.instanceViews.message(app, 'attach')).document : undefined;
+        return { own: await services.instanceViews.authority(app, userId), document };
     }
 
     /** The lists the home app holds now, in their order */
@@ -469,10 +484,12 @@ export class HomeApps extends PersonPages {
     /**
      * Writes the lists into the home app's data, which its open views follow at once, sets its menus to the person's
      * choices, shows their agent use and who they are, and empties the name field. The tab shown is kept. A write the
-     * person's copy refuses (they took its data out) is left out
+     * person's copy refuses (they took its data out) is left out. A field that is a node's own state (`HOME.own`) is
+     * written to the node with that id in the person's copy of the page, found in its document: the instance's state
+     * holds only what was written to it, so it cannot say where a node is. A copy without the node drops the write
      */
     async show(services: Services, userId: string, data: HomeData, prefs: Preferences = { mode: 'system', language: 'en' }, report?: (message: string, fields: Record<string, unknown>) => void): Promise<void> {
-        const own = await this.own(services, userId);
+        const { own, document } = await this.opened(services, userId, true);
         // The state is read once and only what differs is written: most loads of the page change nothing
         const state = own.get('$');
         const tab = valueAt(state, `${H}.tab`);
@@ -506,7 +523,7 @@ export class HomeApps extends PersonPages {
         // A field that is a node's own state (the Admin link's hidden) goes to that node, wherever the person's copy has it
         const placed = ownWrites(HOME.own, fields.map(([path, value]) => ({ path, value })), (target) => {
             const dot = target.indexOf('.');
-            const node = pathOfId(state, target.slice(0, dot));
+            const node = pathOfId(document, target.slice(0, dot));
             return node === undefined ? '' : node + target.slice(dot);
         });
         const wanted: Array<[string, unknown]> = placed.filter((write) => write.path !== '').map((write) => [write.path, write.value]);
@@ -514,7 +531,8 @@ export class HomeApps extends PersonPages {
             if (own.write({ op: 'set', path, value } as Parameters<Authority['write']>[0]) === undefined) report?.('Your apps refused a write', { path });
         };
         for (const [path, value] of wanted) {
-            const now = valueAt(state, path);
+            // The instance holds only what was written to it: a node's state never written is the definition's
+            const now = valueAt(state, path) ?? definedAt(document, path);
             if (JSON.stringify(now) === JSON.stringify(value)) continue;
             // A write keeps the keys a map has where they are and adds new ones after them, so a list whose cards must
             // change order (a new share goes first) is emptied first
