@@ -1240,11 +1240,12 @@ async function themeHeard(name, payload) {
         case 'remove': if (theme && theme.theme && confirm(fill(T['views.removeThemeConfirm'], { name: theme.theme }))) await act('remove'); return;
         case 'add': if (value) { const answer = await change('theme', { action: 'add', theme: value }); if (answer) await loadTheme(answer.theme); else pageWrite({ adding: '' }); } return;
         case 'create': {
+            // The name is the one typed in the page, beside the preset
             const preset = theme && theme.presets.includes(value) ? value : 'clean';
-            const chosen = prompt(T['views.themeName'], freeThemeName(preset));
-            if (!chosen) return;
-            const answer = await change('theme', { action: 'create', theme: chosen.trim(), preset });
-            if (answer) await loadTheme(answer.theme);
+            const chosen = newThemeName();
+            if (!chosen) { says(T['views.themeNameNeeded'], true); return; }
+            const answer = await change('theme', { action: 'create', theme: chosen, preset });
+            if (answer) { pageWrite({ newName: '' }); await loadTheme(answer.theme); }
             return;
         }
         default:
@@ -1302,11 +1303,16 @@ function freeThemeName(stem) {
     for (let count = 2; names.has(name); count++) name = stem + '-' + count;
     return name;
 }
+/** The name typed in the Theme page for a new theme, trimmed; empty when none is */
+function newThemeName() {
+    const typed = themeHearing.known('$.data.theme.newName');
+    return typeof typed === 'string' ? typed.trim() : '';
+}
+/** A copy of the theme for this app, under the name typed in the page, or else a free one made from the theme's and the app's */
 async function cloneTheme() {
-    const name = prompt(T['views.cloneName'], freeThemeName(theme.theme + '-' + (document.body.dataset.appName || 'app').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')));
-    if (!name) return;
-    const answer = await change('theme', { action: 'clone', theme: theme.theme, to: name.trim() });
-    if (answer) { shell.editorChanged(); await loadTheme(answer.theme); }
+    const name = newThemeName() || freeThemeName(theme.theme + '-' + (document.body.dataset.appName || 'app').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+    const answer = await change('theme', { action: 'clone', theme: theme.theme, to: name });
+    if (answer) { pageWrite({ newName: '' }); shell.editorChanged(); await loadTheme(answer.theme); }
 }
 
 // ---- Logic ---------------------------------------------------------------------------------------------------------
@@ -1393,10 +1399,14 @@ async function logicHeard(name, payload) {
         }
         case 'delete': if (unit && unit.own && confirm(fill(T['views.deleteUnitConfirm'], { name: unit.name }))) await writeUnit(id, null); return;
         case 'create': {
+            // The name is the one typed in the page, beside the kind
             const group = Object.hasOwn(UNIT_KINDS, payload) ? payload : 'rules';
-            const unitName = prompt(T['views.unitName'], '');
-            if (!unitName) return;
-            unitEditor({ group, kind: UNIT_KINDS[group], name: unitName.trim(), value: UNIT_TEMPLATES[group], own: true, isNew: true });
+            const typed = logicHearing.known('$.data.logic.unitName');
+            const unitName = typeof typed === 'string' ? typed.trim() : '';
+            if (!unitName) { says(T['views.unitNameNeeded'], true); return; }
+            says('');
+            pageWrite({ unitName: '' });
+            unitEditor({ group, kind: UNIT_KINDS[group], name: unitName, value: UNIT_TEMPLATES[group], own: true, isNew: true });
             return;
         }
         default:

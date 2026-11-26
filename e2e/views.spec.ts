@@ -48,20 +48,30 @@ async function tokenCell(page: Page, label: string): Promise<Locator> {
     return cell;
 }
 
+/** The name of a new theme, typed in the Theme view's page beside the preset */
+const newThemeName = (page: Page) => viewPage(page).getByRole('textbox', { name: 'The new theme’s name' });
 /**
- * Makes a theme of the app's own from the Theme view's page, named as the prompt is answered. A press that brings no
- * prompt (on a phone after a long run the page could take the press before it handled it) is made again; a press that
- * did is never repeated, so no second theme is made
+ * Makes a theme of the app's own from the Theme view's page, under the name typed beside the preset. A page just shown
+ * can take what is typed or pressed before its script hears it (on a phone after a long run), so the name is typed and
+ * the button pressed again until the theme shows; a name already taken is refused, so no second theme is made
  */
 async function newTheme(page: Page, name: string): Promise<void> {
-    let prompted = false;
-    page.once('dialog', (dialog) => { prompted = true; void dialog.accept(name); });
-    const button = viewPage(page).getByRole('button', { name: 'New theme' });
     await expect(async () => {
-        if (!prompted) await button.click();
-        expect(prompted).toBe(true);
+        if ((await chosenTheme(page).inputValue({ timeout: 1000 }).catch(() => '')) !== name) {
+            await newThemeName(page).fill('');
+            await newThemeName(page).fill(name);
+            await viewPage(page).getByRole('button', { name: 'New theme' }).click();
+        }
+        await expect(chosenTheme(page)).toHaveValue(name, { timeout: 3000 });
     }).toPass({ intervals: [500, 1000, 2000] });
-    await expect(chosenTheme(page)).toHaveValue(name);
+    await expect(newThemeName(page)).toHaveValue('');
+}
+/** Presses a button of a page just shown until what it does shows: the page can take a press before its script hears it */
+async function pressUntil(button: Locator, shows: () => Promise<void>): Promise<void> {
+    await expect(async () => {
+        await button.click();
+        await shows();
+    }).toPass({ intervals: [500, 1000, 2000] });
 }
 /** Statenet's page, a frame on the board */
 const graph = (page: Page) => canvasPage(page, 'Statenet');
@@ -538,7 +548,10 @@ test.describe("The editor's views", () => {
         // Arrange: theme names are the owner's, so each run and project makes its own
         const name = uniqueName(info, 'theme');
         await pickView(editor, page, 'Theme');
+        // A new theme needs the name typed beside the preset: no dialog asks for it
+        await pressUntil(viewPage(page).getByRole('button', { name: 'New theme' }), () => expect(viewPage(page).getByRole('alert')).toContainText('Give the theme a name first.', { timeout: 3000 }));
         await newTheme(page, name);
+        await expect(viewPage(page).getByRole('alert')).toHaveCount(0);
         const cell = (label: string) => tokenCell(page, `color.accent.base ${label}`);
         // A specimen of the theme for each mode above the tokens
         await expect(viewPage(page).locator('ui-drawing')).toHaveCount(3);
@@ -574,7 +587,7 @@ test.describe("The editor's views", () => {
         await expect(viewPage(page).getByRole('textbox', { name: 'palette.neutral.50 All modes', exact: true })).toBeDisabled();
 
         // Act
-        page.once('dialog', (dialog) => void dialog.accept(copy));
+        await newThemeName(page).fill(copy);
         await viewPage(page).getByRole('button', { name: 'Clone for this app' }).first().click();
 
         // Assert: the copy is the app's, shown and editable; no other app uses it
@@ -592,8 +605,10 @@ test.describe("The editor's views", () => {
 
         // Act: a rule, written in the side panel
         await logic.getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Rule' });
-        page.once('dialog', (dialog) => void dialog.accept('remember'));
+        await pressUntil(logic.getByRole('button', { name: 'New', exact: true }), () => expect(logic.getByRole('alert')).toContainText('Give it a name first.', { timeout: 3000 }));
+        await logic.getByRole('textbox', { name: 'Its name' }).fill('remember');
         await logic.getByRole('button', { name: 'New', exact: true }).click();
+        await expect(logic.getByRole('alert')).toHaveCount(0);
         await sidePanel(page).getByRole('textbox', { name: 'rules.remember' }).fill(JSON.stringify({ when: { path: '$.data.picked' }, do: [{ command: 'set', target: '$.data.seen', value: true }] }));
         await sidePanel(page).getByRole('button', { name: 'Save', exact: true }).click();
 

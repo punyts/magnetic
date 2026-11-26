@@ -18,7 +18,7 @@ const T = '$.data.theme';
 
 /**
  * What the page script hears of the Theme view (src/http/raised.ts): a token's value cell sends its row with the new
- * value in the field of its column, and the preset is kept as it changes, for Create
+ * value in the field of its column, and the preset and the new theme's name are kept as they change, for Create and Clone
  */
 export const THEME_HEARING: Hearing = {
     'back.press': { name: 'back' },
@@ -28,6 +28,7 @@ export const THEME_HEARING: Hearing = {
     'cloneShared.press': { name: 'clone' },
     'remove.press': { name: 'remove' },
     'add.change': { name: 'add' },
+    'newName.change': { keep: '$.data.theme.newName' },
     'preset.change': { keep: '$.data.theme.preset' },
     'create.press': { name: 'create', from: '$.data.theme.preset' },
     'editAll.press': { name: 'editAll' },
@@ -96,7 +97,8 @@ const tool = (title: string, id: string, hidden?: string, extra: Record<string, 
  *   `refusalOpen` opens it again for the next one).
  * - It hears `choose` with a theme's name, `token` with a token's record once a value is changed, `editAll` (edit a
  *   shared theme for every app), `clone`, `default`, `remove`, `add` with a theme's name, `create` with the preset
- *   and `back` (to Statenet).
+ *   and `back` (to Statenet). The name typed beside the preset (`newName`) is the new theme's: Create needs it, and
+ *   Clone takes it, or else a free name made from the theme's and the app's.
  */
 export const THEME: PageSpec = pageSpec({
     records: [{ path: T, model: THEME_APP }],
@@ -122,6 +124,7 @@ export const THEME: PageSpec = pageSpec({
             field('chosen', 'string', ''),
             field('others', 'object', {}),
             field('adding', 'string', ''),
+            field('newName', 'string', ''),
             field('preset', 'string', THEME_PRESETS[0]),
             field('specimens', 'object', Object.fromEntries(THEME_MODES.map((mode) => [mode, { surface: '#ffffff', border: '#d0d0d0', text: '#111111', accent: '#3d5afe', accentOn: '#ffffff' }]))),
             field('tokens', 'array', []),
@@ -181,6 +184,7 @@ export const THEME: PageSpec = pageSpec({
                                 'own:hidden': `${T}.noOthers`,
                                 '@id': 'add'
                             },
+                            newName: { component: 'textField', _label: t['views.cloneName'], width: 20, size: 'sm', '<-value': `${T}.newName`, '@id': 'newName' },
                             preset: {
                                 component: 'selectField',
                                 _label: t['views.preset'],

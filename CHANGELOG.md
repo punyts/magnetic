@@ -1,6 +1,16 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The Theme and Logic views ask for a name in the page, not in a browser dialog.** The three `window.prompt()`s of
+  `src/http/views.ts` are gone. The Theme page (`src/theme/ThemePage.ts`) has a text field beside the Preset select,
+  "The new theme's name" (`newName`, kept by the page script as it changes): New theme makes a theme of that name and
+  refuses an empty one in the page's notice (`views.themeNameNeeded`), and Clone for this app takes the name typed, or
+  else a free name made from the theme's and the app's, as the dialog offered. The Logic page (`src/logic/LogicPage.ts`)
+  has "Its name" beside the Kind select (`unitName`): New opens the new unit's editor under that name and refuses an
+  empty one (`views.unitNameNeeded`). Each field is emptied once used. `window.confirm` stays for removals. New texts
+  in en, de, fr and es. Breaking: the pages gain the node ids `newName` and `unitName`, which a copy must keep.
+  Tests: `e2e/views.spec.ts` (the Theme view's make and clone tests and the Logic view's rule test type the name and
+  check the refusal of an empty one; none answers a dialog for a name).
 - **A change made elsewhere meanwhile is said in the person's words, and the views' red notice closes.** A view's
   change refused with 409 (what it changes is at another revision: the agent or another window wrote it) showed the
   tool's message, written for the agent ("Read it again with ui_get…"). `change` in `src/http/views.ts` now reads

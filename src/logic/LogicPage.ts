@@ -19,7 +19,7 @@ export const LANES = ['server', 'browser'] as const;
 
 const L = '$.data.logic';
 
-/** What the page script hears of the Logic view (src/http/raised.ts): the kind of unit is kept as it changes, for New */
+/** What the page script hears of the Logic view (src/http/raised.ts): the kind of unit and its name are kept as they change, for New */
 export const LOGIC_HEARING: Hearing = {
     'unit.press': { name: 'open', from: 'row.id' },
     'toServer.press': { name: 'move', from: 'row.id' },
@@ -29,6 +29,7 @@ export const LOGIC_HEARING: Hearing = {
     'back.press': { name: 'back' },
     'refused.close': { name: 'dismiss' },
     'group.change': { keep: '$.data.logic.group' },
+    'unitName.change': { keep: '$.data.logic.unitName' },
     'create.press': { name: 'create', from: '$.data.logic.group' }
 };
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
@@ -113,6 +114,7 @@ export const LOGIC: PageSpec = pageSpec({
             field('units', 'array', []),
             field('handlers', 'array', []),
             field('group', 'string', 'rules'),
+            field('unitName', 'string', ''),
             field('hasUnits', 'boolean', true),
             field('noHandlers', 'boolean', true),
             field('status', 'string', ''),
@@ -148,6 +150,7 @@ export const LOGIC: PageSpec = pageSpec({
                                 '<-value': `${L}.group`,
                                 '@id': 'group'
                             },
+                            unitName: { component: 'textField', _label: t['views.unitName'], width: 18, size: 'sm', '<-value': `${L}.unitName`, '@id': 'unitName' },
                             create: { component: 'button', size: 'sm', icon: 'plus', _title: t['views.newUnit'], '@id': 'create' },
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${L}.status` }
                         }
