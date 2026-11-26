@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The editor names its nodes as `#name`** (docs/design/state-definitions-and-instances.md). No behaviour changes.
 - **Each zoom between the running app and its editor is a page load; the running app is the app alone.** Breaking:
   `/apps/<id>` loads no editor and shows nothing over the app (the level bar is gone). Ctrl+Shift+- loads
   `/edit/<id>` on the screen showing and Ctrl+Shift+= loads `/apps/<id>` on the screen worked on, so each page syncs

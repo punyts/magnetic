@@ -488,7 +488,7 @@ function chatBar(t: Texts): Record<string, unknown> {
                     trigger: { component: 'progress', shape: 'ring', size: 'sm', theme: { size: { icon: { sm: '9.6px' } } }, _label: t['chat.budgetRing'], '<-value': `${E}.budgetUsed`, '<-max': `${E}.budgetTotal`, '<-tone': `${E}.budgetTone` }
                 },
                 model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
-                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': `${E}.chatOff`, on: { press: { command: 'send', target: '^bar.children.input' } } }
+                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': `${E}.chatOff`, on: { press: { command: 'send', target: '#bar.children.input' } } }
             }
         }
         // A round end at one line (half its 50px height), and the same corners when the lines above it show, as the
