@@ -329,10 +329,13 @@ workspace, and stops when you sign out of that browser.
       unit links to the function it runs.
     - **Theme:** a page of Magnetic's on the board (`magnetic-theme`): a specimen per mode and a table of tokens whose value
       for all modes and in each mode is edited in place. A theme other apps use is read-only until Edit for all or Clone
-      for this app.
+      for this app. A new theme and a clone take the name typed in the page beside the preset; no dialog asks for it.
     - **Logic:** a page of Magnetic's on the board (`magnetic-logic`): unit cards in a Server lane and a Browser lane,
       dragged or moved with their buttons between them, deleted from the card and opened in the side panel, plus the
-      screens' handlers.
+      screens' handlers. New makes a unit of the kind chosen under the name typed beside it.
+    - A change these views make that is refused shows in a red notice the person can close; it also clears with the
+      next change and when the view changes. A change refused because the part was written elsewhere meanwhile is read
+      again and said in the page's own words.
 
     The routes are `/edit/<appId>/views/<name>` (`src/server/viewRoutes.ts`), each through the person's own tools.
     Each turn carries the view's part of the app (`ui_get` of the theme, `ui_state_get` on `$.data`, `ui_tree`
