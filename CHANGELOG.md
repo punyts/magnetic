@@ -1,6 +1,24 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A press on a part of the app takes the focus out of the inspector's field.** Fix: the Select tool's shield keeps
+  the press from the browser, so after a property was typed the focus stayed in its field, and Delete and Alt+Arrow
+  on the part pressed next did nothing (the keys are left to a field that has the focus). The press now leaves the
+  field (`leaveField` in `src/http/inspect.ts`), which also saves what was typed in it, for the part still selected.
+  Test: `e2e/build-by-hand.spec.ts` ("Screens: the app is made…": the button is moved with Alt+Up and the badge
+  deleted with Delete, each straight after a property was typed).
+- **A screen just added is the one the live app shows.** Fix: the Screens panel chose a new screen at once, before
+  the live app had the document that holds it, so the app could not go there and stayed on the screen before: the
+  card was titled with the new screen, showed the old one, and a part placed on it landed on the old one. When a new
+  document reaches the page and the app is not on the screen worked on, it is sent there (`src/http/screens.ts`).
+  Test: `e2e/build-by-hand.spec.ts` ("Screens: a second screen is added…": the home screen's heading is hidden on the
+  new screen's card, and the text placed there shows on that screen when the app runs).
+- **A screen's title follows its name until it is given one.** Fix: adding or copying a screen in the Screens panel
+  stored a title made from its name, so a screen added as `extra` and renamed `about` was still titled "Extra" in
+  the panel and on its card. `POST /edit/<id>/screens` no longer stores a title on `add` and `copy`: the title shown
+  is made from the name (`screensOf`), and a title set in the card's menu is kept as before. Tests:
+  `src/server/inspectRoutes.test.ts` ("should list the screens, and add, copy, rename, delete them…") and
+  `e2e/build-by-hand.spec.ts`.
 - **Your apps' data is in namespaces, a record for each thing the page is about.** `$.data.home` (one model,
   `magnetic-home`, of sixteen unrelated fields) is gone. Beside the lists of cards (`apps`, `orgs`, `invites`, as
   they were) the page's data is five records, each with a model (`magnetic-home-<namespace>`) and a binding of its

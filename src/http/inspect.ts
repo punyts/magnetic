@@ -448,6 +448,13 @@ async function dragEnded(payload) {
     await commitDrop();
 }
 
+/** Takes the focus out of the field that has it, in whichever app's shadow DOM it is */
+function leaveField() {
+    let active = document.activeElement;
+    while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+    if (active instanceof HTMLElement && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) active.blur();
+}
+
 // The Select tool works on the shield over the live app, and the Move tool pans the board from it
 function selecting() { const tool = shell.tool(); return tool === 'select' || tool === 'place'; }
 let press = null;
@@ -468,6 +475,9 @@ shield.addEventListener('pointerdown', (event) => {
     }
     if (!selecting() || event.button !== 0) return;
     event.preventDefault();
+    // The press is kept from the browser, so it would leave the focus in a field of the inspector: Delete and Alt+Arrow
+    // would then go to that field, not to the part pressed. The field is left, which also saves what was typed in it
+    leaveField();
     shield.setPointerCapture(event.pointerId);
     press = { x: event.clientX, y: event.clientY, point: framePoint(event), dragging: false };
 });

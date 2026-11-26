@@ -214,6 +214,8 @@ describe("The editor's inspector routes", () => {
         expect(added.body['screens']).toEqual([expect.objectContaining({ name: 'home' }), { name: 'about', title: 'About' }]);
         expect((copied.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'about', 'home-copy']);
         expect((renamed.body['screens'] as { name: string }[]).map((screen) => screen.name)).toEqual(['home', 'info', 'home-copy']);
+        // A screen's title follows its name until it is given one of its own: renamed, about is titled Info
+        expect((renamed.body['screens'] as { name: string; title: string }[])[1]).toEqual({ name: 'info', title: 'Info' });
         expect(homed.body['start']).toBe('info');
         expect(startDeleted.body).toMatchObject({ start: 'home-copy', screens: [{ name: 'home' }, { name: 'home-copy' }] });
         expect(deleted.body).toMatchObject({ start: 'home', screens: [{ name: 'home' }] });

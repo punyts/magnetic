@@ -2185,12 +2185,12 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                 if (action === 'add') {
                     // An app made before the starter has an app node without a layout, which refuses a screen's grow
                     const appNode = (document as Record<string, unknown>)['app'];
-                    await call('ui_screen_create', { app: app.name, name, title: titleOf(name), root: starterScreen(isRecord(appNode) && isRecord(appNode['layout'])) });
+                    await call('ui_screen_create', { app: app.name, name, root: starterScreen(isRecord(appNode) && isRecord(appNode['layout'])) });
                 }
                 else if (action === 'copy') {
                     const from = screens[name];
                     if (!isRecord(from)) throw new HttpError(404, 'No such screen.', 'not_found');
-                    await call('ui_screen_create', { app: app.name, name: to, title: titleOf(to), ...(isRecord(from['params']) && { params: from['params'] }), root: from['root'] });
+                    await call('ui_screen_create', { app: app.name, name: to, ...(isRecord(from['params']) && { params: from['params'] }), root: from['root'] });
                 } else if (action === 'rename') await call('ui_rename', { kind: 'screens', app: app.name, name, to });
                 else if (action === 'delete') await call('ui_delete', { kind: 'screens', app: app.name, name });
                 else if (action === 'home') await call('ui_app_configure', { name: app.name, start: name });

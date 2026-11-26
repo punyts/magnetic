@@ -903,12 +903,13 @@ if (shell && editor && host) {
     shell.onEscape(() => deselect());
     shell.onZoomIn(zoomPick);
     shell.address.onChange((address) => addressMoved(address));
-    // A new document: the list again
+    // A new document: the list again. A screen just added or renamed was chosen before the live app had the document
+    // that holds it, so the app could not go there and stayed where it was: it is sent there now
     new MutationObserver(() => {
         const next = document.body.dataset.revision || '';
         if (next === revision) return;
         revision = next;
-        void load();
+        void load().then(() => { if (shell.editing() && current && routeScreen() !== current && host && host.navigate) host.navigate(current); });
     }).observe(document.body, { attributes: true, attributeFilter: ['data-revision'] });
     void load().then(() => placeLive(shell.editing()));
 }
