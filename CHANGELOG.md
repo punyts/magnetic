@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The editor's panels keep whether they are open; the record keeps data** (docs/design/state-definitions-and-instances.md,
+  the editor's record). Breaking: the eighteen `…Hidden` fields of the `magnetic-editor` model are gone. Each pane
+  (the chat, the inspector, the sheets, the side panel, the rails, the canvas pages) carries an `@id` (`chatPane`,
+  `boardPane`, …, `EDITOR_PANES`) and its own `hidden`, which the page script writes at the node's path, found by its
+  id, when it sets the flag it always set; a pane a person's copy of the editor lacks is left alone. Tests:
+  `src/server/editor.browser.test.ts` ("should open the chat with its button and close it with its close button" and
+  the rest of the suite), `e2e/`.
+- **Statenet draws apps as components and the instance being edited as a tree** (docs/design/
+  state-definitions-and-instances.md). The owner's apps are under `$.components` (the `$.apps` branch is gone; its +
+  is on `$.components`), and the person's instance of the app being edited branches at components: `screens`, each
+  screen, and the nodes with an `@id` or a composed component (kind `node`). Tests: `src/inspector/viewInfo.test.ts`,
+  `src/server/viewRoutes.test.ts`, `e2e/views.spec.ts`.
 - **Pages hear their nodes by `@id`; no page emits** (docs/design/state-definitions-and-instances.md). Breaking: every
   `emit` command is gone from Magnetic's pages. A node a page script acts on carries an `@id`, and each page has a
   table (`src/http/raised.ts`, `Heard`/`Hearing`, `HEARING_JS`) that reads a `stateui:raised` report

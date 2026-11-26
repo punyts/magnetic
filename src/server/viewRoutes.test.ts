@@ -141,11 +141,11 @@ describe("The editor's view routes", () => {
         // Assert
         expect(answer.status, JSON.stringify(answer.body)).toBe(200);
         const ids = (answer.body['nodes'] as { id: string }[]).map((node) => node.id);
-        expect(ids).toEqual(expect.arrayContaining(['$', '$.apps.notes', '$.apps.other', '$.apps.notes.screens.home', '$.apps.notes.uses.data.notes', '$.themes.calm', '$.data.notes', '$.data.notes.n1', '$.models.note', '$.models.note.fields.title']));
-        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.apps.notes', current: true }));
-        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.apps.other', used: false }));
+        expect(ids).toEqual(expect.arrayContaining(['$', '$.components.notes', '$.components.other', '$.components.notes.screens.home', '$.components.notes.uses.data.notes', '$.themes.calm', '$.data.notes', '$.data.notes.n1', '$.models.note', '$.models.note.fields.title']));
+        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.components.notes', current: true }));
+        expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.components.other', used: false }));
         expect(answer.body['nodes']).toContainEqual(expect.objectContaining({ id: '$.themes.calm', isDefault: true, used: true }));
-        expect(answer.body['edges']).toContainEqual({ from: '$.apps.notes.uses.data.notes', to: '$.data.notes', kind: 'binding', label: '$.data.notes' });
+        expect(answer.body['edges']).toContainEqual({ from: '$.components.notes.uses.data.notes', to: '$.data.notes', kind: 'binding', label: '$.data.notes' });
         expect(answer.body['app']).toBe('notes');
         expect(answer.body['manages']).toBe(true);
     });
@@ -202,7 +202,7 @@ describe("The editor's view routes", () => {
         expect(nodes.filter((node) => node.parent === '$.people')).toHaveLength(1);
         const instance = nodes.find((node) => node.kind === 'instance' && node.current === true);
         expect(instance?.id).toBe(`${person}.apps.${appId.toLowerCase()}`);
-        expect(answer.body['edges']).toContainEqual({ from: '$.apps.notes', to: instance?.id, kind: 'instance' });
+        expect(answer.body['edges']).toContainEqual({ from: '$.components.notes', to: instance?.id, kind: 'instance' });
     });
 
     it("should answer a theme's tokens in each mode and the other apps that use it, and write one mode's value", async () => {
@@ -310,8 +310,8 @@ describe("The editor's view routes", () => {
         expect(noNeed.status).toBe(400);
         expect([rule.status, machine.status, table.status], JSON.stringify([rule.body, machine.body, table.body])).toEqual([200, 200, 200]);
         const nodes = graph.body['nodes'] as { id: string; used: boolean }[];
-        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.apps.notes.uses.data.openTasks', kind: 'binding', note: 'open-tasks' }));
-        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.apps.notes.uses.data.someday', kind: 'binding', note: 'later' }));
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.components.notes.uses.data.openTasks', kind: 'binding', note: 'open-tasks' }));
+        expect(nodes).toContainEqual(expect.objectContaining({ id: '$.components.notes.uses.data.someday', kind: 'binding', note: 'later' }));
         expect(nodes).toContainEqual(expect.objectContaining({ id: '$.data.open-tasks', used: true }));
         expect(nodes).toContainEqual(expect.objectContaining({ id: '$.logic.chores', used: true }));
         expect(nodes).toContainEqual(expect.objectContaining({ id: '$.models.task', used: true }));

@@ -143,10 +143,17 @@ const E = '$.data.editor';
 /** The fields of `$.data.editor` that are true until the page says otherwise: what starts hidden */
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
-    'chatHidden', 'inspectorHidden', 'shareHidden', 'prefsHidden', 'hintHidden', 'drawerHidden', 'narrowHidden', 'libraryHidden', 'screensHidden', 'isHome', 'notHome', 'noScreensStatus',
-    'notInOrg', 'connectionsHidden', 'noConnectionsStatus', 'cannotManage', 'sharedHidden', 'noSharedStatus', 'cannotManageData', 'feedbackHidden', 'noBudget', 'sideHidden',
-    'statenetHidden', 'themeHidden', 'logicHidden'
+    'isHome', 'notHome', 'noScreensStatus', 'notInOrg', 'noConnectionsStatus', 'cannotManage', 'noSharedStatus', 'cannotManageData', 'noBudget'
 ];
+
+/**
+ * The editor's panes, each shown and hidden by its own `hidden` (docs/design/state-definitions-and-instances.md, the
+ * editor's record): whether a panel is open is the panel's state, kept in the person's instance, not data. The page
+ * script still names them by the flag it sets (`chatHidden`), and writes the pane's `hidden` by its `@id`
+ */
+export const EDITOR_PANES: Readonly<Record<string, string>> = Object.fromEntries(
+    ['chat', 'inspector', 'share', 'prefs', 'hint', 'drawer', 'narrow', 'library', 'screens', 'connections', 'shared', 'feedback', 'side', 'statenet', 'theme', 'logic', 'wide', 'board'].map((name) => [`${name}Hidden`, `${name}Pane`])
+);
 
 /** The models of the editor's data */
 const MODELS: Record<string, readonly Record<string, unknown>[]> = {
@@ -174,7 +181,7 @@ const MODELS: Record<string, readonly Record<string, unknown>[]> = {
         { op: 'set', field: 'tab', type: 'string', default: 'properties' },
         { op: 'set', field: 'model', type: 'string', default: '' },
         { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'orgOpen', 'wideHidden', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', 'boardHidden', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
+        ...['working', 'blank', 'hasMessages', 'keepOpen', 'orgOpen', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
         // The view the canvas shows (Screens, Statenet, Theme, Logic), and the layers on the screen tiles
         { op: 'set', field: 'view', type: 'string', default: 'screens' },
         { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
@@ -322,18 +329,18 @@ const CANVAS_FRAME = { embed: { border: 'transparent', radius: '0px', fill: 'tra
  * The canvas: Magnetic's pages the view selector shows (`$.data.editor.view`), each a live embeddedApp the page's app
  * host opens by name, first on the stage so every panel lies over it. The screens board and Statenet take the whole
  * window, Theme and Logic the area the panels leave. Each stays mounted while hidden, so it keeps where the person left
- * it; the page script shows one at a time (`boardHidden`, `statenetHidden`, `themeHidden`, `logicHidden`). Each is
+ * it; the page script shows one at a time through their own `hidden` (`boardPane`, `statenetPane`, `themePane`, `logicPane`). Each is
  * a stack of its own (`z: 0`), so what is drawn over a page's app, such as the inspector's layer, stays under the panels
  */
 function canvasPages(t: Texts): Record<string, unknown> {
-    const page = (app: string, label: string, placement: Record<string, string>, hidden: string): Record<string, unknown> => ({
-        component: 'embeddedApp', app, live: true, fill: true, _label: label, placement: { ...placement, z: 0 }, theme: CANVAS_FRAME, '<-hidden': `${E}.${hidden}`
+    const page = (app: string, label: string, placement: Record<string, string>, pane: string): Record<string, unknown> => ({
+        component: 'embeddedApp', app, live: true, fill: true, _label: label, placement: { ...placement, z: 0 }, theme: CANVAS_FRAME, hidden: pane !== 'boardPane', '@id': pane
     });
     return {
-        board: page(SCREENS_APP, t['screens.board'], WHOLE, 'boardHidden'),
-        statenet: page(STATENET_APP, t['shell.view.statenet'], WHOLE, 'statenetHidden'),
-        theme: page(THEME_APP, t['shell.view.theme'], VIEW_PLACEMENT, 'themeHidden'),
-        logic: page(LOGIC_APP, t['shell.view.logic'], VIEW_PLACEMENT, 'logicHidden')
+        board: page(SCREENS_APP, t['screens.board'], WHOLE, 'boardPane'),
+        statenet: page(STATENET_APP, t['shell.view.statenet'], WHOLE, 'statenetPane'),
+        theme: page(THEME_APP, t['shell.view.theme'], VIEW_PLACEMENT, 'themePane'),
+        logic: page(LOGIC_APP, t['shell.view.logic'], VIEW_PLACEMENT, 'logicPane')
     };
 }
 
@@ -342,7 +349,7 @@ function canvasPages(t: Texts): Record<string, unknown> {
  * name and hands views.ts its panel; it stays mounted while hidden, so what it shows is kept
  */
 function sidePanel(t: Texts): Record<string, unknown> {
-    return float(SIDE_PLACEMENT, { page: { component: 'embeddedApp', app: SIDE_APP, live: true, fill: true, _label: t['views.side'] } }, { padding: 'none', '<-hidden': `${E}.sideHidden` });
+    return float(SIDE_PLACEMENT, { page: { component: 'embeddedApp', app: SIDE_APP, live: true, fill: true, _label: t['views.side'] } }, { padding: 'none', hidden: true, '@id': 'sidePane' });
 }
 
 /**
@@ -508,7 +515,7 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
         // Below 760px the name corner has no room for the workspace and the frame size
         ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, 'sizeTop', screensOnly), frame: frameDimensions(t, 'frameTop', screensOnly) })
     // The divider and the Layers label get the room the buttons' own padding gives their icons, not the tools' tight gap
-    }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden`, layout: { type: 'column', gap: 'md' } });
+    }, narrow ? { hidden: true, '@id': 'narrowPane', layout: { type: 'row', gap: 'sm', align: 'center' } } : { hidden: false, '@id': 'widePane', layout: { type: 'column', gap: 'md' } });
 }
 
 /** The zoom at the bottom right, above the chat bar when the window is too narrow for both; hidden in the views without the board (Theme, Logic) */
@@ -600,7 +607,7 @@ function chatPanel(t: Texts): Record<string, unknown> {
             drawer: {
                 component: 'panel',
                 padding: 'none',
-                '<-hidden': `${E}.drawerHidden`,
+                hidden: true, '@id': 'drawerPane',
                 layout: { type: 'column', gap: 'sm' },
                 children: {
                     head: row({
@@ -613,7 +620,7 @@ function chatPanel(t: Texts): Record<string, unknown> {
                 }
             }
         },
-        { '<-hidden': `${E}.chatHidden`, layout: { type: 'column', gap: 'sm' } }
+        { hidden: true, '@id': 'chatPane', layout: { type: 'column', gap: 'sm' } }
     );
 }
 
@@ -632,7 +639,7 @@ function blankHint(t: Texts): Record<string, unknown> {
             idea2: idea(2),
             idea3: idea(3)
         },
-        { '<-hidden': `${E}.hintHidden`, padding: 'md' }
+        { hidden: true, '@id': 'hintPane', padding: 'md' }
     );
 }
 
@@ -681,7 +688,7 @@ function connectionsPanel(t: Texts): Record<string, unknown> {
             },
             manage: button(t['connectionsPanel.manage'], 'connectionsManage', { variant: 'soft', '<-hidden': `${E}.cannotManage` })
         },
-        { '<-hidden': `${E}.connectionsHidden` }
+        { hidden: true, '@id': 'connectionsPane' }
     );
 }
 
@@ -709,7 +716,7 @@ function sharedPanel(t: Texts): Record<string, unknown> {
             },
             manage: button(t['sharedPanel.manage'], 'sharedManage', { variant: 'soft', '<-hidden': `${E}.cannotManageData` })
         },
-        { '<-hidden': `${E}.sharedHidden` }
+        { hidden: true, '@id': 'sharedPane' }
     );
 }
 
@@ -728,7 +735,7 @@ function library(t: Texts): Record<string, unknown> {
             }),
             body: libraryBody(t)
         },
-        { '<-hidden': `${E}.libraryHidden` }
+        { hidden: true, '@id': 'libraryPane' }
     );
 }
 
@@ -785,7 +792,7 @@ function screensPanel(t: Texts): Record<string, unknown> {
             }, { layout: { type: 'row', gap: 'sm', align: 'center', wrap: true } }),
             status: bound(`${E}.screensStatus`, { textRole: 'caption', tone: 'danger', '<-hidden': `${E}.noScreensStatus` })
         },
-        { '<-hidden': `${E}.screensHidden` }
+        { hidden: true, '@id': 'screensPane' }
     );
 }
 
@@ -875,7 +882,7 @@ function inspector(t: Texts): Record<string, unknown> {
             // The tabs take the inspector's height below its head, and the open tab scrolls
             tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, '@id': 'tab', children: { properties: propertiesTab(t), state: stateTab(t) } }
         },
-        { '<-hidden': `${E}.inspectorHidden` }
+        { hidden: true, '@id': 'inspectorPane' }
     );
 }
 
@@ -928,7 +935,7 @@ function shareSheet(t: Texts): Record<string, unknown> {
                 })
             }
         },
-        { '<-hidden': `${E}.shareHidden`, padding: 'md' }
+        { hidden: true, '@id': 'sharePane', padding: 'md' }
     );
 }
 
@@ -942,7 +949,7 @@ function prefsSheet(t: Texts): Record<string, unknown> {
             language: { component: 'selectField', size: 'sm', _label: t['prefs.language'], options: Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }])), '<-value': `${E}.language`, '@id': 'language' },
             status: bound(`${E}.prefsStatus`, { textRole: 'caption' })
         },
-        { '<-hidden': `${E}.prefsHidden`, padding: 'md' }
+        { hidden: true, '@id': 'prefsPane', padding: 'md' }
     );
 }
 
@@ -976,7 +983,7 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
             note: caption(t['feedback.note'], { muted: true }),
             send: row({ status: bound(`${E}.feedbackStatus`, { textRole: 'caption', placement: { grow: 1 } }), send: button(t['feedback.send'], 'feedbackSend', { variant: 'solid', tone: 'accent' }) })
         },
-        { '<-hidden': `${E}.feedbackHidden`, padding: 'md' }
+        { hidden: true, '@id': 'feedbackPane', padding: 'md' }
     );
 }
 

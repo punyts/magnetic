@@ -8,7 +8,7 @@ const DOCUMENT = {
             component: 'panel',
             layout: { type: 'column', gap: 'md' },
             children: {
-                header: { component: 'panel', layout: { type: 'row', align: 'center' }, children: { title: { component: 'text', '<-_text': '$.app.title' } } },
+                header: { component: 'panel', '@id': 'header', layout: { type: 'row', align: 'center' }, children: { title: { component: 'text', '@id': 'title', '<-_text': '$.app.title' } } },
                 list: { component: 'list', '<-items': '$.data.tasks', '<->value': '$.data.filter.text', on: { select: [{ command: 'set', target: '$.data.selected', from: '$.event.value' }, { command: 'navigate', target: 'details' }] } },
                 weather: { component: 'text', '<-_text': '$.external.weather.today.summary' }
             }
@@ -113,17 +113,17 @@ describe("The editor's views of an app", () => {
 
         // Assert
         const node = (id: string) => tree.nodes.find((candidate) => candidate.id === id);
-        expect(tree.nodes.filter((each) => each.parent === '$').map((each) => each.id)).toEqual(['$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.components', '$.patterns', '$.connections', '$.functions', '$.people']);
+        expect(tree.nodes.filter((each) => each.parent === '$').map((each) => each.id)).toEqual(['$.components', '$.themes', '$.data', '$.models', '$.logic', '$.patterns', '$.connections', '$.functions', '$.people']);
         expect(tree.nodes.every((each) => each.parent === null || (each.id.startsWith(each.parent + '.') && tree.nodes.some((other) => other.id === each.parent)))).toBe(true);
-        expect(node('$.apps.tasks')).toMatchObject({ kind: 'app', label: 'Tasks', current: true, count: 3, screens: ['home', 'details'] });
-        expect(node('$.apps.stock')).toMatchObject({ used: false, appId: 'a2' });
-        expect(node('$.apps.tasks.screens.details')).toMatchObject({ kind: 'screen', parent: '$.apps.tasks.screens' });
-        expect(node('$.apps.tasks.uses.data.tasks')).toMatchObject({ kind: 'binding', note: 'tasks' });
-        expect(node('$.apps.tasks.uses.data.mine')).toMatchObject({ kind: 'personal', note: 'note' });
-        expect(node('$.apps.tasks.data.filter')).toMatchObject({ kind: 'state', note: '$.data.filter' });
-        expect(node('$.apps.tasks.data.tasks')).toBeUndefined();
-        expect(node('$.apps.tasks.uses.external.prices')).toMatchObject({ kind: 'shared', note: 'Acme', outside: true });
-        expect(node('$.apps.tasks.uses.external.stock')).toMatchObject({ kind: 'otherApp', label: 'Stock', note: '$.data.stock' });
+        expect(node('$.components.tasks')).toMatchObject({ kind: 'app', label: 'Tasks', current: true, count: 3, screens: ['home', 'details'] });
+        expect(node('$.components.stock')).toMatchObject({ used: false, appId: 'a2' });
+        expect(node('$.components.tasks.screens.details')).toMatchObject({ kind: 'screen', parent: '$.components.tasks.screens' });
+        expect(node('$.components.tasks.uses.data.tasks')).toMatchObject({ kind: 'binding', note: 'tasks' });
+        expect(node('$.components.tasks.uses.data.mine')).toMatchObject({ kind: 'personal', note: 'note' });
+        expect(node('$.components.tasks.data.filter')).toMatchObject({ kind: 'state', note: '$.data.filter' });
+        expect(node('$.components.tasks.data.tasks')).toBeUndefined();
+        expect(node('$.components.tasks.uses.external.prices')).toMatchObject({ kind: 'shared', note: 'Acme', outside: true });
+        expect(node('$.components.tasks.uses.external.stock')).toMatchObject({ kind: 'otherApp', label: 'Stock', note: '$.data.stock' });
         expect(tree.nodes.filter((each) => each.kind === 'theme').map((each) => [each.label, each.used, each.isDefault])).toEqual([['calm', true, true], ['bold', true, false], ['spare', false, false]]);
         expect(node('$.data.tasks')).toMatchObject({ used: true, note: 'task', more: 2, add: 'record' });
         expect(tree.nodes.filter((each) => each.parent === '$.data.tasks')).toHaveLength(TREE_RECORDS);
@@ -146,16 +146,41 @@ describe("The editor's views of an app", () => {
             ['$.people.u1.apps.a1', 'Tasks', true]
         ]);
         expect(node('$.people.u1.apps.a1')).toMatchObject({ kind: 'instance', current: true, appId: 'a1', updatedAt: '2026-11-17T10:00:00.000Z' });
-        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.people.u1.apps.a1', kind: 'instance' });
-        // The +: what each branch makes; none for components and patterns, nor for connections without the right to manage them
-        expect(['$.apps', '$.apps.tasks.screens', '$.apps.tasks.uses.data', '$.themes', '$.data', '$.models', '$.logic', '$.models.task', '$.logic.billing'].map((id) => node(id)?.add)).toEqual(['app', 'screen', 'binding', 'theme', 'dataset', 'model', 'module', 'field', 'unit']);
-        expect([node('$.components')?.add, node('$.patterns')?.add, node('$.connections')?.add]).toEqual([undefined, undefined, undefined]);
+        expect(tree.edges).toContainEqual({ from: '$.components.tasks', to: '$.people.u1.apps.a1', kind: 'instance' });
+        // The +: what each branch makes (an app under $.components); none for patterns, nor for connections without the right to manage them
+        expect(['$.components', '$.components.tasks.screens', '$.components.tasks.uses.data', '$.themes', '$.data', '$.models', '$.logic', '$.models.task', '$.logic.billing'].map((id) => node(id)?.add)).toEqual(['app', 'screen', 'binding', 'theme', 'dataset', 'model', 'module', 'field', 'unit']);
+        expect([node('$.patterns')?.add, node('$.connections')?.add]).toEqual([undefined, undefined]);
         // The edges: what the app uses, a binding's dataset, a dataset's model, an endpoint the app calls
-        expect(tree.edges).toContainEqual({ from: '$.apps.tasks.uses.data.tasks', to: '$.data.tasks', kind: 'binding', label: '$.data.tasks' });
+        expect(tree.edges).toContainEqual({ from: '$.components.tasks.uses.data.tasks', to: '$.data.tasks', kind: 'binding', label: '$.data.tasks' });
         expect(tree.edges).toContainEqual({ from: '$.models.task', to: '$.data.tasks', kind: 'model' });
-        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.logic.billing', kind: 'uses' });
-        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.connections.weather.endpoints.today', kind: 'call', label: 'forecast' });
+        expect(tree.edges).toContainEqual({ from: '$.components.tasks', to: '$.logic.billing', kind: 'uses' });
+        expect(tree.edges).toContainEqual({ from: '$.components.tasks', to: '$.connections.weather.endpoints.today', kind: 'call', label: 'forecast' });
     });
+    it('should draw the instance of the app being edited with its own tree, branching at components', () => {
+        // Arrange
+        const document = { ...DOCUMENT, screens: { ...DOCUMENT.screens, details: { root: { component: 'panel', children: { top: { component: 'appHeader' } } } } } };
+
+        // Act
+        const tree = ownerTreeOf({
+            app: { id: 'a1', name: 'tasks', title: 'Tasks', uses: {}, document, sharedWith: 0 },
+            apps: [{ id: 'a1', name: 'tasks', title: 'Tasks' }, { id: 'a2', name: 'stock', title: 'Stock' }],
+            themes: [], datasets: [], models: [], modules: [], components: [], patterns: [], connections: [],
+            ownerNames: {}, appNames: {}, manages: false,
+            person: { id: 'u1', name: 'Ana', apps: [{ id: 'a1', updatedAt: '2026-11-17T10:00:00.000Z' }, { id: 'a2', updatedAt: '2026-11-16T10:00:00.000Z' }] },
+            functions: []
+        });
+
+        // Assert
+        const instance = '$.people.u1.apps.a1';
+        const below = (parent: string) => tree.nodes.filter((each) => each.parent === parent).map((each) => [each.id.slice(instance.length), each.kind, each.label]);
+        expect(below(instance)).toEqual([['.screens', 'branch', 'screens']]);
+        expect(below(`${instance}.screens`)).toEqual([['.screens.home', 'screen', 'home'], ['.screens.details', 'screen', 'details']]);
+        expect(below(`${instance}.screens.home`)).toEqual([['.screens.home.root.children.header', 'node', '#header']]);
+        expect(below(`${instance}.screens.home.root.children.header`)).toEqual([['.screens.home.root.children.header.children.title', 'node', '#title']]);
+        expect(below(`${instance}.screens.details`)).toEqual([['.screens.details.root.children.top', 'node', 'appHeader']]);
+        expect(tree.nodes.filter((each) => each.parent === '$.people.u1.apps.a2')).toEqual([]);
+    });
+
     it("should show the person's app being edited and its most recent others, TREE_RECORDS in all, and count the rest", () => {
         // Arrange: state in the app being edited, the oldest, and in TREE_RECORDS + 3 others before it
         const count = TREE_RECORDS + 3;
@@ -224,8 +249,8 @@ describe("The editor's views of an app", () => {
         expect(node('$.components.treeDiagram.functions.layoutTree')).toMatchObject({ kind: 'function', parent: '$.components.treeDiagram', used: true, fn: { fixed: true, summary: 'Does $.components.treeDiagram.functions.layoutTree', inputs: { type: 'object' } } });
         expect(tree.nodes.some((each) => each.add !== undefined && each.id.includes('functions'))).toBe(false);
         expect(tree.edges).toContainEqual({ from: '$.logic.diagrams.computes.layout', to: '$.components.treeDiagram.functions.layoutTree', kind: 'run' });
-        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.functions.host.http', kind: 'run' });
-        expect(tree.edges).toContainEqual({ from: '$.apps.tasks', to: '$.components.treeDiagram', kind: 'uses' });
+        expect(tree.edges).toContainEqual({ from: '$.components.tasks', to: '$.functions.host.http', kind: 'run' });
+        expect(tree.edges).toContainEqual({ from: '$.components.tasks', to: '$.components.treeDiagram', kind: 'uses' });
     });
 
     it("should give each token its value in every mode and what the theme writes for it, base and per mode", () => {

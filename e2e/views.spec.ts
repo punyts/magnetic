@@ -87,8 +87,8 @@ const add = async (button: Locator): Promise<void> => {
 test.describe("The editor's views", () => {
     let editor: EditorPage;
     let appName: string;
-    /** The app being edited: its card under $.apps */
-    const appCard = (page: Page) => node(page, `$.apps.${appName}`);
+    /** The app being edited: its card under $.components */
+    const appCard = (page: Page) => node(page, `$.components.${appName}`);
 
     test.beforeEach(async ({ context, home }, info) => {
         await signIn(context, 'alice');
@@ -104,7 +104,7 @@ test.describe("The editor's views", () => {
         await expect(graph(page)).toBeHidden();
         await pickView(editor, page, 'Statenet');
         // Statenet's page shows on the editor's stage in place of the screens, and the editor's zoom drives its canvas:
-        // the app itself is a card under $.apps
+        // the app itself is a card under $.components
         await expect(appCard(page)).toBeVisible();
         await expect(page.locator(BOARD)).toBeHidden();
         await expect(editor.button('Zoom in (+)')).toBeVisible();
@@ -136,7 +136,7 @@ test.describe("The editor's views", () => {
             const elsewhere = new EditorPage(await other.newPage());
             await elsewhere.goto(editor.appId);
             await pickView(elsewhere, elsewhere.page, 'Statenet');
-            await expect(node(elsewhere.page, `$.apps.${appName}`)).toBeAttached();
+            await expect(node(elsewhere.page, `$.components.${appName}`)).toBeAttached();
             await expect.poll(() => percent(elsewhere)).toBe(left);
         } finally {
             await other.close();
@@ -156,14 +156,14 @@ test.describe("The editor's views", () => {
         const theme = node(page, `$.themes.${name}`);
         await expect(theme).toBeVisible();
         await expect(theme).not.toContainText('Not used by this app');
-        const appPath = `$.apps.${appName}`;
+        const appPath = `$.components.${appName}`;
         await expect(appCard(page)).toBeVisible();
         await expect(node(page, `${appPath}.screens.home`)).toBeVisible();
         // The person editing, and no one else
         await expect(graph(page).locator('[role="treeitem"][data-id^="$.people."]:not([data-id*=".apps."])')).toHaveCount(1);
         // Read from one layout at once: a change to the app may draw a new one. The branches of $ share its two sides,
         // the first ones right in order and the rest left; on each side a part stands further out than its branch
-        const paths = ['$', '$.apps', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath];
+        const paths = ['$', '$.components', '$.themes', '$.data', '$.models', '$.logic', '$.connections', `$.themes.${name}`, appPath];
         // Until a card is placed it stands on the right; wait for the layout
         await expect.poll(() => graph(page).locator('[role="treeitem"][data-placed]').evaluateAll((cards, wanted) => wanted.filter((path) => cards.some((each) => (each as HTMLElement).dataset['id'] === path)).length, paths)).toBe(paths.length);
         // A layout drawn while the tree still changes is followed by another: read once two reads 200 ms apart agree
@@ -193,7 +193,7 @@ test.describe("The editor's views", () => {
         expect((themeX - themes) * themesWay).toBeGreaterThan(0);
         expect((appX - apps) * appsWay).toBeGreaterThan(0);
         // Of the owner's other apps the first six show, and a pill shows the rest
-        expect(await graph(page).locator('[role="treeitem"][data-id^="$.apps."]').filter({ hasText: 'Another app of yours' }).count()).toBeLessThanOrEqual(6);
+        expect(await graph(page).locator('[role="treeitem"][data-id^="$.components."]').filter({ hasText: 'Another app of yours' }).count()).toBeLessThanOrEqual(6);
         const boxes = await graph(page).locator('[role="treeitem"][data-placed]').evaluateAll((all) => all.map((each) => { const box = each.getBoundingClientRect(); return [box.left, box.top, box.width, box.height] as const; }));
         boxes.forEach(([x, y, w, h], index) => {
             for (const [x2, y2, w2, h2] of boxes.slice(index + 1)) expect(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y).toBe(true);
@@ -206,7 +206,7 @@ test.describe("The editor's views", () => {
         const dataset = uniqueName(info, 'stock');
         await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset, records: { bolt: { name: 'Bolt' } } });
         await pickView(editor, page, 'Statenet');
-        const appPath = `$.apps.${appName}`;
+        const appPath = `$.components.${appName}`;
         const side = sidePanel(page);
 
         // Act: a screen
@@ -327,8 +327,11 @@ test.describe("The editor's views", () => {
         await expect(side.locator('input:visible, textarea:visible, select:visible')).toHaveCount(0);
 
         // A component's function belongs to it and cannot be turned off. The app does not place the component, so the
-        // board leaves its functions out and its panel lists them
+        // board leaves its functions out and its panel lists them. The owner's apps share $.components, so the library
+        // component may be behind the branch's pill for the rest
         const component = node(page, '$.components.treeDiagram');
+        const rest = node(page, '$.components#more');
+        if ((await component.count()) === 0 && (await rest.count()) > 0) await press(rest);
         await expect(component).toContainText('Library component');
         await press(component);
         await side.getByRole('button', { name: 'layoutTree' }).click();
@@ -576,7 +579,7 @@ test.describe("A person's copy of the editor", () => {
         const side = sidePanel(page);
 
         // Act
-        await press(node(page, `$.apps.${appName}`));
+        await press(node(page, `$.components.${appName}`));
 
         // Assert: the app's part at the side, which is now at the left
         await expect(side.getByRole('heading', { name: 'Screens' })).toBeVisible();

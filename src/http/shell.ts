@@ -8,7 +8,7 @@ import { SIDE_APP } from '../side/SidePage.js';
 import { STATENET_APP } from '../statenet/StatenetPage.js';
 import { THEME_APP } from '../theme/ThemePage.js';
 import { ZOOM_CSS } from './zoom.js';
-import { EDITOR_HEARING } from '../editor/EditorApp.js';
+import { EDITOR_HEARING, EDITOR_PANES } from '../editor/EditorApp.js';
 import { HEARING_JS, hearingJs } from './raised.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
@@ -262,19 +262,35 @@ const editorState = {};
 /** The app has no screens: the board's Add a screen tile is then the way on, so the blank app's hint goes */
 let noScreens = false;
 
-/** Writes fields of $.data.editor; the same value written again changes nothing */
+/** The flags that are a pane's own hidden (EDITOR_PANES), each with the pane's id */
+const PANES = ${JSON.stringify(EDITOR_PANES)};
+
+/**
+ * Writes fields of $.data.editor; the same value written again changes nothing. A pane's flag (chatHidden) is the
+ * pane's own state: it is written to that node's hidden, found by its id once the editor's document is known
+ */
 function ed(fields) {
     const writes = [];
     for (const [name, value] of Object.entries(fields)) {
         if (JSON.stringify(editorState[name]) === JSON.stringify(value)) continue;
         editorState[name] = value;
-        writes.push({ path: '$.data.editor.' + name, value });
+        writes.push(PANES[name] === undefined ? { path: '$.data.editor.' + name, value } : { pane: PANES[name], value });
     }
     write(writes);
 }
+/** The writes with each pane's flag at its node's path; a pane the editor's document lacks is left out */
+function atPanes(writes) {
+    const out = [];
+    for (const each of writes) {
+        if (each.pane === undefined) { out.push(each); continue; }
+        const path = pathOfId(each.pane);
+        if (path !== undefined) out.push({ path: path + '.hidden', value: each.value });
+    }
+    return out;
+}
 function write(writes) {
     if (writes.length === 0) return;
-    if (panel && ready) panel.write(writes);
+    if (panel && ready) panel.write(atPanes(writes));
     else pending.push(...writes);
 }
 /** Writes a list of the editor's data as records by id */
@@ -293,6 +309,34 @@ function list(name, records) {
 }
 
 /** The path of the first node kept under a key, anywhere in the editor's screens */
+/** The path of the editor's node whose id (its @id, else its key) is the one given */
+function pathOfId(id) {
+    const visit = (node, at) => {
+        if (node['@id'] === id) return at;
+        for (const [key, value] of Object.entries(node)) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+            if (key === 'children') {
+                for (const [name, child] of Object.entries(value)) {
+                    if (!child || typeof child !== 'object' || typeof child.component !== 'string') continue;
+                    if (child['@id'] === undefined && name === id) return at + '.children.' + name;
+                    const found = visit(child, at + '.children.' + name);
+                    if (found) return found;
+                }
+            } else if (typeof value.component === 'string') {
+                const found = visit(value, at + '.' + key);
+                if (found) return found;
+            }
+        }
+        return undefined;
+    };
+    for (const [name, screen] of Object.entries((editorDocument && editorDocument.screens) || {})) {
+        if (!screen || !screen.root) continue;
+        const found = visit(screen.root, '$.screens.' + name);
+        if (found) return found;
+    }
+    return undefined;
+}
+
 function pathOfKey(key) {
     const visit = (node, at) => {
         if (!node || typeof node !== 'object') return undefined;
@@ -351,7 +395,7 @@ async function mountEditor(which) {
             holder.removeEventListener('stateui:ready', onReady);
             clearTimeout(timer);
             ready = true;
-            const queued = pending.splice(0);
+            const queued = atPanes(pending.splice(0));
             if (queued.length > 0) panel.write(queued);
             if (editor.fallback) ed({ notice: T['editor.fallback'], noNotice: false });
             for (const listener of readyListeners) listener();

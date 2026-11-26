@@ -288,6 +288,7 @@ export type TreeKind =
     | 'endpoint'
     | 'person'
     | 'instance'
+    | 'node'
     | 'library'
     | 'function';
 
@@ -441,13 +442,16 @@ function places(node: unknown, component: string): boolean {
 
 
 /**
- * The owner's statenet as a tree of state paths: `$`, then `$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
- * `$.components`, `$.patterns`, `$.connections`, `$.functions` and `$.people`, each holding every part of that kind the owner has. A part the
+ * The owner's statenet as a tree of state paths: `$`, then `$.components`, `$.themes`, `$.data`, `$.models`, `$.logic`,
+ * `$.patterns`, `$.connections`, `$.functions` and `$.people`, each holding every part of that kind the owner has. An
+ * app's definition is a component (docs/design/state-definitions-and-instances.md), so the owner's apps are under
+ * `$.components` beside its composed and library components. A part the
  * app being edited does not use is drawn dimmed (`used: false`). One level is drawn below a part: the app's screens,
  * bindings (`uses.data`), own state (`data`) and outside reads (`uses.external`); a dataset's records (the first
  * `TREE_RECORDS`); a model's fields; a module's units; a connection's endpoints; the person editing with the apps
  * they have state in (`$.people.<person>.apps.<app id>`, their own state at their own id: the app being edited and the most recent others,
- * `TREE_RECORDS` in all); the server's functions by group
+ * `TREE_RECORDS` in all), the instance of the app being edited with its own tree, branching at components: its screens,
+ * and in each the nodes that carry an `@id` or place a composed component, under the nearest such node above them; the server's functions by group
  * (`$.functions.<group>.<name>`), and a library component's under it (`$.components.<component>.functions.<name>`). A branch the person can add to has
  * `add`. The edges are what the tree does not show: what the app uses, a binding's dataset, a dataset's model, an
  * endpoint the app calls, the function a unit runs
@@ -463,7 +467,7 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
         return id;
     };
     const { uses, document } = input.app;
-    const app = `$.apps.${input.app.name}`;
+    const app = `$.components.${input.app.name}`;
     const screens = isRecord(document['screens']) ? document['screens'] : {};
     const themes = Array.isArray(uses['themes']) ? uses['themes'].filter((name): name is string => typeof name === 'string') : [];
     const bindings = isRecord(uses['data']) ? uses['data'] : {};
@@ -478,12 +482,12 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
 
     add({ id: '$', parent: null, kind: 'owner', label: '$', note: '', used: true });
 
-    // $.apps: the app being edited with what it holds, and the owner's other apps
-    branch('$.apps', '$', '$.apps', true, 'app');
-    add({ id: app, parent: '$.apps', kind: 'app', label: input.app.title, note: input.app.name, used: true, current: true, appId: input.app.id, count: input.app.sharedWith, screens: Object.keys(screens) });
+    // $.components: the app being edited with what it holds, and the owner's other apps; components follow below
+    branch('$.components', '$', '$.components', true, 'app');
+    add({ id: app, parent: '$.components', kind: 'app', label: input.app.title, note: input.app.name, used: true, current: true, appId: input.app.id, count: input.app.sharedWith, screens: Object.keys(screens) });
     for (const other of input.apps) {
         if (other.id === input.app.id) continue;
-        add({ id: `$.apps.${other.name}`, parent: '$.apps', kind: 'app', label: other.title, note: other.name, used: false, appId: other.id });
+        add({ id: `$.components.${other.name}`, parent: '$.components', kind: 'app', label: other.title, note: other.name, used: false, appId: other.id });
     }
     const appScreens = branch(`${app}.screens`, app, 'screens', true, 'screen');
     for (const screen of Object.keys(screens)) add({ id: `${appScreens}.${screen}`, parent: appScreens, kind: 'screen', label: screen, note: '', used: true });
@@ -557,8 +561,7 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
         if (used) edges.push({ from: app, to: id, kind: 'uses' });
     }
 
-    // $.components and $.patterns: made from screens by the agent, so no +
-    branch('$.components', '$', '$.components', composed.length > 0);
+    // The composed components, made from screens by the agent, and $.patterns
     for (const component of [...composed, ...input.components.filter((name) => !composed.includes(name))]) {
         const used = composed.includes(component);
         const placing = used ? Object.entries(screens).filter(([, screen]) => isRecord(screen) && places(screen['root'], component)).map(([name]) => name) : [];
@@ -637,8 +640,6 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
             if (placed.length > 0) edges.push({ from: app, to: parent, kind: 'uses' });
         }
         add({ id: entry.path, parent, kind: 'function', label: name, note: entry.kind, used, fn: fnOf(entry, true) });
-        const components = nodes.get('$.components');
-        if (used && components !== undefined && !components.used) nodes.set('$.components', { ...components, used: true });
     }
     for (const [path, from] of runners) {
         if (!nodes.has(path)) continue;
@@ -660,9 +661,36 @@ export function ownerTreeOf(input: TreeInput): { nodes: TreeNode[]; edges: TreeE
         const current = of.id.toLowerCase() === input.app.id.toLowerCase();
         const id = `${person}.apps.${of.id.toLowerCase()}`;
         add({ id, parent: person, kind: 'instance', label: current ? input.app.title : of.title, note: of.name, used: current, appId: of.id, updatedAt: each.updatedAt, ...(current && { current: true }) });
-        edges.push({ from: `$.apps.${of.name}`, to: id, kind: 'instance' });
+        edges.push({ from: `$.components.${of.name}`, to: id, kind: 'instance' });
+        if (current) instanceTree(id, screens, composed, add);
     }
     return { nodes: [...nodes.values()], edges };
+}
+
+/**
+ * The tree of the instance of the app being edited, branching at components: a branch `screens`, each screen, and in
+ * it each node that carries an `@id` (labelled `#id`) or places a composed component, hung from the nearest such
+ * node above it. A node's id is the instance's path to it
+ */
+function instanceTree(instance: string, screens: JsonRecord, composed: readonly string[], add: (node: TreeNode) => void): void {
+    const screensId = `${instance}.screens`;
+    add({ id: screensId, parent: instance, kind: 'branch', label: 'screens', note: '', used: true });
+    const visit = (node: JsonRecord, path: string, parent: string): void => {
+        const component = String(node['component']);
+        const named = typeof node['@id'] === 'string' ? node['@id'] : undefined;
+        let under = parent;
+        if (named !== undefined || composed.includes(component)) {
+            add({ id: path, parent, kind: 'node', label: named === undefined ? component : `#${named}`, note: component, used: true });
+            under = path;
+        }
+        for (const [key, child] of childrenOf(node)) visit(child, `${path}.children.${key}`, under);
+        for (const [key, slot] of slotsOf(node)) visit(slot, `${path}.${key}`, under);
+    };
+    for (const [screen, entry] of Object.entries(screens)) {
+        const screenId = `${screensId}.${screen}`;
+        add({ id: screenId, parent: screensId, kind: 'screen', label: screen, note: '', used: true });
+        if (isRecord(entry) && isRecord(entry['root'])) visit(entry['root'], `${screenId}.root`, screenId);
+    }
 }
 
 // ---- Theme ---------------------------------------------------------------------------------------------------------
