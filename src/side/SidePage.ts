@@ -14,44 +14,6 @@ export const FIELD_TYPES: readonly string[] = ['string', 'number', 'integer', 'b
 /** The methods an endpoint of a connection takes */
 export const METHODS: readonly string[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-const S = '$.data.side';
-
-/**
- * What the page script hears of the side panel (src/http/raised.ts). The fields it reads when a button is pressed are
- * kept as they change: the base URL, the secret, the code and the form's name, choice and second line; a record's value
- * in the form comes with its row (`recordValue`)
- */
-export const SIDE_HEARING: Hearing = {
-    'close.press': { name: 'close' },
-    'openApp.press': { name: 'openApp' },
-    'openLogic.press': { name: 'openLogic' },
-    'editTheme.press': { name: 'editTheme' },
-    'makeDefault.press': { name: 'makeDefault' },
-    'removeTheme.press': { name: 'removeTheme' },
-    'use.press': { name: 'use' },
-    'openConnections.press': { name: 'openConnections' },
-    'link.press': { name: 'link', from: 'row.id' },
-    'code.change': { name: 'code', keep: '$.data.side.code' },
-    'save.press': { name: 'save', from: '$.data.side.code' },
-    'delete.press': { name: 'delete' },
-    'cell.change': { name: 'cell', from: 'row', merge: 'value' },
-    'removeRecord.press': { name: 'removeRecord', from: 'row.key' },
-    'fieldType.change': { name: 'fieldType', from: 'row', merge: 'type' },
-    'removeField.press': { name: 'removeField', from: 'row.name' },
-    'baseUrl.change': { keep: '$.data.side.baseUrl' },
-    'saveUrl.press': { name: 'baseUrl', from: '$.data.side.baseUrl' },
-    'secret.change': { keep: '$.data.side.secret' },
-    'keep.press': { name: 'secret', from: '$.data.side.secret' },
-    'connect.press': { name: 'connect' },
-    'try.press': { name: 'try', from: 'row.endpoint' },
-    'removeEndpoint.press': { name: 'removeEndpoint', from: 'row.endpoint' },
-    'name.change': { keep: '$.data.side.form.name' },
-    'choice.change': { name: 'choose', keep: '$.data.side.form.choice', from: '$.data.side.form.choice' },
-    'second.change': { keep: '$.data.side.form.second' },
-    'recordValue.input': { name: 'recordValue', from: 'row', merge: 'value' },
-    'recordValue.change': { name: 'recordValue', from: 'row', merge: 'value' },
-    'submit.press': { name: 'submit', from: '$.data.side.form' }
-};
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 const options = (values: readonly string[]): Record<string, { _label: string }> => Object.fromEntries(values.map((value) => [value, { _label: value }]));
 const row = (children: Record<string, unknown>, hidden?: string): Record<string, unknown> => ({
@@ -90,69 +52,129 @@ const remove = (title: string, id: string, hidden: string): Record<string, unkno
 });
 const note = (text: string, hidden: string): Record<string, unknown> => ({ component: 'text', textRole: 'caption', muted: true, '<-_text': text, ...hiddenBy(hidden) });
 
-/** Everything the panel shows, hidden: what the page script writes before it shows one kind of part */
-export const SIDE_BLANK: Readonly<Record<string, unknown>> = {
-    title: '',
-    note: '',
-    detail: '',
-    path: '',
-    noNote: true,
-    noDetail: true,
-    noPath: true,
-    noNotes: true,
-    noActions: true,
-    noOpenApp: true,
-    noOpenLogic: true,
-    noEditTheme: true,
-    noMakeDefault: true,
-    noRemoveTheme: true,
-    noUse: true,
-    noOpenConnections: true,
-    links: [],
-    linksTitle: '',
-    noLinks: true,
-    form: { name: '', choice: '', second: '', record: [] },
-    formNote: '',
-    nameLabel: '',
-    choiceLabel: '',
-    secondLabel: '',
-    choices: {},
-    submitText: '',
-    noForm: true,
-    noName: true,
-    noChoice: true,
-    noSecond: true,
-    noRecord: true,
-    code: '',
-    codeLabel: '',
-    noCode: true,
-    noSave: true,
-    noDelete: true,
-    inputs: '',
-    outputs: '',
-    noInputs: true,
-    noOutputs: true,
-    records: [],
-    noRecords: true,
-    more: '',
-    noMore: true,
-    fields: [],
-    noFields: true,
-    baseUrl: '',
-    secret: '',
-    noManage: true,
-    noSecret: true,
-    noConnect: true,
-    endpoints: [],
-    noEndpoints: true,
-    tried: '',
-    noTried: true
+/**
+ * The side panel's data by namespace, each with every section hidden: one record at `$.data.<namespace>` with a model
+ * of its own (`magnetic-side-<namespace>`), named for the part of the panel its fields are about. A field's name is
+ * unique across the namespaces, so the page script names a field alone and `SIDE_FIELDS` says where it is
+ */
+export const SIDE_RECORDS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
+    // The part shown: its title, its notes, and which of the things to do with it are offered
+    part: {
+        title: '',
+        note: '',
+        detail: '',
+        path: '',
+        noNote: true,
+        noDetail: true,
+        noPath: true,
+        noNotes: true,
+        noActions: true,
+        noOpenApp: true,
+        noOpenLogic: true,
+        noEditTheme: true,
+        noMakeDefault: true,
+        noRemoveTheme: true,
+        noUse: true,
+        noOpenConnections: true
+    },
+    // The screens or functions of the part, each pressed to show it
+    links: { links: [], linksTitle: '', noLinks: true },
+    // The form that adds something: what is typed (`form`), its labels and choices, and its button
+    form: {
+        form: { name: '', choice: '', second: '', record: [] },
+        formNote: '',
+        nameLabel: '',
+        choiceLabel: '',
+        secondLabel: '',
+        choices: {},
+        submitText: '',
+        noForm: true,
+        noName: true,
+        noChoice: true,
+        noSecond: true,
+        noRecord: true
+    },
+    // JSON to edit, and a function's schemas
+    code: { code: '', codeLabel: '', noCode: true, noSave: true, noDelete: true, inputs: '', outputs: '', noInputs: true, noOutputs: true },
+    // A dataset's records, and the line under them: that there are more, or what a function is
+    dataset: { records: [], noRecords: true, more: '', noMore: true },
+    // A model's fields
+    model: { fields: [], noFields: true },
+    // A connection: its base URL, a new secret, its endpoints and what a try answered
+    connection: { baseUrl: '', secret: '', noManage: true, noSecret: true, noConnect: true, endpoints: [], noEndpoints: true, tried: '', noTried: true }
 };
 
+/** The model of a namespace of the side panel's data */
+const modelOf = (namespace: string): string => `${SIDE_APP}-${namespace}`;
+
+/**
+ * Where each field the page script names is: a field of the panel's data to its data path (`title` to
+ * `$.data.part.title`), made from the records. The script (src/http/views.ts, `sideWrite`) keeps the field names
+ * and writes each at its path here
+ */
+export const SIDE_FIELDS: Readonly<Record<string, string>> = (() => {
+    const paths: Record<string, string> = {};
+    for (const [namespace, blank] of Object.entries(SIDE_RECORDS)) {
+        for (const name of Object.keys(blank)) {
+            if (paths[name] !== undefined) throw new Error(`The side panel's field ${name} is in two namespaces`);
+            paths[name] = `$.data.${namespace}.${name}`;
+        }
+    }
+    return paths;
+})();
+
+/** The data path of a field of the side panel, or of a part of one (`form.name`) */
+function s(field: string): string {
+    const [name, ...rest] = field.split('.');
+    const path = SIDE_FIELDS[name as string];
+    if (path === undefined) throw new Error(`The side panel has no field ${String(name)}`);
+    return [path, ...rest].join('.');
+}
+
+/** Everything the panel shows, hidden, by field: what the page script writes before it shows one kind of part */
+export const SIDE_BLANK: Readonly<Record<string, unknown>> = Object.assign({}, ...Object.values(SIDE_RECORDS)) as Record<string, unknown>;
+
+/**
+ * What the page script hears of the side panel (src/http/raised.ts). The fields it reads when a button is pressed are
+ * kept as they change: the base URL, the secret, the code and the form's name, choice and second line; a record's value
+ * in the form comes with its row (`recordValue`)
+ */
+export const SIDE_HEARING: Hearing = {
+    'close.press': { name: 'close' },
+    'openApp.press': { name: 'openApp' },
+    'openLogic.press': { name: 'openLogic' },
+    'editTheme.press': { name: 'editTheme' },
+    'makeDefault.press': { name: 'makeDefault' },
+    'removeTheme.press': { name: 'removeTheme' },
+    'use.press': { name: 'use' },
+    'openConnections.press': { name: 'openConnections' },
+    'link.press': { name: 'link', from: 'row.id' },
+    'code.change': { name: 'code', keep: s('code') },
+    'save.press': { name: 'save', from: s('code') },
+    'delete.press': { name: 'delete' },
+    'cell.change': { name: 'cell', from: 'row', merge: 'value' },
+    'removeRecord.press': { name: 'removeRecord', from: 'row.key' },
+    'fieldType.change': { name: 'fieldType', from: 'row', merge: 'type' },
+    'removeField.press': { name: 'removeField', from: 'row.name' },
+    'baseUrl.change': { keep: s('baseUrl') },
+    'saveUrl.press': { name: 'baseUrl', from: s('baseUrl') },
+    'secret.change': { keep: s('secret') },
+    'keep.press': { name: 'secret', from: s('secret') },
+    'connect.press': { name: 'connect' },
+    'try.press': { name: 'try', from: 'row.endpoint' },
+    'removeEndpoint.press': { name: 'removeEndpoint', from: 'row.endpoint' },
+    'name.change': { keep: s('form.name') },
+    'choice.change': { name: 'choose', keep: s('form.choice'), from: s('form.choice') },
+    'second.change': { keep: s('form.second') },
+    'recordValue.input': { name: 'recordValue', from: 'row', merge: 'value' },
+    'recordValue.change': { name: 'recordValue', from: 'row', merge: 'value' },
+    'submit.press': { name: 'submit', from: s('form') }
+};
 /**
  * The side panel as a page of Magnetic's (docs/design/magnetic-editor-in-page.md, B4c): what Statenet opens beside a
  * card and the Logic view opens for a unit. One panel of sections, each shown when the part has it; the page script
- * (`views.ts`) writes `$.data.side` (the blank first, `SIDE_BLANK`, then the part's own) and hears it through the ids
+ * (`views.ts`) writes its data, a record for each part of the panel (`SIDE_RECORDS`: the blank first, `SIDE_BLANK`, then
+ * the part's own, each field at its path in `SIDE_FIELDS`), and hears it through the ids
  * of its nodes (`SIDE_HEARING`), named here as the script acts on them:
  *
  * - The head: `title` and a Close (`close`). Notes: `note`, `detail` and `path`.
@@ -172,22 +194,23 @@ export const SIDE_BLANK: Readonly<Record<string, unknown>> = {
  *   `does`, `removeText`) with Try (`try`) and Remove (`removeEndpoint`), and what a try answered (`tried`).
  */
 export const SIDE: PageSpec = pageSpec({
-    records: [{ path: S, model: SIDE_APP }],
+    records: Object.keys(SIDE_RECORDS).map((namespace) => ({ path: `$.data.${namespace}`, model: modelOf(namespace) })),
     name: SIDE_APP,
     title: 'Side panel',
     themed: true,
     required: hearingIds(SIDE_HEARING),
     sample: {
-        [S]: {
-            ...SIDE_BLANK,
-            title: 'stock',
-            note: 'Records of the model item',
-            noNote: false,
+        '$.data.part': { ...SIDE_RECORDS['part'], title: 'stock', note: 'Records of the model item', noNote: false },
+        '$.data.dataset': {
+            ...SIDE_RECORDS['dataset'],
             records: [
                 { id: 'bolt/name', key: 'bolt', keyShown: 'bolt', field: 'name', value: 'Bolt', label: 'bolt name', noRemove: false, removeText: 'Remove bolt' },
                 { id: 'bolt/count', key: 'bolt', keyShown: '', field: 'count', value: '12', label: 'bolt count', noRemove: true, removeText: '' }
             ],
-            noRecords: false,
+            noRecords: false
+        },
+        '$.data.form': {
+            ...SIDE_RECORDS['form'],
             form: { name: '', choice: '', second: '', record: [{ id: 'name', label: 'name', value: '' }, { id: 'count', label: 'count', value: '' }] },
             noForm: false,
             noRecord: false,
@@ -195,14 +218,17 @@ export const SIDE: PageSpec = pageSpec({
             submitText: 'Add'
         }
     },
-    models: {
-        [SIDE_APP]: Object.entries(SIDE_BLANK).map(([name, value]) => field(name, Array.isArray(value) ? 'array' : typeof value === 'object' ? 'object' : typeof value, value))
-    },
+    models: Object.fromEntries(
+        Object.entries(SIDE_RECORDS).map(([namespace, blank]) => [
+            modelOf(namespace),
+            Object.entries(blank).map(([name, value]) => field(name, Array.isArray(value) ? 'array' : typeof value === 'object' ? 'object' : typeof value, value))
+        ])
+    ),
     definition: () => {
         const t = textsOf('en');
         return {
             title: 'Side panel',
-            data: { side: { model: SIDE_APP, scope: 'person' } },
+            data: Object.fromEntries(Object.keys(SIDE_RECORDS).map((namespace) => [namespace, { model: modelOf(namespace), scope: 'person' }])),
             home: {
                 component: 'panel',
                 elevation: 'raised',
@@ -214,52 +240,52 @@ export const SIDE: PageSpec = pageSpec({
                         padding: 'none',
                         layout: { type: 'row', gap: 'sm', align: 'start' },
                         children: {
-                            title: { component: 'text', textRole: 'heading', element: 'h3', placement: { grow: 1 }, '<-_text': `${S}.title` },
+                            title: { component: 'text', textRole: 'heading', element: 'h3', placement: { grow: 1 }, '<-_text': s('title') },
                             close: { component: 'button', icon: 'x', iconPosition: 'only', size: 'sm', variant: 'ghost', _title: t['views.close'], '@id': 'close' }
                         }
                     },
                     notes: column({
-                        note: note(`${S}.note`, `${S}.noNote`),
-                        detail: { component: 'text', '<-_text': `${S}.detail`, 'own:hidden': `${S}.noDetail` },
-                        path: note(`${S}.path`, `${S}.noPath`)
-                    }, `${S}.noNotes`),
+                        note: note(s('note'), s('noNote')),
+                        detail: { component: 'text', '<-_text': s('detail'), 'own:hidden': s('noDetail') },
+                        path: note(s('path'), s('noPath'))
+                    }, s('noNotes')),
                     actions: row({
-                        openApp: act(t['views.openApp'], 'openApp', `${S}.noOpenApp`, { variant: 'solid' }),
-                        openLogic: act(t['views.openLogic'], 'openLogic', `${S}.noOpenLogic`, { variant: 'solid' }),
-                        editTheme: act(t['views.editTheme'], 'editTheme', `${S}.noEditTheme`, { variant: 'solid' }),
-                        makeDefault: act(t['views.makeDefault'], 'makeDefault', `${S}.noMakeDefault`),
-                        removeTheme: act(t['views.removeTheme'], 'removeTheme', `${S}.noRemoveTheme`, { tone: 'danger' }),
-                        use: act(t['views.useInApp'], 'use', `${S}.noUse`, { variant: 'solid' }),
-                        openConnections: act(t['views.openConnections'], 'openConnections', `${S}.noOpenConnections`, { variant: 'solid' })
-                    }, `${S}.noActions`),
+                        openApp: act(t['views.openApp'], 'openApp', s('noOpenApp'), { variant: 'solid' }),
+                        openLogic: act(t['views.openLogic'], 'openLogic', s('noOpenLogic'), { variant: 'solid' }),
+                        editTheme: act(t['views.editTheme'], 'editTheme', s('noEditTheme'), { variant: 'solid' }),
+                        makeDefault: act(t['views.makeDefault'], 'makeDefault', s('noMakeDefault')),
+                        removeTheme: act(t['views.removeTheme'], 'removeTheme', s('noRemoveTheme'), { tone: 'danger' }),
+                        use: act(t['views.useInApp'], 'use', s('noUse'), { variant: 'solid' }),
+                        openConnections: act(t['views.openConnections'], 'openConnections', s('noOpenConnections'), { variant: 'solid' })
+                    }, s('noActions')),
                     linksPart: column({
-                        linksTitle: { component: 'text', textRole: 'label', element: 'h4', '<-_text': `${S}.linksTitle` },
+                        linksTitle: { component: 'text', textRole: 'label', element: 'h4', '<-_text': s('linksTitle') },
                         links: {
                             component: 'list',
                             rowHeight: 'sm',
                             divided: true,
                             placement: { height: '160px' },
-                            '<-items': `${S}.links`,
+                            '<-items': s('links'),
                             row: { component: 'button', size: 'sm', variant: 'ghost', '<-_title': '$row.label', '@id': 'link' }
                         }
-                    }, `${S}.noLinks`),
+                    }, s('noLinks')),
                     codePart: column({
-                        code: { component: 'textarea', rows: 12, '<-_label': `${S}.codeLabel`, '<-value': `${S}.code`, '@id': 'code' },
+                        code: { component: 'textarea', rows: 12, '<-_label': s('codeLabel'), '<-value': s('code'), '@id': 'code' },
                         buttons: row({
-                            save: act(t['views.save'], 'save', `${S}.noSave`, { variant: 'solid' }),
-                            delete: act(t['views.delete'], 'delete', `${S}.noDelete`, { tone: 'danger' })
+                            save: act(t['views.save'], 'save', s('noSave'), { variant: 'solid' }),
+                            delete: act(t['views.delete'], 'delete', s('noDelete'), { tone: 'danger' })
                         })
-                    }, `${S}.noCode`),
-                    inputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.inputs'], 'own:hidden': `${S}.noInputs` },
-                    inputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': `${S}.inputs`, 'own:hidden': `${S}.noInputs` },
-                    outputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.outputs'], 'own:hidden': `${S}.noOutputs` },
-                    outputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': `${S}.outputs`, 'own:hidden': `${S}.noOutputs` },
+                    }, s('noCode')),
+                    inputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.inputs'], 'own:hidden': s('noInputs') },
+                    inputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': s('inputs'), 'own:hidden': s('noInputs') },
+                    outputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.outputs'], 'own:hidden': s('noOutputs') },
+                    outputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': s('outputs'), 'own:hidden': s('noOutputs') },
                     records: {
                         component: 'table',
                         density: 'compact',
                         placement: { height: '280px' },
-                        '<-items': `${S}.records`,
-                        'own:hidden': `${S}.noRecords`,
+                        '<-items': s('records'),
+                        'own:hidden': s('noRecords'),
                         columns: {
                             key: { _title: t['views.kind.record'], field: 'keyShown', width: '80px' },
                             field: { _title: t['views.kind.field'], field: 'field', width: '90px' },
@@ -267,14 +293,14 @@ export const SIDE: PageSpec = pageSpec({
                             remove: { _title: '', width: '40px', cell: remove('$row.removeText', 'removeRecord', '$row.noRemove') }
                         }
                     },
-                    more: note(`${S}.more`, `${S}.noMore`),
+                    more: note(s('more'), s('noMore')),
                     fields: {
                         component: 'list',
                         rowHeight: 'lg',
                         divided: true,
                         placement: { height: '240px' },
-                        '<-items': `${S}.fields`,
-                        'own:hidden': `${S}.noFields`,
+                        '<-items': s('fields'),
+                        'own:hidden': s('noFields'),
                         row: {
                             component: 'panel',
                             padding: 'none',
@@ -287,22 +313,22 @@ export const SIDE: PageSpec = pageSpec({
                     },
                     connection: column({
                         baseUrlRow: row({
-                            baseUrl: { component: 'textField', _label: t['views.baseUrl'], placement: { grow: 1 }, '<-value': `${S}.baseUrl`, '@id': 'baseUrl' },
-                            saveUrl: act(t['views.save'], 'saveUrl', `${S}.noManage`)
+                            baseUrl: { component: 'textField', _label: t['views.baseUrl'], placement: { grow: 1 }, '<-value': s('baseUrl'), '@id': 'baseUrl' },
+                            saveUrl: act(t['views.save'], 'saveUrl', s('noManage'))
                         }),
                         secretRow: row({
-                            secret: { component: 'textField', inputType: 'password', _label: t['views.newSecret'], placement: { grow: 1 }, '<-value': `${S}.secret`, '@id': 'secret' },
-                            keep: act(t['views.keep'], 'keep', `${S}.noSecret`)
-                        }, `${S}.noSecret`),
-                        connect: act(t['views.connect'], 'connect', `${S}.noConnect`)
-                    }, `${S}.noManage`),
+                            secret: { component: 'textField', inputType: 'password', _label: t['views.newSecret'], placement: { grow: 1 }, '<-value': s('secret'), '@id': 'secret' },
+                            keep: act(t['views.keep'], 'keep', s('noSecret'))
+                        }, s('noSecret')),
+                        connect: act(t['views.connect'], 'connect', s('noConnect'))
+                    }, s('noManage')),
                     endpointsPart: column({
                         endpointsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.endpoints'] },
                         endpoints: {
                             component: 'table',
                             density: 'compact',
                             placement: { height: '200px' },
-                            '<-items': `${S}.endpoints`,
+                            '<-items': s('endpoints'),
                             columns: {
                                 name: { _title: t['views.endpointName'], field: 'name', width: '1fr' },
                                 does: { _title: t['views.endpointPath'], field: 'does', width: '2fr' },
@@ -310,19 +336,19 @@ export const SIDE: PageSpec = pageSpec({
                                 remove: { _title: '', width: '40px', cell: remove('$row.removeText', 'removeEndpoint', '$row.noManage') }
                             }
                         },
-                        tried: { component: 'codeBlock', size: 'sm', wrap: true, '<-code': `${S}.tried`, 'own:hidden': `${S}.noTried` }
-                    }, `${S}.noEndpoints`),
+                        tried: { component: 'codeBlock', size: 'sm', wrap: true, '<-code': s('tried'), 'own:hidden': s('noTried') }
+                    }, s('noEndpoints')),
                     form: column({
-                        formNote: { component: 'text', textRole: 'label', '<-_text': `${S}.formNote` },
-                        name: { component: 'textField', '<-_label': `${S}.nameLabel`, '<-value': `${S}.form.name`, 'own:hidden': `${S}.noName`, '@id': 'name' },
-                        choice: { component: 'selectField', '<-_label': `${S}.choiceLabel`, '<-options': `${S}.choices`, '<-value': `${S}.form.choice`, 'own:hidden': `${S}.noChoice`, '@id': 'choice' },
-                        second: { component: 'textField', '<-_label': `${S}.secondLabel`, '<-value': `${S}.form.second`, 'own:hidden': `${S}.noSecond`, '@id': 'second' },
+                        formNote: { component: 'text', textRole: 'label', '<-_text': s('formNote') },
+                        name: { component: 'textField', '<-_label': s('nameLabel'), '<-value': s('form.name'), 'own:hidden': s('noName'), '@id': 'name' },
+                        choice: { component: 'selectField', '<-_label': s('choiceLabel'), '<-options': s('choices'), '<-value': s('form.choice'), 'own:hidden': s('noChoice'), '@id': 'choice' },
+                        second: { component: 'textField', '<-_label': s('secondLabel'), '<-value': s('form.second'), 'own:hidden': s('noSecond'), '@id': 'second' },
                         record: {
                             component: 'list',
                             rowHeight: 'md',
                             placement: { height: '200px' },
-                            '<-items': `${S}.form.record`,
-                            'own:hidden': `${S}.noRecord`,
+                            '<-items': s('form.record'),
+                            'own:hidden': s('noRecord'),
                             row: {
                                 component: 'panel',
                                 padding: 'none',
@@ -333,8 +359,8 @@ export const SIDE: PageSpec = pageSpec({
                                 }
                             }
                         },
-                        submit: { component: 'button', size: 'sm', variant: 'solid', '<-_title': `${S}.submitText`, '@id': 'submit' }
-                    }, `${S}.noForm`)
+                        submit: { component: 'button', size: 'sm', variant: 'solid', '<-_title': s('submitText'), '@id': 'submit' }
+                    }, s('noForm'))
                 }
             }
         };

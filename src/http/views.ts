@@ -1,6 +1,6 @@
 import { LOGIC, LOGIC_APP, LOGIC_HEARING } from '../logic/LogicPage.js';
 import { SCREENS_APP } from '../screens/ScreensPage.js';
-import { FIELD_TYPES, METHODS, SIDE, SIDE_APP, SIDE_BLANK, SIDE_HEARING } from '../side/SidePage.js';
+import { FIELD_TYPES, METHODS, SIDE, SIDE_APP, SIDE_BLANK, SIDE_FIELDS, SIDE_HEARING } from '../side/SidePage.js';
 import { STATENET, STATENET_APP, STATENET_HEARING } from '../statenet/StatenetPage.js';
 import { THEME, THEME_APP, THEME_HEARING } from '../theme/ThemePage.js';
 import { SCRIPT_TEXTS } from './text.js';
@@ -87,6 +87,8 @@ const UNIT_TEMPLATES = {
 };
 /** The side panel's fields with every section hidden, and the choices its forms offer (src/side/SidePage.ts) */
 const SIDE_BLANK = ${JSON.stringify(SIDE_BLANK)};
+/** The data path of each field of the side panel, in the namespace it belongs to (SIDE_FIELDS: title is $.data.part.title) */
+const SIDE_FIELDS = ${JSON.stringify(SIDE_FIELDS)};
 const SIDE_APP = ${JSON.stringify(SIDE_APP)};
 /** The editor's canvas pages, by view: each a live embeddedApp first on its stage, shown by its hidden flag */
 const PAGE_APPS = { screens: ${JSON.stringify(SCREENS_APP)}, statenet: ${JSON.stringify(STATENET_APP)}, theme: ${JSON.stringify(THEME_APP)}, logic: ${JSON.stringify(LOGIC_APP)} };
@@ -559,11 +561,11 @@ function drawGraph() {
  * The side panel is Magnetic's page magnetic-side (src/side/SidePage.ts). The editor places it, in an embeddedApp of
  * its stage that stays mounted while hidden (sideHidden); the page's app host opens it by name (shell.js) and the
  * shell hands this script its panel.
- * Opening a part writes the blank (every section hidden) and then the part's own fields to its $.data.side, and keeps
+ * Opening a part writes the blank (every section hidden) and then the part's own fields to its data, each field by its
+ * name alone at its path in SIDE_FIELDS (a record for each part of the panel: $.data.part, $.data.form), and keeps
  * what each of its buttons does for that part (sideActs, by the names of SIDE_HEARING). What it writes and what is typed
  * there is kept (sideHearing), so a button reads the field it sends; its code as well, so a form's Create reads it
  */
-const SIDE = '$.data.side';
 let sidePanel = null;
 /** The element the side panel is mounted in, for what it covers of the canvas */
 let sideElement = null;
@@ -578,9 +580,17 @@ let sideActs = {};
 /** The code the panel shows, as last typed */
 let sideCode = '';
 
+/** The data path of a field of the side panel, or of a part of one (form.record) */
+function sidePath(field) {
+    const dot = field.indexOf('.');
+    const path = SIDE_FIELDS[dot < 0 ? field : field.slice(0, dot)];
+    if (!path) throw new Error('The side panel has no field ' + field);
+    return dot < 0 ? path : path + field.slice(dot);
+}
 function sideWrite(fields) {
-    for (const [name, value] of Object.entries(fields)) sideHearing.keep(SIDE + '.' + name, value);
-    if (sidePanel) sidePanel.write(ownWrites(SIDE_OWN, Object.entries(fields).map(([name, value]) => ({ path: SIDE + '.' + name, value }))));
+    const writes = Object.entries(fields).map(([name, value]) => ({ path: sidePath(name), value }));
+    for (const write of writes) sideHearing.keep(write.path, write.value);
+    if (sidePanel) sidePanel.write(ownWrites(SIDE_OWN, writes));
 }
 /**
  * What the side panel's nodes raise: close, the code as it changes, a value typed into a new record's row, and what the
@@ -593,9 +603,9 @@ function sideHeard(event) {
     if (name === 'close') { closeSide(); return; }
     if (name === 'code') { sideCode = typeof payload === 'string' ? payload : sideCode; return; }
     if (name === 'recordValue') {
-        const rows = sideHearing.known(SIDE + '.form.record');
+        const rows = sideHearing.known(sidePath('form.record'));
         if (Array.isArray(rows) && payload && typeof payload.id === 'string') {
-            sideHearing.keep(SIDE + '.form.record', rows.map((row) => (row && row.id === payload.id ? { ...row, value: payload.value } : row)));
+            sideHearing.keep(sidePath('form.record'), rows.map((row) => (row && row.id === payload.id ? { ...row, value: payload.value } : row)));
         }
         return;
     }
