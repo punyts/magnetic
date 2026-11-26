@@ -1,4 +1,5 @@
 import { SCRIPT_TEXTS } from './text.js';
+import { LIBRARY_RANK_JS } from './libraryRank.js';
 
 /**
  * `/assets/inspect.js`: the editor's inspector, after `/assets/host.js` and `/assets/shell.js`.
@@ -32,7 +33,7 @@ import { SCRIPT_TEXTS } from './text.js';
  *   every layout section of the screen is outlined with its name and layout, so the places it can go show.
  * - State: `$.data` as a tree, what shows, reads and writes each path, and the changes as they happen.
  */
-export const INSPECT_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.dataset.appId;
+export const INSPECT_JS = String.raw`${SCRIPT_TEXTS}${LIBRARY_RANK_JS}const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId);
 const shell = window.magneticShell;
 const host = window.stateuiHost;
@@ -825,10 +826,10 @@ function libraryPick(name, dragged) {
     return { component: entry && entry.value ? entry.value.component : name, ...(entry && entry.value && { value: entry.value }), label: name, dragged };
 }
 
-// The component library, filtered by the search and the category
+// The component library, within the category, ranked by the search (rankLibrary, src/http/libraryRank.ts): the name
+// typed first, then names that start with it, names that have it, and summaries and purposes that have it
 function showLibrary() {
-    const words = search.trim().toLowerCase();
-    const shown = library.filter((component) => (category === 'all' || component.category === category) && (words === '' || (component.name + ' ' + component.summary).toLowerCase().includes(words))).slice(0, 60);
+    const shown = rankLibrary(library, search, category, 60);
     editor.write([{ path: '$.data.components', value: Object.fromEntries(shown.map((component, index) => ['k' + index, { id: 'k' + index, name: component.name, summary: brief(component.summary) }])) }]);
 }
 

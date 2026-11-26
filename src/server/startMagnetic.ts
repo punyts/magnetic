@@ -718,7 +718,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
     /** The component library as the Add tab lists it */
     const library = loadCatalogFile()
         .components.filter((component) => component.name !== 'app')
-        .map((component) => ({ name: component.name, category: component.category, summary: component.summary, layout: component.layout === true }));
+        .map((component) => ({ name: component.name, category: component.category, summary: component.summary, purposes: component.purposes ?? [], layout: component.layout === true }));
     let system: string | undefined;
     const budgetLimits = options.agent?.budgets ?? DEFAULT_BUDGETS;
     const budgets = new Budgets(db, { ...budgetLimits, canBuy: options.payments !== undefined && budgetLimits.perUserTotal !== undefined });

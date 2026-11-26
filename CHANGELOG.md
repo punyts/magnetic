@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The component library's search lists the best match first.** Typing "text" in the Add tab listed `codeBlock` and
+  `colorField` before `text`: the search kept the library's order and matched name and summary alike. `rankLibrary`
+  (`src/http/libraryRank.ts`) lists the entry named exactly what was typed, then names that start with it, names that
+  have it, and last those whose summary or purposes have it; entries of one rank keep the library's order, and the
+  category still narrows the list. `GET /edit/<id>/components` sends each component's `purposes` for it. The
+  inspector script runs the function's own text (`LIBRARY_RANK_JS`), as the pages do `ownWrites`. Test:
+  `src/http/libraryRank.test.ts`.
 - **The Theme and Logic views ask for a name in the page, not in a browser dialog.** The three `window.prompt()`s of
   `src/http/views.ts` are gone. The Theme page (`src/theme/ThemePage.ts`) has a text field beside the Preset select,
   "The new theme's name" (`newName`, kept by the page script as it changes): New theme makes a theme of that name and
