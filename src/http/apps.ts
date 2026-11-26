@@ -4,6 +4,8 @@ import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 import { APPS_BOARD, ZOOM_CSS } from './zoom.js';
+import { APPS_HEARING } from '../apps/AppsPage.js';
+import { HEARING_JS, hearingJs } from './raised.js';
 
 /** One tile on a board: an app on a workspace's board, or a workspace on the Orgs level */
 export interface AppTile {
@@ -96,7 +98,7 @@ ${ZOOM_CSS}`;
 
 /**
  * \`/assets/apps.js\`: a board of tiles, a workspace's apps or the Orgs level. It mounts the board's page, writes the tiles
- * in rows of five, and acts on what the board emits and on the zoom chords:
+ * in rows of five, and acts on what it hears from the board (`APPS_HEARING`) and on the zoom chords:
  * - a press on a card, or Ctrl+Shift+= (Cmd on a Mac) on the selected card or else the one most in view, zooms in: it
  *   goes where the card's \`href\` says (an app's editor or the running app, or a workspace's board);
  * - Ctrl+Shift+- zooms out to the page's \`data-out\`, the level outside; the Orgs level has none;
@@ -215,8 +217,11 @@ function keyPath(doc, key) {
     return null;
 }
 
-holder.addEventListener('stateui:emit', (event) => {
-    const { name, payload } = event.detail || {};
+${HEARING_JS}${hearingJs('board', APPS_HEARING)}
+holder.addEventListener('stateui:raised', (event) => {
+    const heard = board.heard(event.detail);
+    if (!heard) return;
+    const { name, payload } = heard;
     if (name === 'press') { const id = typeof payload === 'string' ? payload : payload && payload.id; if (typeof id === 'string') zoomInto(id); }
     else if (name === 'canvas') { if (selected !== null) { selected = null; draw(); } }
     else if (name === 'view' && payload && [payload.x, payload.y, payload.zoom].every(Number.isFinite)) Object.assign(view, { x: payload.x, y: payload.y, zoom: payload.zoom });

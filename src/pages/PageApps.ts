@@ -3,6 +3,8 @@ import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { msSince } from '../server/reporting.js';
 import { LOGO_SVG } from '../http/logo.js';
 import { textsOf } from '../http/text.js';
+import { hearingIds } from '../http/raised.js';
+import type { Hearing } from '../http/raised.js';
 import { SYSTEM_USER_ID } from '../inspector/constants.js';
 import { run } from '../stateui/run.js';
 import type { Stamps } from '../storage/Stamps.js';
@@ -33,7 +35,6 @@ function brand(): Record<string, unknown> {
     };
 }
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
 /** A centred column of a page, as Your apps has it */
@@ -46,30 +47,47 @@ function centred(children: Record<string, unknown>): Record<string, unknown> {
     };
 }
 
-/** A column of buttons, one per record of `items` (`{ id, label }`), each raising `target` with the record's id */
-function buttons(items: string, target: string, variant: string, hidden: string): Record<string, unknown> {
+/** A column of buttons, one per record of `items` (`{ id, label }`), heard by `id` with the record's id from its row */
+function buttons(items: string, id: string, variant: string, hidden: string): Record<string, unknown> {
     return {
         component: 'list',
         '<-items': items,
         '<-hidden': hidden,
         rowHeight: 'lg',
-        row: { component: 'button', variant, '<-_title': '$row.label', on: { press: emit(target, '$row.id') } }
+        row: { component: 'button', variant, '<-_title': '$row.label', '@id': id }
     };
 }
 
 const S = '$.data.signin';
 
 /**
+ * What the sign-in page's script hears (src/http/raised.ts), named as the server's actions are (`provider`, `dev`,
+ * `sso`): a button of a list with the record's id, and the work email kept as it is typed
+ */
+export const SIGN_IN_HEARING: Hearing = {
+    'provider.press': { name: 'provider', from: 'row.id' },
+    'devUser.press': { name: 'dev', from: 'row.id' },
+    'workEmail.change': { keep: `${S}.workEmail` },
+    'sso.press': { name: 'sso', from: `${S}.workEmail` }
+};
+
+/** What a share link's page's script hears, named as the server's actions are */
+export const LINK_HEARING: Hearing = {
+    'home.press': { name: 'home' },
+    'remix.press': { name: 'remix' }
+};
+
+/**
  * Sign in: Magnetic and what it does, why the last sign-in failed, the beta's notice, a button per provider
  * (`provider`, with its name), the work email of an org with its own sign-in (`sso`) and, on a development server, a
- * button per test user (`dev`, with the name). What the server signs in with is data (`providers`, `devUsers`, and
+ * button per test user (`dev`, with the name), heard by `SIGN_IN_HEARING`. What the server signs in with is data (`providers`, `devUsers`, and
  * `no…` flags that hide what it lacks), so an edited page follows a change of the server's options
  */
 export const SIGN_IN: PageSpec = {
     name: 'magnetic-signin',
     title: 'Sign in',
     themed: true,
-    required: ['provider', 'dev', 'sso'],
+    required: hearingIds(SIGN_IN_HEARING),
     sample: {
         [S]: {
             error: 'Why the last sign-in failed shows here',
@@ -118,8 +136,8 @@ export const SIGN_IN: PageSpec = {
                     '<-hidden': `${S}.noSso`,
                     layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
                     children: {
-                        email: { component: 'textField', placement: { grow: 1 }, _label: t['signin.workTitle'], _placeholder: t['signin.workEmail'], '<-value': `${S}.workEmail` },
-                        go: { component: 'button', variant: 'soft', _title: t['signin.workGo'], on: { press: emit('sso', `${S}.workEmail`) } }
+                        email: { component: 'textField', placement: { grow: 1 }, _label: t['signin.workTitle'], _placeholder: t['signin.workEmail'], '<-value': `${S}.workEmail`, '@id': 'workEmail' },
+                        go: { component: 'button', variant: 'soft', _title: t['signin.workGo'], '@id': 'sso' }
                     }
                 },
                 dev: {
@@ -130,7 +148,7 @@ export const SIGN_IN: PageSpec = {
                     children: {
                         title: { component: 'text', textRole: 'heading', _text: t['signin.devTitle'] },
                         note: { component: 'text', textRole: 'caption', _text: t['signin.devNote'] },
-                        users: buttons(`${S}.devUsers`, 'dev', 'soft', `${S}.noDevUsers`)
+                        users: buttons(`${S}.devUsers`, 'devUser', 'soft', `${S}.noDevUsers`)
                     }
                 },
                 none: { component: 'text', textRole: 'caption', '<-hidden': `${S}.noNone`, _text: t['signin.none'] }
@@ -141,13 +159,13 @@ export const SIGN_IN: PageSpec = {
 
 /**
  * A share link that does not open an app at once: its title and why, Your apps (`home`), and for a remix link the
- * offer to copy the app (`remix`)
+ * offer to copy the app (`remix`), heard by `LINK_HEARING`
  */
 export const LINK: PageSpec = {
     name: 'magnetic-link',
     title: 'Share links',
     themed: true,
-    required: ['home', 'remix'],
+    required: hearingIds(LINK_HEARING),
     sample: { '$.data.link': { title: 'Remix an app', message: 'Why the link does not open the app shows here.', noRemix: false } },
     models: {
         'magnetic-linkpage': [field('title', 'string', ''), field('message', 'string', ''), field('noRemix', 'boolean', true)]
@@ -165,7 +183,7 @@ export const LINK: PageSpec = {
                     layout: { type: 'row', gap: 'md', align: 'center' },
                     children: {
                         title: { component: 'text', textRole: 'title', placement: { grow: 1 }, '<-_text': '$.data.link.title' },
-                        home: { component: 'button', variant: 'ghost', size: 'sm', _title: t['link.home'], on: { press: emit('home') } }
+                        home: { component: 'button', variant: 'ghost', size: 'sm', _title: t['link.home'], '@id': 'home' }
                     }
                 },
                 message: { component: 'text', '<-_text': '$.data.link.message' },
@@ -175,7 +193,7 @@ export const LINK: PageSpec = {
                     '<-hidden': '$.data.link.noRemix',
                     layout: { type: 'column', gap: 'sm' },
                     children: {
-                        remix: { component: 'button', _title: t['link.remix'], on: { press: emit('remix') } },
+                        remix: { component: 'button', _title: t['link.remix'], '@id': 'remix' },
                         note: { component: 'text', textRole: 'caption', _text: t['link.remixNote'] }
                     }
                 }

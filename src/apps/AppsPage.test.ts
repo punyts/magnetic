@@ -43,7 +43,7 @@ describe("A workspace's board of apps", () => {
         await test.drop();
     });
 
-    it('should serve a signed-in person the board page with every emit of its contract', async () => {
+    it('should serve a signed-in person the board page with every node id of its contract', async () => {
         // Act
         const anonymous = await fetch(`${magnetic.origin}/assets/apps.json`);
         const served = await send('/assets/apps.json', alice);

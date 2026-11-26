@@ -5,7 +5,7 @@ import { contractGaps } from '../pages/PageSpec.js';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { RunningMagnetic } from '../server/startMagnetic.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
-import { THEME, THEME_MODES } from './ThemePage.js';
+import { THEME, THEME_HEARING, THEME_MODES } from './ThemePage.js';
 
 const silent = { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined } as never;
 const noBrowser = { open: async () => ({ rendered: false }), rendered: async () => [], screenshot: async () => ({}), interact: async () => ({}), closePage: async () => undefined, close: async () => undefined } as unknown as PreviewBrowser;
@@ -34,7 +34,7 @@ describe("The Theme view's page", () => {
         await test.drop();
     });
 
-    it('should serve a signed-in person the specimens and the token table, in every language, with every emit of its contract', async () => {
+    it('should serve a signed-in person the specimens and the token table, in every language, with every node id of its contract', async () => {
         // Act
         const anonymous = await fetch(`${magnetic.origin}/assets/theme.json`);
         const served = await fetch(`${magnetic.origin}/assets/theme.json`, { headers: { Cookie: alice } });
@@ -50,6 +50,7 @@ describe("The Theme view's page", () => {
         const table = home.root.children?.['tokens'] as Node;
         expect(table).toMatchObject({ component: 'table', '<-items': '$.data.theme.tokens' });
         expect(Object.keys(table.columns ?? {})).toEqual(['group', 'name', 'all', ...THEME_MODES]);
-        expect(table.columns?.['dark']?.cell).toMatchObject({ component: 'input', '<-value': '$row.dark', on: { change: { command: 'emit', target: 'token', from: '$row' } } });
+        expect(table.columns?.['dark']?.cell).toMatchObject({ component: 'input', '<-value': '$row.dark', '@id': 'darkValue' });
+        expect(THEME_HEARING['darkValue.change']).toEqual({ name: 'token', from: 'row', merge: 'dark' });
     }, 60_000);
 });

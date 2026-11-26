@@ -21,7 +21,7 @@ The short path for a new app: (1) ui_theme_create from a preset; (2) ui_model_wr
 
 How behavior works:
 - A link "<-name": "$.path" shows the value at the path, and a field, checkbox or select the person changes writes it back. In a list row, "$row.field" is a field of that row's record, so a checkbox linked to "$row.done" saves the record.
-- A node's "on" entries (a button's press) run only set, toggle, emit and navigate, each with command, target and value (or from). Anything more, such as saving a new record, goes in a rule (ui_logic_write) that watches a flag the button sets. A rule's commands include save-data (a new record with a new key), set, toggle, merge, increment and delete-data, and "{{ }}" holds an expression.
+- A node's "on" entries (a button's press) run only set, toggle and navigate, each with command, target and value (or from). Anything more, such as saving a new record, goes in a rule (ui_logic_write) that watches a flag the button sets. A rule's commands include save-data (a new record with a new key), set, toggle, merge, increment and delete-data, and "{{ }}" holds an expression.
 - Values a person types but does not keep (a draft, a flag) go in a model bound with scope "person": a single record of its fields with their defaults, for each person.
 
 The example: a to-do list app named "todo", built in seven calls.

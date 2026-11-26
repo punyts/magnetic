@@ -1,5 +1,7 @@
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import { hearingIds } from '../http/raised.js';
+import type { Hearing } from '../http/raised.js';
 
 /** The app name of the Theme view's page, in every workspace that has it */
 export const THEME_APP = 'magnetic-theme';
@@ -12,7 +14,23 @@ export const THEME_PRESETS: readonly string[] = ['clean', 'moody', 'playful', 'p
 
 const T = '$.data.theme';
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+/**
+ * What the page script hears of the Theme view (src/http/raised.ts): a token's value cell sends its row with the new
+ * value in the field of its column, and the preset is kept as it changes, for Create
+ */
+export const THEME_HEARING: Hearing = {
+    'back.press': { name: 'back' },
+    'choose.change': { name: 'choose' },
+    'makeDefault.press': { name: 'default' },
+    'clone.press': { name: 'clone' },
+    'cloneShared.press': { name: 'clone' },
+    'remove.press': { name: 'remove' },
+    'add.change': { name: 'add' },
+    'preset.change': { keep: '$.data.theme.preset' },
+    'create.press': { name: 'create', from: '$.data.theme.preset' },
+    'editAll.press': { name: 'editAll' },
+    ...Object.fromEntries(['all', ...THEME_MODES].map((column) => [`${column}Value.change`, { name: 'token', from: 'row', merge: column }]))
+};
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
 /**
@@ -27,7 +45,7 @@ function valueCell(column: string): Record<string, unknown> {
         '<-_placeholder': `$row.${column}Shown`,
         '<-_label': `$row.${column}Label`,
         '<-disabled': column === 'all' ? '$row.locked' : '$row.modesLocked',
-        on: { change: emit('token', '$row') }
+        '@id': `${column}Value`
     };
 }
 
@@ -51,20 +69,20 @@ function specimen(mode: string, title: string, text: string, button: string): Re
     };
 }
 
-const tool = (title: string, on: Record<string, unknown>, hidden?: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+const tool = (title: string, id: string, hidden?: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
     component: 'button',
     size: 'sm',
     variant: 'outline',
     _title: title,
     ...(hidden !== undefined && { '<-hidden': hidden }),
     ...extra,
-    on: { press: on }
+    '@id': id
 });
 
 /**
  * The Theme view as a page of Magnetic's (docs/design/magnetic-editor-in-page.md, B4b): the app's themes, the chosen one
  * as a specimen per mode above its tokens, each token's value for all modes and in each mode, edited in place. The page
- * script (`views.ts`) drives it through `$.data.theme` and its emits only:
+ * script (`views.ts`) drives it through `$.data.theme` and hears it through the ids of its nodes only (`THEME_HEARING`):
  *
  * - It writes `themes` (the app's themes as options, keyed by name), `chosen`, `others` (the workspace's themes the app
  *   does not use, as options), `specimens` (per mode: `surface`, `border`, `text`, `accent`, `accentOn`),
@@ -72,15 +90,15 @@ const tool = (title: string, on: Record<string, unknown>, hidden?: string, extra
  *   `<column>Shown` and `<column>Label`, `locked` and `modesLocked`: shared, or a token no mode may set), `sharedText` (other apps use the theme), what is
  *   hidden (`noTheme` and `hasTheme`, `notShared`, `noDefault`, `noClone`, `noRemove`, `noOthers`, `noBack`), `status`
  *   (saving, saved) and `refusal` with `noRefusal` (why a change was refused).
- * - The page emits `choose` with a theme's name, `token` with a token's record once a value is changed, `editAll` (edit
- *   a shared theme for every app), `clone`, `default`, `remove`, `add` with a theme's name, `create` with a preset and
- *   `back` (to Statenet).
+ * - It hears `choose` with a theme's name, `token` with a token's record once a value is changed, `editAll` (edit a
+ *   shared theme for every app), `clone`, `default`, `remove`, `add` with a theme's name, `create` with the preset
+ *   and `back` (to Statenet).
  */
 export const THEME: PageSpec = {
     name: THEME_APP,
     title: 'Theme',
     themed: true,
-    required: ['choose', 'token', 'editAll', 'clone', 'default', 'remove', 'add', 'create', 'back'],
+    required: hearingIds(THEME_HEARING),
     sample: {
         [T]: {
             themes: { shop: { _label: '★ shop' } },
@@ -133,7 +151,7 @@ export const THEME: PageSpec = {
                         padding: 'none',
                         layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
                         children: {
-                            back: tool(t['views.backToGraph'], emit('back'), `${T}.noBack`),
+                            back: tool(t['views.backToGraph'], 'back', `${T}.noBack`),
                             choose: {
                                 component: 'selectField',
                                 _label: t['shell.view.theme'],
@@ -142,11 +160,11 @@ export const THEME: PageSpec = {
                                 '<-options': `${T}.themes`,
                                 '<-value': `${T}.chosen`,
                                 '<-hidden': `${T}.noTheme`,
-                                on: { change: emit('choose') }
+                                '@id': 'choose'
                             },
-                            makeDefault: tool(t['views.makeDefault'], emit('default'), `${T}.noDefault`),
-                            clone: tool(t['views.cloneForApp'], emit('clone'), `${T}.noClone`),
-                            remove: tool(t['views.removeTheme'], emit('remove'), `${T}.noRemove`, { tone: 'danger' }),
+                            makeDefault: tool(t['views.makeDefault'], 'makeDefault', `${T}.noDefault`),
+                            clone: tool(t['views.cloneForApp'], 'clone', `${T}.noClone`),
+                            remove: tool(t['views.removeTheme'], 'remove', `${T}.noRemove`, { tone: 'danger' }),
                             add: {
                                 component: 'selectField',
                                 _label: t['views.addTheme'],
@@ -155,7 +173,7 @@ export const THEME: PageSpec = {
                                 '<-options': `${T}.others`,
                                 '<-value': `${T}.adding`,
                                 '<-hidden': `${T}.noOthers`,
-                                on: { change: emit('add') }
+                                '@id': 'add'
                             },
                             preset: {
                                 component: 'selectField',
@@ -163,9 +181,10 @@ export const THEME: PageSpec = {
                                 width: 16,
                                 size: 'sm',
                                 options: Object.fromEntries(THEME_PRESETS.map((name) => [name, { _label: t[`views.preset.${name}` as 'views.preset.clean'] }])),
-                                '<-value': `${T}.preset`
+                                '<-value': `${T}.preset`,
+                                '@id': 'preset'
                             },
-                            create: tool(t['views.newTheme'], emit('create', `${T}.preset`)),
+                            create: tool(t['views.newTheme'], 'create'),
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${T}.status` }
                         }
                     },
@@ -181,8 +200,8 @@ export const THEME: PageSpec = {
                             padding: 'none',
                             layout: { type: 'row', gap: 'sm' },
                             children: {
-                                editAll: tool(t['views.editForAll'], emit('editAll')),
-                                cloneShared: tool(t['views.cloneForApp'], emit('clone'))
+                                editAll: tool(t['views.editForAll'], 'editAll'),
+                                cloneShared: tool(t['views.cloneForApp'], 'cloneShared')
                             }
                         }
                     },

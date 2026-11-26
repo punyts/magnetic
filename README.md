@@ -248,7 +248,8 @@ workspace, and stops when you sign out of that browser.
 - **Your apps** (`/`) is a StateUI app, `your-apps`, made in each workspace the first time and made again when
   its definition changes. It shows a grid of cards, the person's apps and then the apps shared with them, a field
   to make an app and Sign out. Magnetic writes the two lists into its data on each visit. The page listens for
-  the app's `emit`s (`stateui:emit`): `open` goes to `/apps/<appId>`, `create` posts `/new`, `signout` posts
+  what the app's nodes with an `@id` raise (`stateui:raised`, read by `HOME_HEARING`): a card's
+  press is `open`, which goes to `/apps/<appId>`, `create` posts `/new`, `signout` posts
   `/signout`. The agent cannot edit it: `/edit/<its id>` and `/apps/<its id>` go to `/`.
 - **An app** (`/apps/<appId>`) of the person's own is the app alone: it fills the window with nothing over it, and
   the page loads no editor. Ctrl+Shift+- (Cmd on a Mac) loads the editor's page (`/edit/<appId>`) on the screen
@@ -311,8 +312,8 @@ workspace, and stops when you sign out of that browser.
     - **Logic:** its handlers, the units touching its paths (Server or Browser), and arrows to the screens it leads to.
 
     **Statenet**, **Theme** and **Logic** each have their tools in a head and an editor at the side:
-    - **Statenet:** the owner's tree by state path (`$.apps`, `$.themes`, `$.data`, `$.models`, `$.logic`,
-      `$.components`, `$.patterns`, `$.connections`, `$.functions`, `$.people` with only you, at your own id), every part with what this app does not use dimmed and one level
+    - **Statenet:** the owner's tree by state path (`$.components` with the owner's apps, `$.themes`, `$.data`, `$.models`, `$.logic`,
+      `$.patterns`, `$.connections`, `$.functions`, `$.people` with only you, at your own id), every part with what this app does not use dimmed and one level
       below each. It is a page of Magnetic's (`magnetic-statenet`, a canvas that pans and zooms around a tree of
       cards) shown over the board in place of the screens; the editor's zoom and Fit drive its canvas, and its view is
       kept per app. A + on each branch
@@ -383,8 +384,8 @@ workspace, and stops when you sign out of that browser.
   `agent_credit` as a gift, shown to the person as Given by Magnetic). English only.
 - **Editable pages** (`docs/design/magnetic-editable.md`). Sign-in, the share-link page, Your apps and the editor are
   StateUI apps. On **Pages** (`/admin/pages`) an admin edits a draft of each in the editor and publishes it to every
-  visitor and to everyone who has not changed their own copy; a draft that does not validate, or no longer raises an
-  emit the page needs, is refused with the reasons. Reset serves Magnetic's own again. `?page=default` always shows
+  visitor and to everyone who has not changed their own copy; a draft that does not validate, or has lost a node id the
+  page hears, is refused with the reasons. Reset serves Magnetic's own again. `?page=default` always shows
   Magnetic's own sign-in or link page, and a published one that does not load falls back to it. Each person can edit
   and reset their own Your apps and editor from "Your pages" on Your apps.
 - **Buying agent use after the allowance** (`docs/design/magnetic-payments.md`). With `MAGNETIC_STRIPE_SECRET_KEY`

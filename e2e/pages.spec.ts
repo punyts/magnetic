@@ -49,7 +49,7 @@ test.describe("Magnetic's own pages", () => {
         await writeNodes(page, draft, [{ op: 'remove', path: `${PAGE}.dev` }]);
         await page.goto('/admin/pages');
         await signInRow.getByRole('button', { name: 'Publish' }).click();
-        await expect(page.getByText('Nothing raises "dev"')).toBeVisible();
+        await expect(page.getByText('No part has the id "devUser"')).toBeVisible();
         await page.goto('/admin/pages');
         await signInRow.getByRole('button', { name: "Reset to Magnetic's" }).click();
         await expect(page.getByText("Back to Magnetic's own.")).toBeVisible();

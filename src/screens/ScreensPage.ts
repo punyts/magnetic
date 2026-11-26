@@ -1,5 +1,7 @@
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import { hearingIds } from '../http/raised.js';
+import type { Hearing } from '../http/raised.js';
 
 /** The app name of the screens board's page, in every workspace that has it */
 export const SCREENS_APP = 'magnetic-screens';
@@ -12,7 +14,19 @@ export const SCREENS_KEYS = { canvas: 'canvas' } as const;
 
 const S = '$.data.screens';
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+/** What the page script hears of the screens board (src/http/raised.ts) */
+export const SCREENS_HEARING: Hearing = {
+    'headMore.press': { name: 'menu', from: 'row.id' },
+    'cornerMore.press': { name: 'menu', from: 'row.id' },
+    'close.press': { name: 'deselect', from: 'row.id' },
+    'app.press': { name: 'press' },
+    'app.menu': { name: 'menu' },
+    'app.navigated': { name: 'navigated' },
+    'add.press': { name: 'add' },
+    'canvas.change': { name: 'view' },
+    'canvas.press': { name: 'canvas' },
+    'board.move': { name: 'move' }
+};
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
 /**
@@ -24,7 +38,7 @@ const field = (name: string, type: string, value: unknown): Record<string, unkno
  * and screen, so the gap shows the canvas
  */
 function tile(addFirst: string): Record<string, unknown> {
-    const tool = (icon: string, label: string, size: string, hidden: string | undefined, on: Record<string, unknown>): Record<string, unknown> => ({
+    const tool = (icon: string, label: string, size: string, hidden: string | undefined, id: string): Record<string, unknown> => ({
         component: 'button',
         icon,
         iconPosition: 'only',
@@ -33,7 +47,7 @@ function tile(addFirst: string): Record<string, unknown> {
         tone: 'neutral',
         '<-_title': label,
         ...(hidden !== undefined && { '<-hidden': hidden }),
-        on: { press: on }
+        '@id': id
     });
     return {
         component: 'panel',
@@ -56,7 +70,7 @@ function tile(addFirst: string): Record<string, unknown> {
                         children: {
                             title: { component: 'text', textRole: 'title', '<-_text': '$row.title' },
                             note: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, '<-_text': '$row.note' },
-                            more: tool('dots', '$row.moreLabel', 'md', undefined, emit('menu', '$row.id'))
+                            more: tool('dots', '$row.moreLabel', 'md', undefined, 'headMore')
                         }
                     },
                     app: {
@@ -69,7 +83,7 @@ function tile(addFirst: string): Record<string, unknown> {
                         '<-height': '$row.height',
                         '<-_label': '$row.title',
                         '<-hidden': '$row.add',
-                        on: { press: emit('press'), menu: emit('menu'), navigated: emit('navigated') }
+                        '@id': 'app'
                     },
                     add: {
                         component: 'button',
@@ -77,7 +91,7 @@ function tile(addFirst: string): Record<string, unknown> {
                         variant: 'outline',
                         _title: addFirst,
                         '<-hidden': '$row.noAdd',
-                        on: { press: emit('add') }
+                        '@id': 'add'
                     }
                 }
             },
@@ -91,8 +105,8 @@ function tile(addFirst: string): Record<string, unknown> {
                 placement: { right: '24px', y: '24px' },
                 layout: { type: 'row', gap: 'sm', align: 'center' },
                 children: {
-                    more: tool('dots', '$row.moreLabel', 'lg', '$row.noMore', emit('menu', '$row.id')),
-                    close: tool('x', '$row.closeLabel', 'lg', '$row.noClose', emit('deselect', '$row.id'))
+                    more: tool('dots', '$row.moreLabel', 'lg', '$row.noMore', 'cornerMore'),
+                    close: tool('x', '$row.closeLabel', 'lg', '$row.noClose', 'close')
                 }
             }
         }
@@ -102,13 +116,13 @@ function tile(addFirst: string): Record<string, unknown> {
 /**
  * The screens board as a page of Magnetic's (docs/design/magnetic-screens-board.md): every screen of the app on a canvas
  * that pans and zooms, in rows, the screen worked on live and the others previews of it. The page script
- * (`screens.ts`) drives it through `$.data.screens` and its emits only:
+ * (`screens.ts`) drives it through `$.data.screens` and hears it through the ids of its nodes only (`SCREENS_HEARING`):
  *
  * - It writes `tiles` (one record per screen: `id` the screen's name, `app`, `title`, `note`, `live`, `active`, `width`,
  *   `height`, its place in the rows as `column` and `row`, and the look of its head), `lanes` (the board's columns, one
  *   per place in a row), `view` ({ x, y, zoom }, linked to the viewport), `names` (the cards show only their names and
  *   can be dragged) and `inset` (what the editor's panels cover). It writes the theme of the viewport's `content`, the board, with the tile size.
- * - The page emits `press` and `menu` for a tile ({ app, screen }, or the screen's name from its ⋯), `navigated` when the
+ * - It hears `press` and `menu` for a tile ({ app, screen }, or the screen's name from its ⋯), `navigated` when the
  *   live app moves itself ({ screen }), `move` when a card is dragged to another place ({ key, from, to, index }),
  *   `deselect` from the × of the screen chosen in names, `add` from Add a screen, `view` with the view once a pan or
  *   zoom ends, and `canvas` for a press on the empty canvas.
@@ -118,7 +132,7 @@ export const SCREENS: PageSpec = {
     name: SCREENS_APP,
     title: 'Screens',
     themed: true,
-    required: ['press', 'menu', 'navigated', 'move', 'deselect', 'add', 'view', 'canvas'],
+    required: hearingIds(SCREENS_HEARING),
     keys: [SCREENS_KEYS.canvas],
     sample: {
         [S]: {
@@ -158,7 +172,7 @@ export const SCREENS: PageSpec = {
                         '<-y': `${S}.view.y`,
                         '<-zoom': `${S}.view.zoom`,
                         '<-inset': `${S}.inset`,
-                        on: { change: emit('view'), press: emit('canvas') },
+                        '@id': 'canvas',
                         content: {
                             component: 'board',
                             key: 'id',
@@ -170,7 +184,7 @@ export const SCREENS: PageSpec = {
                             '<-records': `${S}.tiles`,
                             '<-movable': `${S}.names`,
                             card: tile(t['screens.addFirst']),
-                            on: { move: emit('move') }
+                            '@id': 'board'
                         }
                     }
                 }

@@ -1,15 +1,16 @@
-import { LOGIC_APP } from '../logic/LogicPage.js';
+import { LOGIC_APP, LOGIC_HEARING } from '../logic/LogicPage.js';
 import { SCREENS_APP } from '../screens/ScreensPage.js';
-import { FIELD_TYPES, METHODS, SIDE_APP, SIDE_BLANK } from '../side/SidePage.js';
-import { STATENET_APP } from '../statenet/StatenetPage.js';
-import { THEME_APP } from '../theme/ThemePage.js';
+import { FIELD_TYPES, METHODS, SIDE_APP, SIDE_BLANK, SIDE_HEARING } from '../side/SidePage.js';
+import { STATENET_APP, STATENET_HEARING } from '../statenet/StatenetPage.js';
+import { THEME_APP, THEME_HEARING } from '../theme/ThemePage.js';
 import { SCRIPT_TEXTS } from './text.js';
+import { HEARING_JS, hearingJs } from './raised.js';
 
 /**
  * `/assets/views.js`: the editor's views (docs/design/magnetic-show-views.md), after `/assets/shell.js`,
  * `/assets/inspect.js` and `/assets/screens.js`.
  *
- * The view selector at the top right (the editor app's `view` emit) picks what the canvas shows, kept per app in this
+ * The view selector at the top right (heard as `view` from the editor app) picks what the canvas shows, kept per app in this
  * browser:
  *
  * - **Screens**: the board of screens, with the rail's tools. The rail's layers draw on every screen card, each in a
@@ -61,7 +62,7 @@ export const VIEWS_LAYERS_CSS = [
 ].join('\n');
 
 export const VIEWS_JS = String.raw`${SCRIPT_TEXTS}(function views() {
-const shell = window.magneticShell;
+${HEARING_JS}${hearingJs('netHearing', STATENET_HEARING)}${hearingJs('sideHearing', SIDE_HEARING)}${hearingJs('themeHearing', THEME_HEARING)}${hearingJs('logicHearing', LOGIC_HEARING)}const shell = window.magneticShell;
 const host = window.stateuiHost;
 if (!shell) return;
 const editor = shell.editor;
@@ -211,7 +212,7 @@ function load() {
     return Promise.resolve();
 }
 
-editor.onEmit((name, payload) => {
+editor.onHeard((name, payload) => {
     const value = payload && typeof payload === 'object' && 'value' in payload ? payload.value : payload;
     // The selector echoes a view set from here: only a different view is a change
     if (name === 'view' && typeof value === 'string') { if (value !== view) setView(value); return; }
@@ -231,7 +232,7 @@ shell.onEscape(() => { if (view !== 'screens' && sideOpen) { closeSide(); return
 /*
  * Statenet is Magnetic's page magnetic-statenet (src/statenet/StatenetPage.ts), which the editor places on its stage
  * and shows while the view does: a canvas that pans and zooms around the owner's tree. This script writes its $.data.statenet (the cards, the
- * links, the chosen card, the view and what the panels cover), acts on its emits, and runs the commands of its canvas
+ * links, the chosen card, the view and what the panels cover), acts on what it hears from it (STATENET_HEARING), and runs the commands of its canvas
  * (the node keyed canvas) for the editor's zoom
  */
 const NET = '$.data.statenet';
@@ -299,7 +300,7 @@ addEventListener('resize', () => { if (net) netWrite({ inset: insetOf() }); });
 const takeNetPage = () => shell.page(PAGE_APPS.statenet, {
     mounted: (panel, element, doc) => {
         net = { panel, element, canvas: doc ? keyPath(doc, 'canvas') : null };
-        element.addEventListener('stateui:emit', netEmit);
+        element.addEventListener('stateui:raised', netHeard);
         element.addEventListener('focusout', reloadLeft);
         netDrawn = '';
         if (netLook) netWrite({ view: netLook, inset: insetOf(), selected: '' });
@@ -307,7 +308,7 @@ const takeNetPage = () => shell.page(PAGE_APPS.statenet, {
         if (netLook && view === 'statenet') void loadGraph();
     },
     disposed: () => {
-        if (net) { net.element.removeEventListener('stateui:emit', netEmit); net.element.removeEventListener('focusout', reloadLeft); }
+        if (net) { net.element.removeEventListener('stateui:raised', netHeard); net.element.removeEventListener('focusout', reloadLeft); }
         net = null;
         netReady = new Promise((resolve) => { netArrived = resolve; });
     }
@@ -353,8 +354,10 @@ function leaveGraph() {
     shell.canvas.drive(null);
 }
 
-function netEmit(event) {
-    const { name, payload } = event.detail || {};
+function netHeard(event) {
+    const heard = netHearing.heard(event.detail);
+    if (!heard) return;
+    const { name, payload } = heard;
     const id = payload && typeof payload === 'object' && typeof payload.id === 'string' ? payload.id : typeof payload === 'string' ? payload : '';
     const box = payload && typeof payload === 'object' ? payload.box : undefined;
     switch (name) {
@@ -539,7 +542,8 @@ function drawGraph() {
  * its stage that stays mounted while hidden (sideHidden); the page's app host opens it by name (shell.js) and the
  * shell hands this script its panel.
  * Opening a part writes the blank (every section hidden) and then the part's own fields to its $.data.side, and keeps
- * what each of its emits does for that part (sideActs). Its code is kept here as it changes, so a form's Create reads it
+ * what each of its buttons does for that part (sideActs, by the names of SIDE_HEARING). What it writes and what is typed
+ * there is kept (sideHearing), so a button reads the field it sends; its code as well, so a form's Create reads it
  */
 const SIDE = '$.data.side';
 let sidePanel = null;
@@ -551,19 +555,32 @@ let sideNode = '';
 /** Resolves once the editor's embeddedApp has the side panel mounted */
 let sideArrived = () => undefined;
 let sideReady = new Promise((resolve) => { sideArrived = resolve; });
-/** What the panel's emits do for the part it shows, by emit */
+/** What the panel's buttons and fields do for the part it shows, by the names of SIDE_HEARING */
 let sideActs = {};
 /** The code the panel shows, as last typed */
 let sideCode = '';
 
 function sideWrite(fields) {
+    for (const [name, value] of Object.entries(fields)) sideHearing.keep(SIDE + '.' + name, value);
     if (sidePanel) sidePanel.write(Object.entries(fields).map(([name, value]) => ({ path: SIDE + '.' + name, value })));
 }
-/** The side panel's emits: close, the code as it changes, and what the part shown does with the rest */
-function sideEmit(event) {
-    const { name, payload } = event.detail || {};
+/**
+ * What the side panel's nodes raise: close, the code as it changes, a value typed into a new record's row, and what the
+ * part shown does with the rest
+ */
+function sideHeard(event) {
+    const heard = sideHearing.heard(event.detail);
+    if (!heard) return;
+    const { name, payload } = heard;
     if (name === 'close') { closeSide(); return; }
     if (name === 'code') { sideCode = typeof payload === 'string' ? payload : sideCode; return; }
+    if (name === 'recordValue') {
+        const rows = sideHearing.known(SIDE + '.form.record');
+        if (Array.isArray(rows) && payload && typeof payload.id === 'string') {
+            sideHearing.keep(SIDE + '.form.record', rows.map((row) => (row && row.id === payload.id ? { ...row, value: payload.value } : row)));
+        }
+        return;
+    }
     const run = sideActs[name];
     if (run) void Promise.resolve(run(payload)).catch((error) => says(error.message, true));
 }
@@ -572,7 +589,7 @@ shell.page(SIDE_APP, {
     mounted: (panel, element) => {
         sidePanel = panel;
         sideElement = element;
-        element.addEventListener('stateui:emit', sideEmit);
+        element.addEventListener('stateui:raised', sideHeard);
         sideArrived();
     },
     disposed: () => {
@@ -591,7 +608,7 @@ function mountSide() {
 }
 
 /**
- * Shows a part at the side: its fields over the blank, and what its emits do. The chosen card is lit, and brought into
+ * Shows a part at the side: its fields over the blank, and what its buttons do. The chosen card is lit, and brought into
  * view beside the panel, which now covers part of the canvas
  */
 async function sideShow(id, fields, acts) {
@@ -1030,7 +1047,8 @@ function authFields(auth) {
 /*
  * Theme and Logic are Magnetic's pages magnetic-theme (src/theme/ThemePage.ts) and magnetic-logic
  * (src/logic/LogicPage.ts), which the editor places on its stage, in the area its panels leave, and shows while their
- * view does. This script writes their $.data.theme or $.data.logic and acts on their emits; the side panel opens beside
+ * view does. This script writes their $.data.theme or $.data.logic and acts on what it hears from them (THEME_HEARING,
+ * LOGIC_HEARING); the side panel opens beside
  * them
  */
 /** The pages mounted, by view: { panel, element } */
@@ -1045,14 +1063,17 @@ let fromGraph = false;
 
 /** The page's data, below $.data.<view> */
 function pageWrite(fields) {
+    if (page) for (const [name, value] of Object.entries(fields)) (page.view === 'theme' ? themeHearing : logicHearing).keep('$.data.' + page.view + '.' + name, value);
     if (page) page.panel.write(Object.entries(fields).map(([name, value]) => ({ path: '$.data.' + page.view + '.' + name, value })));
 }
-function viewEmit(event) {
-    const { name, payload } = event.detail || {};
+function viewHeard(event) {
     if (!page) return;
+    const heard = (page.view === 'theme' ? themeHearing : logicHearing).heard(event.detail);
+    if (!heard) return;
+    const { name, payload } = heard;
     if (name === 'back') { setView('statenet'); return; }
-    if (page.view === 'theme') void themeEmit(name, payload);
-    else if (page.view === 'logic') void logicEmit(name, payload);
+    if (page.view === 'theme') void themeHeard(name, payload);
+    else if (page.view === 'logic') void logicHeard(name, payload);
 }
 // The editor places both pages; the shell hands each over once it is mounted, and each time it is mounted again. A page
 // mounted again while its view shows has nothing in it: the view is read and drawn again
@@ -1061,7 +1082,7 @@ const takeViewPages = () => ['theme', 'logic'].forEach((name) => {
     shell.page(PAGE_APPS[name], {
         mounted: (panel, element) => {
             viewPages[name] = { panel, element };
-            element.addEventListener('stateui:emit', viewEmit);
+            element.addEventListener('stateui:raised', viewHeard);
             element.addEventListener('focusout', reloadLeft);
             viewArrived[name]();
             if (view !== name) return;
@@ -1072,7 +1093,7 @@ const takeViewPages = () => ['theme', 'logic'].forEach((name) => {
         },
         disposed: () => {
             const gone = viewPages[name];
-            if (gone) { gone.element.removeEventListener('stateui:emit', viewEmit); gone.element.removeEventListener('focusout', reloadLeft); }
+            if (gone) { gone.element.removeEventListener('stateui:raised', viewHeard); gone.element.removeEventListener('focusout', reloadLeft); }
             delete viewPages[name];
             if (page && page.view === name) page = null;
             viewReady[name] = new Promise((resolve) => { viewArrived[name] = resolve; });
@@ -1161,8 +1182,8 @@ async function loadTheme(name) {
     pageWrite({ ...fields, specimens, tokens, notShared: !locked, sharedText: locked ? fill(T['views.sharedTheme'], { apps: theme.usedBy.join(', ') }) : '' });
 }
 
-async function themeEmit(name, payload) {
-    // A button's emit sends the value it is given; a field's change sends { value }
+async function themeHeard(name, payload) {
+    // Create sends the preset kept; a field's change sends { value }
     const value = typeof payload === 'string' ? payload : payload && typeof payload.value === 'string' ? payload.value : '';
     const act = async (action, extra) => {
         const answer = await change('theme', { action, theme: theme && theme.theme, ...extra });
@@ -1311,7 +1332,7 @@ function drawLogic() {
     pageWrite({ units, handlers, hasUnits: units.length > 0, noHandlers: handlers.length === 0 });
 }
 
-async function logicEmit(name, payload) {
+async function logicHeard(name, payload) {
     const id = typeof payload === 'string' ? payload : payload && typeof payload === 'object' && typeof payload.key === 'string' ? payload.key : '';
     const unit = logic && logic.units.find((each) => unitId(each) === id);
     switch (name) {

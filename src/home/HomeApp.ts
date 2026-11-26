@@ -7,6 +7,7 @@ import type { Texts } from '../http/text.js';
 import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
 import type { PageSource } from '../pages/PersonPages.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import type { Hearing } from '../http/raised.js';
 import type { Stamps } from '../storage/Stamps.js';
 import { alone } from '../storage/exclusive.js';
 import type { Exclusive } from '../storage/exclusive.js';
@@ -75,15 +76,43 @@ function valueAt(state: unknown, path: string): unknown {
     return at;
 }
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+/**
+ * What the page script hears of Your apps (src/http/raised.ts): a card's or a button's id names what it does, a card
+ * in a grid with its id from its row; the name typed for a new app is kept as it changes, for Make
+ */
+export const HOME_HEARING: Hearing = {
+    'appCard.press': { name: 'open', from: 'row.id' },
+    'shareAccept.press': { name: 'shareAccept', from: 'row.id' },
+    'shareReject.press': { name: 'shareReject', from: 'row.id' },
+    'inviteJoin.press': { name: 'inviteJoin', from: 'row.id' },
+    'inviteDecline.press': { name: 'inviteDecline', from: 'row.id' },
+    'orgCard.press': { name: 'openOrg', from: 'row.id' },
+    'make.change': { keep: '$.data.home.make' },
+    'create.press': { name: 'create', from: '$.data.home.make' },
+    'review.press': { name: 'requests' },
+    'makeOrg.press': { name: 'orgs' },
+    'billing.press': { name: 'billing' },
+    'mode.change': { name: 'mode', from: 'value.value' },
+    'language.change': { name: 'language', from: 'value.value' },
+    'connections.press': { name: 'connections' },
+    'data.press': { name: 'data' },
+    'requests.press': { name: 'requests' },
+    'device.press': { name: 'device' },
+    'admin.press': { name: 'admin' },
+    'signout.press': { name: 'signout' },
+    'editHome.press': { name: 'editHome' },
+    'editEditor.press': { name: 'editEditor' },
+    'resetHome.press': { name: 'resetHome' },
+    'resetEditor.press': { name: 'resetEditor' }
+};
 
-/** A grid of cards; pressing one raises `target` with the card's id */
-function grid(records: string, target = 'open'): Record<string, unknown> {
+/** A grid of cards; pressing one is heard by its id, with the card's id from its row */
+function grid(records: string, id: string): Record<string, unknown> {
     return {
         component: 'recordGrid',
         theme: { recordgrid: { itemheight: 'calc({size.control.md} * 2)' } },
         '<-records': records,
-        row: { component: 'card', elevation: 'flat', interactive: true, '<-_title': '$row.name', '<-_subtitle': '$row.note', on: { press: emit(target, '$row.id') } }
+        row: { component: 'card', elevation: 'flat', interactive: true, '<-_title': '$row.name', '<-_subtitle': '$row.note', '@id': id }
     };
 }
 
@@ -103,7 +132,7 @@ function appGrid(t: Texts): Record<string, unknown> {
             '<-_title': '$row.name',
            
             '<-_subtitle': '$row.note',
-            on: { press: emit('open', '$row.id') },
+            '@id': 'appCard',
             // The Shared mark in the card's top corner, apart from the answers of a waiting share at its foot
             actions: { component: 'badge', size: 'sm', tone: 'accent', icon: 'users', _text: t['home.shared'], '<-hidden': '$row.own' },
             footer: {
@@ -112,8 +141,8 @@ function appGrid(t: Texts): Record<string, unknown> {
                 layout: { type: 'row', gap: 'sm', align: 'center' },
                 '<-hidden': '$row.answered',
                 children: {
-                    accept: { component: 'button', size: 'sm', variant: 'soft', tone: 'success', icon: 'check', iconPosition: 'only', _title: t['home.accept'], on: { press: emit('shareAccept', '$row.id') } },
-                    reject: { component: 'button', size: 'sm', variant: 'soft', tone: 'danger', icon: 'x', iconPosition: 'only', _title: t['home.reject'], on: { press: emit('shareReject', '$row.id') } }
+                    accept: { component: 'button', size: 'sm', variant: 'soft', tone: 'success', icon: 'check', iconPosition: 'only', _title: t['home.accept'], '@id': 'shareAccept' },
+                    reject: { component: 'button', size: 'sm', variant: 'soft', tone: 'danger', icon: 'x', iconPosition: 'only', _title: t['home.reject'], '@id': 'shareReject' }
                 }
             }
         }
@@ -138,8 +167,8 @@ function inviteGrid(t: Texts): Record<string, unknown> {
                     padding: 'none',
                     layout: { type: 'row', gap: 'sm' },
                     children: {
-                        join: { component: 'button', size: 'sm', _title: t['home.join'], on: { press: emit('inviteJoin', '$row.id') } },
-                        decline: { component: 'button', size: 'sm', variant: 'ghost', _title: t['home.decline'], on: { press: emit('inviteDecline', '$row.id') } }
+                        join: { component: 'button', size: 'sm', _title: t['home.join'], '@id': 'inviteJoin' },
+                        decline: { component: 'button', size: 'sm', variant: 'ghost', _title: t['home.decline'], '@id': 'inviteDecline' }
                     }
                 }
             }
@@ -158,8 +187,8 @@ const H = '$.data.home';
  * - Usage: a ring of the agent use spent of all they may spend, in words, and Agent use (`billing`).
  * - Profile: who they are, the menus of mode and language (`mode`, `language`), the settings pages, Admin, Sign out
  *   (`signout`), and their own pages (`editHome`, `resetHome`, `editEditor`, `resetEditor`).
- * Each `emit` reaches the page (`stateui:emit`), whose script acts on it. The page writes only `$.data`, so any node
- * can move
+ * The page's script hears those nodes by their ids (`HOME_HEARING`) and acts on them. The page writes only `$.data`,
+ * so any node can move
  */
 function homeScreen(t: Texts): Record<string, unknown> {
     const menu = (target: string, label: string, options: Record<string, { _label: string }>): Record<string, unknown> => ({
@@ -168,9 +197,9 @@ function homeScreen(t: Texts): Record<string, unknown> {
         _label: label,
         options,
         '<-value': `${H}.${target}`,
-        on: { change: emit(target, `${H}.${target}`) }
+        '@id': target
     });
-    const link = (target: string, title: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', variant: 'soft', size: 'sm', _title: title, ...more, on: { press: emit(target) } });
+    const link = (id: string, title: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', variant: 'soft', size: 'sm', _title: title, ...more, '@id': id });
     const tab = (title: string, icon: string, children: Record<string, unknown>): Record<string, unknown> => ({
         component: 'panel',
         padding: 'none',
@@ -204,7 +233,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     layout: { type: 'row', gap: 'sm', align: 'center' },
                                     children: {
                                         alert: { component: 'alert', tone: 'warning', icon: 'inbox', placement: { grow: 1 }, '<-_text': `${H}.requestsLine` },
-                                        review: link('requests', t['home.requestsReview'])
+                                        review: link('review', t['home.requestsReview'])
                                     }
                                 },
                                 new: {
@@ -214,8 +243,8 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     _description: t['home.makeText'],
                                     layout: { type: 'row', align: 'end', gap: 'sm' },
                                     children: {
-                                        make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], '<-value': `${H}.make` },
-                                        create: { component: 'button', _title: t['home.make'], on: { press: emit('create', `${H}.make`) } }
+                                        make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], '<-value': `${H}.make`, '@id': 'make' },
+                                        create: { component: 'button', _title: t['home.make'], '@id': 'create' }
                                     }
                                 },
                                 appsTitle: { component: 'text', textRole: 'heading', element: 'h2', _text: t['home.appsTitle'] },
@@ -238,11 +267,11 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     layout: { type: 'row', gap: 'sm', align: 'center' },
                                     children: {
                                         title: { component: 'text', textRole: 'heading', element: 'h2', placement: { grow: 1 }, _text: t['home.orgsTitle'] },
-                                        make: { component: 'button', size: 'sm', variant: 'soft', '<-hidden': `${H}.noMakeOrg`, _title: t['home.makeOrg'], on: { press: emit('orgs') } }
+                                        make: { component: 'button', size: 'sm', variant: 'soft', '<-hidden': `${H}.noMakeOrg`, _title: t['home.makeOrg'], '@id': 'makeOrg' }
                                     }
                                 },
                                 orgsHint: { component: 'text', textRole: 'caption', _text: t['home.orgsText'] },
-                                orgs: grid('$.data.orgs', 'openOrg')
+                                orgs: grid('$.data.orgs', 'orgCard')
                             }),
                             usage: tab(t['home.tabUsage'], 'chart-donut', {
                                 spent: {
@@ -307,10 +336,10 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     _description: t['home.pagesText'],
                                     layout: { type: 'row', gap: 'sm', align: 'center', wrap: true },
                                     children: {
-                                        editHome: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editHome'], on: { press: emit('editHome') } },
-                                        edit: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editEditor'], on: { press: emit('editEditor') } },
-                                        resetHome: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetHome'], on: { press: emit('resetHome') } },
-                                        reset: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetEditor'], on: { press: emit('resetEditor') } }
+                                        editHome: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editHome'], '@id': 'editHome' },
+                                        edit: { component: 'button', variant: 'soft', icon: 'pencil', _title: t['home.editEditor'], '@id': 'editEditor' },
+                                        resetHome: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetHome'], '@id': 'resetHome' },
+                                        reset: { component: 'button', variant: 'ghost', tone: 'danger', _title: t['home.resetEditor'], '@id': 'resetEditor' }
                                     }
                                 }
                             })
@@ -356,7 +385,7 @@ export const HOME: PageSpec = {
     name: HOME_APP,
     title: 'Your apps',
     themed: false,
-    required: ['open', 'create', 'signout', 'editHome', 'resetHome', 'shareAccept', 'shareReject'],
+    required: ['appCard', 'create', 'signout', 'editHome', 'resetHome', 'shareAccept', 'shareReject'],
     sample: {
         '$.data.apps': {
             'app-two': { id: 'app-two', name: 'An app shared with them', note: 'Someone · use', own: false, answered: false },

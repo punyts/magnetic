@@ -4,6 +4,7 @@ import { textsOf } from '../http/text.js';
 import type { Texts } from '../http/text.js';
 import { COMPONENT_CATEGORIES } from '../inspector/constants.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import type { Hearing } from '../http/raised.js';
 import { CODE_SOURCE, PersonPages } from '../pages/PersonPages.js';
 import type { PageSource } from '../pages/PersonPages.js';
 import { LOGIC_APP } from '../logic/LogicPage.js';
@@ -25,28 +26,117 @@ export const EDITOR_APP = 'magnetic-editor';
  * (`passThrough`), it and its app draw no surface (`seeThrough`), and its panels take the presses, so the canvas shows
  * and a click anywhere else reaches it and the app on it.
  *
- * The page drives the editor through its data and its emits only, never through the paths of its nodes, so a person (or
+ * The page drives the editor through its data and the ids of its nodes only, never through the paths of its nodes, so a person (or
  * the agent) can move, restyle, add or drop any panel and the rest keeps working:
  *
  * - The page writes `$.data.editor` (one record: the app's name, the tool, the zoom, the status, which panels are open,
  *   the selection's breadcrumb and details, the person's choices) and the lists `messages`, `calls`, `links`,
  *   `components`, `paths` and `feed`.
- * - The editor emits what the person does (see `EDITOR_EMITS`), which the page acts on.
+ * - The page hears what the person does through the ids of the editor's nodes (`EDITOR_HEARING`) and acts on it.
  * - Two parts are found by their key wherever they are: `stage`, the full-window area whose children float (each is
  *   let through), and `propertyFields`, the panel the page fills with a field per property of the selected node. The
  *   inspector's tabs follow `$.data.editor.tab`.
  */
 export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } as const;
 
-/** What the editor emits, for the page's script */
-export const EDITOR_EMITS = [
-    'home', 'open', 'size', 'frame', 'zoomIn', 'zoomOut', 'zoomReset', 'zoomFit', 'tool', 'view', 'layerLayout', 'layerData', 'layerLogic',
-    'share', 'shareClose', 'shareRight', 'shareMake', 'orgOpen', 'linkCopy', 'linkRevoke', 'prefs', 'prefsClose', 'mode', 'language',
-    'chat.send', 'chatToggle', 'chatClose', 'keepOpen', 'model', 'stop', 'idea1', 'idea2', 'idea3', 'hintClose', 'focusClear', 'addToChat',
-    'inspectorClose', 'tab', 'crumb', 'remove', 'search', 'category', 'place', 'grab', 'dragMove', 'dragEnd', 'library', 'libraryClose', 'screensPanel', 'screensClose', 'screenGo', 'screenNew', 'screenAdd', 'screenRenameText', 'screenRename', 'screenCopy', 'screenHome', 'screenDelete', 'screenColumns', 'path', 'ask',
-    'connectionsPanel', 'connectionsClose', 'connectionsManage', 'connectionAsk', 'sharedPanel', 'sharedClose', 'sharedManage', 'sharedAsk',
-    'feedback', 'feedbackClose', 'feedbackKind', 'feedbackText', 'feedbackSend'
-] as const;
+/**
+ * What the page's script hears of the editor (src/http/raised.ts): `<id>.<event>` to the name its code acts on. A
+ * node's id is mostly that name; the narrow rail's copies of the wide rail's buttons end in `Top`
+ */
+export const EDITOR_HEARING: Hearing = {
+    'home.press': { name: 'home' },
+    'share.press': { name: 'share' },
+    'zoomReset.press': { name: 'zoomReset' },
+    'focusRemove.remove': { name: 'focusRemove' },
+    'model.change': { name: 'model' },
+    'keepOpen.change': { name: 'keepOpen' },
+    'stop.press': { name: 'stop' },
+    'crumb.select': { name: 'crumb' },
+    'addToChat.press': { name: 'addToChat' },
+    'remove.press': { name: 'remove' },
+    'connectionAsk.press': { name: 'connectionAsk', from: 'row.id' },
+    'sharedAsk.press': { name: 'sharedAsk', from: 'row.id' },
+    'screenColumns.change': { name: 'screenColumns' },
+    'screenGo.press': { name: 'screenGo', from: 'row.name' },
+    'category.change': { name: 'category' },
+    'path.select': { name: 'path' },
+    'ask.press': { name: 'ask' },
+    'tab.change': { name: 'tab' },
+    'orgOpen.change': { name: 'orgOpen' },
+    'shareRight.change': { name: 'shareRight' },
+    'shareMake.press': { name: 'shareMake' },
+    'linkCopy.press': { name: 'linkCopy', from: 'row.id' },
+    'linkRevoke.press': { name: 'linkRevoke', from: 'row.id' },
+    'mode.change': { name: 'mode' },
+    'language.change': { name: 'language' },
+    'feedbackKind.change': { name: 'feedbackKind' },
+    'feedbackText.change': { name: 'feedbackText' },
+    'size.change': { name: 'size' },
+    'sizeTop.change': { name: 'size' },
+    'frame.change': { name: 'frame' },
+    'frameTop.change': { name: 'frame' },
+    'views.change': { name: 'view' },
+    'viewMenu.change': { name: 'view' },
+    'toolUse.press': { name: 'tool', send: 'use' },
+    'toolMove.press': { name: 'tool', send: 'move' },
+    'toolSelect.press': { name: 'tool', send: 'select' },
+    'layerLayout.press': { name: 'layerLayout' },
+    'layerData.press': { name: 'layerData' },
+    'layerLogic.press': { name: 'layerLogic' },
+    'library.press': { name: 'library' },
+    'screensPanel.press': { name: 'screensPanel' },
+    'connectionsPanel.press': { name: 'connectionsPanel' },
+    'sharedPanel.press': { name: 'sharedPanel' },
+    'toolUseTop.press': { name: 'tool', send: 'use' },
+    'toolMoveTop.press': { name: 'tool', send: 'move' },
+    'toolSelectTop.press': { name: 'tool', send: 'select' },
+    'layerLayoutTop.press': { name: 'layerLayout' },
+    'layerDataTop.press': { name: 'layerData' },
+    'layerLogicTop.press': { name: 'layerLogic' },
+    'libraryTop.press': { name: 'library' },
+    'screensPanelTop.press': { name: 'screensPanel' },
+    'connectionsPanelTop.press': { name: 'connectionsPanel' },
+    'sharedPanelTop.press': { name: 'sharedPanel' },
+    'idea1.press': { name: 'idea1' },
+    'idea2.press': { name: 'idea2' },
+    'idea3.press': { name: 'idea3' },
+    'turn.press': { name: 'turn' },
+    'open.press': { name: 'open' },
+    'feedback.press': { name: 'feedback' },
+    'prefs.press': { name: 'prefs' },
+    'zoomOut.press': { name: 'zoomOut' },
+    'zoomIn.press': { name: 'zoomIn' },
+    'zoomFit.press': { name: 'zoomFit' },
+    'focusClear.press': { name: 'focusClear' },
+    'chatToggle.press': { name: 'chatToggle' },
+    'request.send': { name: 'chat.send' },
+    'chatClose.press': { name: 'chatClose' },
+    'hintClose.press': { name: 'hintClose' },
+    'connectionsClose.press': { name: 'connectionsClose' },
+    'connectionsManage.press': { name: 'connectionsManage' },
+    'sharedClose.press': { name: 'sharedClose' },
+    'sharedManage.press': { name: 'sharedManage' },
+    'libraryClose.press': { name: 'libraryClose' },
+    'screensClose.press': { name: 'screensClose' },
+    'screenNew.change': { name: 'screenNew' },
+    'screenRenameText.change': { name: 'screenRenameText' },
+    'screenAdd.press': { name: 'screenAdd' },
+    'screenRename.press': { name: 'screenRename' },
+    'screenCopy.press': { name: 'screenCopy' },
+    'screenHome.press': { name: 'screenHome' },
+    'screenDelete.press': { name: 'screenDelete' },
+    'search.input': { name: 'search' },
+    'search.change': { name: 'search' },
+    'libraryCard.press': { name: 'place', from: 'row.name' },
+    'libraryCard.dragStart': { name: 'grab', from: 'row.name' },
+    'libraryCard.dragMove': { name: 'dragMove' },
+    'libraryCard.dragEnd': { name: 'dragEnd' },
+    'inspectorClose.press': { name: 'inspectorClose' },
+    'shareClose.press': { name: 'shareClose' },
+    'prefsClose.press': { name: 'prefsClose' },
+    'feedbackClose.press': { name: 'feedbackClose' },
+    'feedbackSend.press': { name: 'feedbackSend' }
+};
 
 const E = '$.data.editor';
 
@@ -177,9 +267,9 @@ export const EDITOR_ICONS = {
     prefs: { outline: ['M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0', { d: 'M12 4a8 8 0 0 0 0 16z', fill: true }] }
 } as const;
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
-const button = (title: string, target: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', size: 'sm', variant: 'ghost', _title: title, on: { press: emit(target) }, ...extra });
-const icon = (title: string, target: string, name: string, extra: Record<string, unknown> = {}): Record<string, unknown> => button(title, target, { icon: name, iconPosition: 'only', corners: 'pill', tone: 'neutral', ...extra });
+/** A small ghost button the page hears by `id` */
+const button = (title: string, id: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', size: 'sm', variant: 'ghost', _title: title, '@id': id, ...extra });
+const icon = (title: string, id: string, name: string, extra: Record<string, unknown> = {}): Record<string, unknown> => button(title, id, { icon: name, iconPosition: 'only', corners: 'pill', tone: 'neutral', ...extra });
 const caption = (text: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'text', textRole: 'caption', _text: text, ...extra });
 const bound = (path: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'text', '<-_text': path, ...extra });
 
@@ -282,7 +372,7 @@ const LOGO = `data:image/svg+xml;base64,${Buffer.from(LOGO_SVG).toString('base64
 const CORNER_ROW = { layout: { type: 'row', gap: 'md', align: 'center' } };
 
 /** The device of the frame: Desktop, Tablet or Phone; in the name corner, or below 760px on the top rail */
-function frameSize(t: Texts, extra: Record<string, unknown>): Record<string, unknown> {
+function frameSize(t: Texts, id: string, extra: Record<string, unknown>): Record<string, unknown> {
     return {
         component: 'selectField',
         size: 'sm',
@@ -292,13 +382,13 @@ function frameSize(t: Texts, extra: Record<string, unknown>): Record<string, unk
         _label: t['shell.frameSize'],
         options: { desktop: { _label: t['shell.size.desktop'] }, tablet: { _label: t['shell.size.tablet'] }, phone: { _label: t['shell.size.phone'] } },
         '<-value': `${E}.size`,
-        on: { change: emit('size') },
+        '@id': id,
         ...extra
     };
 }
 
 /** The frame's size among the common sizes of its device (the page writes them to `frames`), beside the device */
-function frameDimensions(t: Texts, extra: Record<string, unknown>): Record<string, unknown> {
+function frameDimensions(t: Texts, id: string, extra: Record<string, unknown>): Record<string, unknown> {
     return {
         component: 'selectField',
         size: 'sm',
@@ -308,7 +398,7 @@ function frameDimensions(t: Texts, extra: Record<string, unknown>): Record<strin
         _label: t['shell.frameDimensions'],
         '<-options': `${E}.frames`,
         '<-value': `${E}.frame`,
-        on: { change: emit('frame') },
+        '@id': id,
         ...extra
     };
 }
@@ -319,13 +409,13 @@ function nameCorner(t: Texts): Record<string, unknown> {
     // bug, appearance and Share buttons, about 140px, and the gaps)
     return float({ x: '12px', y: '12px', maxWidth: 'clamp(calc(100% - 176px), (100vw - 760px) * 1000, max(calc(50% - 32px), calc(100% - 120px)))' }, {
         bar: row({
-            home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, on: { press: emit('home') } },
+            home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, '@id': 'home' },
             name: bound(`${E}.appName`, { textRole: 'heading', truncate: 1, placement: { grow: 1 } }),
             // The workspace the app is in: the person's own, or an org's. Below 760px the corner has room only for the logo, the
             // name and Open, all on one line: the workspace and the frame size are on the top rail
             workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1, '<-hidden': `${E}.isNarrow` }),
-            size: frameSize(t, { '<-hidden': `${E}.isNarrow` }),
-            frame: frameDimensions(t, { '<-hidden': `${E}.isNarrow` }),
+            size: frameSize(t, 'size', { '<-hidden': `${E}.isNarrow` }),
+            frame: frameDimensions(t, 'frame', { '<-hidden': `${E}.isNarrow` }),
             // Turns the frame between landscape and portrait: its width and height swap. Below 760px the corner has no room
             turn: icon(t['shell.turn'], 'turn', 'rotate-rectangle', { '<-hidden': `${E}.isNarrow` }),
             // Soft, so its box shows: every part of the bar is then a box with the same space either side
@@ -344,10 +434,10 @@ export const EDITOR_VIEWS = ['screens', 'statenet', 'theme', 'logic'] as const;
 function shareCorner(t: Texts): Record<string, unknown> {
     return float({ right: '12px', y: '12px' }, {
         bar: row({
-            views: { component: 'segmented', size: 'sm', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, '<-hidden': `${E}.isNarrow`, on: { change: emit('view') } },
+            views: { component: 'segmented', size: 'sm', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, '<-hidden': `${E}.isNarrow`, '@id': 'views' },
             feedback: icon(t['feedback.open'], 'feedback', 'bug'),
             prefs: icon(t['prefs.open'], 'prefs', 'prefs'),
-            share: { component: 'button', size: 'sm', _title: t['shell.share'], on: { press: emit('share') } }
+            share: { component: 'button', size: 'sm', _title: t['shell.share'], '@id': 'share' }
         }, CORNER_ROW)
     });
 }
@@ -358,10 +448,12 @@ const viewOptions = (t: Texts): Record<string, unknown> => Object.fromEntries(ED
 /**
  * The rail at the left, in the Screens view: the pointer tools and panels, one above the other, a line, then the layers
  * the screen tiles show (layout, data, logic). Each is a button that is solid while on (`toolLook`, `layerLook`); a
- * press emits `tool` with the tool's name, or the layer's `layer…`. Below 760px the page shows the same rail along the top
+ * press is heard as `tool` with the tool's name, or as the layer's `layer…` (ids `toolUse`…, `layerLayout`…, the narrow
+ * rail's with `Top` after them, `EDITOR_HEARING`). Below 760px the page shows the same rail along the top
  * instead (`narrow`), led by the view menu, which stays there in the other views when the tools hide
  */
 function rail(t: Texts, narrow = false): Record<string, unknown> {
+    const top = narrow ? 'Top' : '';
     const tool = (name: 'use' | 'move' | 'select', key: 'shell.useKey' | 'shell.moveKey' | 'shell.selectKey', glyph: string): Record<string, unknown> => ({
         component: 'button',
         size: 'sm',
@@ -370,23 +462,23 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
         _title: t[key],
         '<-variant': `${E}.toolLook.${name}`,
         '<-tone': `${E}.toolTone.${name}`,
-        on: { press: { command: 'emit', target: 'tool', value: name } }
+        '@id': `tool${name.charAt(0).toUpperCase()}${name.slice(1)}${top}`
     });
-    const layer = (name: 'layout' | 'data' | 'logic', target: string): Record<string, unknown> => ({
+    const layer = (name: 'layout' | 'data' | 'logic', id: string): Record<string, unknown> => ({
         component: 'button',
         size: 'sm',
         fill: !narrow,
         _title: t[`shell.layer.${name}`],
         '<-variant': `${E}.layerLook.${name}`,
         '<-tone': `${E}.layerTone.${name}`,
-        on: { press: emit(target) }
+        '@id': id + top
     });
     const line = narrow ? 'row' : 'column';
     // Below 760px, the rail's tools are the Screens view's; the view menu shows in every view
     const screensOnly = narrow ? { '<-hidden': `${E}.notScreensView` } : {};
     return float(narrow ? { x: '12px', y: '64px', maxWidth: 'calc(100% - 24px)' } : { x: '12px', center: 'y' }, {
         ...(narrow && {
-            viewMenu: { component: 'selectField', size: 'sm', variant: 'soft', width: 'auto', titlePosition: 'hidden', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, on: { change: emit('view') } }
+            viewMenu: { component: 'selectField', size: 'sm', variant: 'soft', width: 'auto', titlePosition: 'hidden', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, '@id': 'viewMenu' }
         }),
         tools: {
             ...screensOnly,
@@ -398,10 +490,10 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
                 move: tool('move', 'shell.moveKey', 'hand'),
                 select: tool('select', 'shell.selectKey', 'select'),
                 // Solid while the library shows, as a tool is while it is on
-                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, on: { press: emit('library') } },
-                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], '<-variant': `${E}.screensLook`, '<-tone': `${E}.screensTone`, on: { press: emit('screensPanel') } },
-                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], '<-variant': `${E}.connectionsLook`, '<-tone': `${E}.connectionsTone`, on: { press: emit('connectionsPanel') } },
-                shared: { component: 'button', size: 'sm', icon: 'shared-data', iconPosition: 'only', _title: t['sharedPanel.open'], '<-variant': `${E}.sharedLook`, '<-tone': `${E}.sharedTone`, on: { press: emit('sharedPanel') } }
+                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], '<-variant': `${E}.libraryLook`, '<-tone': `${E}.libraryTone`, '@id': 'library' + top },
+                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], '<-variant': `${E}.screensLook`, '<-tone': `${E}.screensTone`, '@id': 'screensPanel' + top },
+                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], '<-variant': `${E}.connectionsLook`, '<-tone': `${E}.connectionsTone`, '@id': 'connectionsPanel' + top },
+                shared: { component: 'button', size: 'sm', icon: 'shared-data', iconPosition: 'only', _title: t['sharedPanel.open'], '<-variant': `${E}.sharedLook`, '<-tone': `${E}.sharedTone`, '@id': 'sharedPanel' + top }
             }
         },
         line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal', ...screensOnly },
@@ -414,7 +506,7 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
             children: { layerLayout: layer('layout', 'layerLayout'), layerData: layer('data', 'layerData'), layerLogic: layer('logic', 'layerLogic') }
         },
         // Below 760px the name corner has no room for the workspace and the frame size
-        ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, screensOnly), frame: frameDimensions(t, screensOnly) })
+        ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, 'sizeTop', screensOnly), frame: frameDimensions(t, 'frameTop', screensOnly) })
     // The divider and the Layers label get the room the buttons' own padding gives their icons, not the tools' tight gap
     }, narrow ? { '<-hidden': `${E}.narrowHidden`, layout: { type: 'row', gap: 'sm', align: 'center' } } : { '<-hidden': `${E}.wideHidden`, layout: { type: 'column', gap: 'md' } });
 }
@@ -424,7 +516,7 @@ function zoom(t: Texts): Record<string, unknown> {
     return float({ right: '12px', bottom: ABOVE_CHAT }, {
         bar: row({
             out: icon(t['shell.zoomOutKey'], 'zoomOut', 'minus'),
-            reset: { component: 'button', size: 'sm', variant: 'ghost', tone: 'neutral', '<-_title': `${E}.zoom`, on: { press: emit('zoomReset') } },
+            reset: { component: 'button', size: 'sm', variant: 'ghost', tone: 'neutral', '<-_title': `${E}.zoom`, '@id': 'zoomReset' },
             in: icon(t['shell.zoomInKey'], 'zoomIn', 'plus'),
             fit: icon(t['shell.fitKey'], 'zoomFit', 'fit')
         }, { layout: { type: 'row', gap: 'none', align: 'center' } })
@@ -441,7 +533,7 @@ function chatBar(t: Texts): Record<string, unknown> {
         // Each thing the next request is about is a chip with its own ×; Clear takes them all
         focus: line({
             about: { component: 'text', textRole: 'caption', _text: t['chat.about'] },
-            chips: { component: 'chipList', size: 'sm', placement: { grow: 1 }, _label: t['chat.about'], '<-items': `${E}.focusItems`, on: { remove: emit('focusRemove') } },
+            chips: { component: 'chipList', size: 'sm', placement: { grow: 1 }, _label: t['chat.about'], '<-items': `${E}.focusItems`, '@id': 'focusRemove' },
             clear: button(t['chat.clear'], 'focusClear')
         }, `${E}.noFocus`),
         dataLine: line({ text: bound(`${E}.dataLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noDataLine`),
@@ -473,7 +565,8 @@ function chatBar(t: Texts): Record<string, unknown> {
                     sendOnEnter: true,
                     // Off while the person may not ask the agent (their agent use is spent); the agent-use ring's tip says why
                     '<-disabled': `${E}.chatOff`,
-                    on: { send: [emit('chat.send'), { command: 'clear' }] }
+                    '@id': 'request',
+                    on: { send: { command: 'clear' } }
                 },
                 // The person's agent use as a ring, used against the whole budget; its tip says what is used and left, or,
                 // once it is spent, that they can carry on by hand
@@ -487,7 +580,7 @@ function chatBar(t: Texts): Record<string, unknown> {
                     placement: { height: '36px' },
                     trigger: { component: 'progress', shape: 'ring', size: 'sm', theme: { size: { icon: { sm: '9.6px' } } }, _label: t['chat.budgetRing'], '<-value': `${E}.budgetUsed`, '<-max': `${E}.budgetTotal`, '<-tone': `${E}.budgetTone` }
                 },
-                model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, on: { change: emit('model') } },
+                model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, '<-hidden': `${E}.noModels`, '@id': 'model' },
                 send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': `${E}.chatOff`, on: { press: { command: 'send', target: '#bar.children.input' } } }
             }
         }
@@ -512,8 +605,8 @@ function chatPanel(t: Texts): Record<string, unknown> {
                 children: {
                     head: row({
                         title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.activity'] },
-                        keep: { component: 'switchField', size: 'sm', _label: t['shell.keepOpen'], '<-checked': `${E}.keepOpen`, on: { change: emit('keepOpen') } },
-                        stop: { component: 'button', size: 'sm', variant: 'soft', tone: 'danger', _title: t['shell.stop'], '<-hidden': `${E}.notWorking`, on: { press: emit('stop') } }
+                        keep: { component: 'switchField', size: 'sm', _label: t['shell.keepOpen'], '<-checked': `${E}.keepOpen`, '@id': 'keepOpen' },
+                        stop: { component: 'button', size: 'sm', variant: 'soft', tone: 'danger', _title: t['shell.stop'], '<-hidden': `${E}.notWorking`, '@id': 'stop' }
                     }),
                     note: bound(`${E}.note`, { textRole: 'caption', truncate: 2 }),
                     calls: { component: 'list', '<-items': '$.data.calls', density: 'compact', placement: { height: '120px' }, row: { component: 'text', truncate: 1, textRole: 'caption', '<-_text': '$row.line' } }
@@ -526,7 +619,7 @@ function chatPanel(t: Texts): Record<string, unknown> {
 
 /** Over a blank app's frame: what to do first, and ideas to start from */
 function blankHint(t: Texts): Record<string, unknown> {
-    const idea = (n: 1 | 2 | 3): Record<string, unknown> => ({ component: 'card', elevation: 'flat', padding: 'sm', interactive: true, _subtitle: t[`shell.idea${n}`], on: { press: emit(`idea${n}`) } });
+    const idea = (n: 1 | 2 | 3): Record<string, unknown> => ({ component: 'card', elevation: 'flat', padding: 'sm', interactive: true, _subtitle: t[`shell.idea${n}`], '@id': `idea${n}` });
     return float(
         { center: 'both', width: fit('480px') },
         {
@@ -551,13 +644,13 @@ function propertiesTab(t: Texts): Record<string, unknown> {
         padding: 'sm',
         layout: { type: 'column', gap: 'sm' },
         children: {
-            crumbs: { component: 'breadcrumb', '<-items': `${E}.crumbs`, '<-current': `${E}.crumb`, '<-hidden': `${E}.noSelection`, on: { select: emit('crumb') } },
+            crumbs: { component: 'breadcrumb', '<-items': `${E}.crumbs`, '<-current': `${E}.crumb`, '<-hidden': `${E}.noSelection`, '@id': 'crumb' },
             heading: bound(`${E}.heading`, { textRole: 'label' }),
             // What to do with the selected node, above its fields so it is always in sight: give it to the agent with
             // the next request, or delete it
             actions: row({
-                addToChat: { component: 'button', variant: 'soft', size: 'sm', icon: 'message-plus', _title: t['inspector.addToChat'], on: { press: emit('addToChat') } },
-                remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', '<-hidden': `${E}.cannotRemove`, _title: t['inspector.delete'], on: { press: emit('remove') } }
+                addToChat: { component: 'button', variant: 'soft', size: 'sm', icon: 'message-plus', _title: t['inspector.addToChat'], '@id': 'addToChat' },
+                remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', '<-hidden': `${E}.cannotRemove`, _title: t['inspector.delete'], '@id': 'remove' }
             }, { '<-hidden': `${E}.noSelection` }),
             [EDITOR_KEYS.propertyFields]: { component: 'panel', padding: 'none', children: {} }
         }
@@ -584,7 +677,7 @@ function connectionsPanel(t: Texts): Record<string, unknown> {
                 '<-items': '$.data.connections',
                 rowHeight: 'xl',
                 placement: { grow: 1 },
-                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', on: { press: emit('connectionAsk', '$row.id') } }
+                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', '@id': 'connectionAsk' }
             },
             manage: button(t['connectionsPanel.manage'], 'connectionsManage', { variant: 'soft', '<-hidden': `${E}.cannotManage` })
         },
@@ -612,7 +705,7 @@ function sharedPanel(t: Texts): Record<string, unknown> {
                 '<-items': '$.data.shared',
                 rowHeight: 'xl',
                 placement: { grow: 1 },
-                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', on: { press: emit('sharedAsk', '$row.id') } }
+                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', '@id': 'sharedAsk' }
             },
             manage: button(t['sharedPanel.manage'], 'sharedManage', { variant: 'soft', '<-hidden': `${E}.cannotManageData` })
         },
@@ -648,13 +741,13 @@ export const SCREEN_COLUMNS = [1, 2, 3, 4, 5, 6, 8, 10] as const;
  * of its own; pressing one here or there makes it the screen the editor works on
  */
 function screensPanel(t: Texts): Record<string, unknown> {
-    const name = (target: string, label: string, valuePath: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    const name = (id: string, label: string, valuePath: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
         component: 'textField',
         size: 'sm',
         _label: label,
         '<-value': valuePath,
         placement: { grow: 1 },
-        on: { change: emit(target) },
+        '@id': id,
         ...extra
     });
     return float(
@@ -672,14 +765,14 @@ function screensPanel(t: Texts): Record<string, unknown> {
                 // keyed n1, n2…: a key may not be integer-like
                 options: Object.fromEntries(SCREEN_COLUMNS.map((count) => [`n${count}`, { _label: String(count) }])),
                 '<-value': `${E}.screenColumns`,
-                on: { change: emit('screenColumns') }
+                '@id': 'screenColumns'
             },
             list: {
                 component: 'list',
                 '<-items': '$.data.screens',
                 rowHeight: 'xl',
                 placement: { grow: 1 },
-                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-selected': '$row.current', '<-_title': '$row.title', '<-_subtitle': '$row.note', on: { press: emit('screenGo', '$row.name') } }
+                row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-selected': '$row.current', '<-_title': '$row.title', '<-_subtitle': '$row.note', '@id': 'screenGo' }
             },
             add: row({ name: name('screenNew', t['screens.new'], `${E}.screenNew`, { _placeholder: t['screens.newPlaceholder'] }), go: button(t['screens.add'], 'screenAdd', { variant: 'soft', tone: 'accent' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
             thisTitle: { component: 'text', textRole: 'label', _text: t['screens.this'] },
@@ -703,14 +796,14 @@ function libraryBody(t: Texts): Record<string, unknown> {
         placement: { grow: 1 },
         layout: { type: 'column', gap: 'sm' },
         children: {
-            search: { component: 'searchBox', size: 'sm', _label: t['inspector.find'], _placeholder: t['inspector.find'], value: '', on: { input: emit('search'), change: emit('search') } },
+            search: { component: 'searchBox', size: 'sm', _label: t['inspector.find'], _placeholder: t['inspector.find'], value: '', '@id': 'search' },
             category: {
                 component: 'selectField',
                 size: 'sm',
                 _label: t['inspector.category'],
                 options: Object.fromEntries([['all', { _label: t['inspector.all'] }], ...COMPONENT_CATEGORIES.map((name) => [name, { _label: t[`inspector.cat.${name}`] }])]),
                 value: 'all',
-                on: { change: emit('category') }
+                '@id': 'category'
             },
             hint: caption(t['inspector.pick']),
             cards: {
@@ -733,7 +826,7 @@ function libraryBody(t: Texts): Record<string, unknown> {
                         name: { component: 'text', textRole: 'label', truncate: 1, '<-_text': '$row.name' },
                         summary: { component: 'text', textRole: 'caption', truncate: 1, muted: true, '<-_text': '$row.summary' }
                     },
-                    on: { press: emit('place', '$row.name'), dragStart: emit('grab', '$row.name'), dragMove: emit('dragMove'), dragEnd: emit('dragEnd') }
+                    '@id': 'libraryCard'
                 }
             }
         }
@@ -748,7 +841,7 @@ function stateTab(t: Texts): Record<string, unknown> {
         padding: 'sm',
         layout: { type: 'column', gap: 'sm' },
         children: {
-            paths: { component: 'tree', '<-records': '$.data.paths', selectable: 'single', density: 'compact', placement: { height: 'calc(100vh - 520px)' }, on: { select: emit('path') } },
+            paths: { component: 'tree', '<-records': '$.data.paths', selectable: 'single', density: 'compact', placement: { height: 'calc(100vh - 520px)' }, '@id': 'path' },
             detail: {
                 component: 'panel',
                 padding: 'none',
@@ -760,7 +853,7 @@ function stateTab(t: Texts): Record<string, unknown> {
                     shown: bound(`${E}.detailShown`, { textRole: 'caption' }),
                     read: bound(`${E}.detailRead`, { textRole: 'caption' }),
                     written: bound(`${E}.detailWritten`, { textRole: 'caption' }),
-                    ask: { component: 'button', size: 'sm', variant: 'soft', _title: t['inspect.ask'], on: { press: emit('ask') } }
+                    ask: { component: 'button', size: 'sm', variant: 'soft', _title: t['inspect.ask'], '@id': 'ask' }
                 }
             },
             feedTitle: { component: 'text', textRole: 'label', _text: t['inspector.changes'] },
@@ -780,7 +873,7 @@ function inspector(t: Texts): Record<string, unknown> {
                 close: icon(t['shell.closeInspector'], 'inspectorClose', 'x')
             }),
             // The tabs take the inspector's height below its head, and the open tab scrolls
-            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, on: { change: emit('tab') }, children: { properties: propertiesTab(t), state: stateTab(t) } }
+            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, '@id': 'tab', children: { properties: propertiesTab(t), state: stateTab(t) } }
         },
         { '<-hidden': `${E}.inspectorHidden` }
     );
@@ -795,7 +888,7 @@ function shareSheet(t: Texts): Record<string, unknown> {
         { right: '12px', y: BELOW_RAIL, width: fit('352px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.shareThis'] }, close: icon(t['editor.close'], 'shareClose', 'x') }),
-            org: { component: 'switchField', size: 'sm', _label: t['shell.orgOpen'], '<-checked': `${E}.orgOpen`, '<-hidden': `${E}.notInOrg`, on: { change: emit('orgOpen') } },
+            org: { component: 'switchField', size: 'sm', _label: t['shell.orgOpen'], '<-checked': `${E}.orgOpen`, '<-hidden': `${E}.notInOrg`, '@id': 'orgOpen' },
             make: {
                 component: 'panel',
                 padding: 'none',
@@ -808,9 +901,9 @@ function shareSheet(t: Texts): Record<string, unknown> {
                         _label: t['shell.shareCan'],
                         options: { use: { _label: t['shell.right.use'] }, view: { _label: t['shell.right.view'] }, remix: { _label: t['shell.right.remix'] } },
                         '<-value': `${E}.shareRight`,
-                        on: { change: emit('shareRight') }
+                        '@id': 'shareRight'
                     },
-                    make: { component: 'button', size: 'sm', _title: t['shell.makeLink'], on: { press: emit('shareMake') } }
+                    make: { component: 'button', size: 'sm', _title: t['shell.makeLink'], '@id': 'shareMake' }
                 }
             },
             note: caption(t['shell.shareNote']),
@@ -830,8 +923,8 @@ function shareSheet(t: Texts): Record<string, unknown> {
                         layout: { type: 'column', gap: 'none' },
                         children: { title: { component: 'text', textRole: 'label', '<-_text': '$row.title' }, note: { component: 'text', textRole: 'caption', truncate: 1, '<-_text': '$row.note' } }
                     },
-                    copy: { component: 'button', size: 'sm', variant: 'soft', _title: t['share.copy'], '<-hidden': '$row.revoked', on: { press: emit('linkCopy', '$row.id') } },
-                    revoke: { component: 'button', size: 'sm', variant: 'ghost', tone: 'danger', _title: t['share.revoke'], '<-hidden': '$row.revoked', on: { press: emit('linkRevoke', '$row.id') } }
+                    copy: { component: 'button', size: 'sm', variant: 'soft', _title: t['share.copy'], '<-hidden': '$row.revoked', '@id': 'linkCopy' },
+                    revoke: { component: 'button', size: 'sm', variant: 'ghost', tone: 'danger', _title: t['share.revoke'], '<-hidden': '$row.revoked', '@id': 'linkRevoke' }
                 })
             }
         },
@@ -845,8 +938,8 @@ function prefsSheet(t: Texts): Record<string, unknown> {
         { right: '12px', y: BELOW_RAIL, width: fit('240px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['prefs.title'] }, close: icon(t['editor.close'], 'prefsClose', 'x') }),
-            mode: { component: 'selectField', size: 'sm', _label: t['prefs.mode'], options: Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }])), '<-value': `${E}.mode`, on: { change: emit('mode') } },
-            language: { component: 'selectField', size: 'sm', _label: t['prefs.language'], options: Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }])), '<-value': `${E}.language`, on: { change: emit('language') } },
+            mode: { component: 'selectField', size: 'sm', _label: t['prefs.mode'], options: Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }])), '<-value': `${E}.mode`, '@id': 'mode' },
+            language: { component: 'selectField', size: 'sm', _label: t['prefs.language'], options: Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }])), '<-value': `${E}.language`, '@id': 'language' },
             status: bound(`${E}.prefsStatus`, { textRole: 'caption' })
         },
         { '<-hidden': `${E}.prefsHidden`, padding: 'md' }
@@ -868,7 +961,7 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
                 _label: t['feedback.kind'],
                 options: { bug: { _label: t['feedback.kind.bug'] }, comment: { _label: t['feedback.kind.comment'] }, feature: { _label: t['feedback.kind.feature'] } },
                 '<-value': `${E}.feedbackKind`,
-                on: { change: emit('feedbackKind') }
+                '@id': 'feedbackKind'
             },
             text: {
                 component: 'textareaField',
@@ -878,7 +971,7 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
                 _label: t['feedback.text'],
                 _placeholder: t['feedback.placeholder'],
                 '<-value': `${E}.feedbackText`,
-                on: { change: emit('feedbackText') }
+                '@id': 'feedbackText'
             },
             note: caption(t['feedback.note'], { muted: true }),
             send: row({ status: bound(`${E}.feedbackStatus`, { textRole: 'caption', placement: { grow: 1 } }), send: button(t['feedback.send'], 'feedbackSend', { variant: 'solid', tone: 'accent' }) })
@@ -955,7 +1048,7 @@ export const EDITOR: PageSpec = {
     name: EDITOR_APP,
     title: 'The editor',
     themed: true,
-    required: ['chat.send', 'home'],
+    required: ['request', 'home'],
     keys: [EDITOR_KEYS.stage, EDITOR_KEYS.propertyFields],
     models: MODELS,
     definition

@@ -8,6 +8,8 @@ import { SIDE_APP } from '../side/SidePage.js';
 import { STATENET_APP } from '../statenet/StatenetPage.js';
 import { THEME_APP } from '../theme/ThemePage.js';
 import { ZOOM_CSS } from './zoom.js';
+import { EDITOR_HEARING } from '../editor/EditorApp.js';
+import { HEARING_JS, hearingJs } from './raised.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
 export interface ShellPageOptions {
@@ -57,7 +59,7 @@ export const ZOOM_KEYS = { in: 'mod+shift+=', out: 'mod+shift+-' } as const;
  * (`/assets/editor.json`, their `magnetic-editor`), in the page too, and the canvas is part of it: Magnetic's pages
  * `magnetic-screens` (the board, every screen of the app on it and the live app on the screen worked on),
  * `magnetic-statenet`, `magnetic-theme` and `magnetic-logic` are live embeddedApps first on its stage, and its panels
- * float over them. The stage lets presses through (`panel`'s `passThrough`), so the rest of the window is the canvas's. The page drives the editor through its data and its emits. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
+ * float over them. The stage lets presses through (`panel`'s `passThrough`), so the rest of the window is the canvas's. The page drives the editor through its data and the ids of its nodes. The body carries what the StateUI host script (`/assets/host.js`) reads to run the
  * app, so the app is live while the agent works on it
  */
 export function shellPage(options: ShellPageOptions): string {
@@ -171,10 +173,11 @@ export const LAYERS_CSS = `.inspect-layer { position: absolute; left: 0; top: 0;
 /**
  * `/assets/shell.js`, after the host script: mounts the editor and drives it (the chat, Share, the choices, the tools,
  * the frame size and the zoom), and runs the canvas. What it shows goes into the editor's data (`$.data.editor` and its
- * lists); what the person does there comes back as the editor's emits. `/assets/inspect.js` adds the selection, the
+ * lists); what the person does there comes back as reports of the editor's nodes with an `@id`, read by `EDITOR_HEARING`
+ * (`onHeard`, or `onRaised` for the report itself). `/assets/inspect.js` adds the selection, the
  * properties, the component library and the state, through the same editor (`magneticShell.editor`)
  */
-export const SHELL_JS = String.raw`${SCRIPT_TEXTS}const appId = document.body.dataset.appId;
+export const SHELL_JS = String.raw`${SCRIPT_TEXTS}${HEARING_JS}${hearingJs('editorHearing', EDITOR_HEARING)}const appId = document.body.dataset.appId;
 const base = '/edit/' + encodeURIComponent(appId);
 const host = window.stateuiHost;
 const holder = document.getElementById('editor');
@@ -246,13 +249,14 @@ function holdLayers() {
     for (const layer of boardLayers) if (layer.parentNode !== board.element) board.element.append(layer);
 }
 
-// The editor: a StateUI app the page drives through its data and its emits
+// The editor: a StateUI app the page drives through its data and hears through the ids of its nodes
 let panel = null;
 let editorDocument = null;
 let editorId = null;
 let ready = false;
 const pending = [];
-const emitListeners = [];
+const heardListeners = [];
+const raisedListeners = [];
 const readyListeners = [];
 const editorState = {};
 /** The app has no screens: the board's Add a screen tile is then the way on, so the blank app's hint goes */
@@ -357,10 +361,11 @@ async function mountEditor(which) {
     });
 }
 
-holder.addEventListener('stateui:emit', (event) => {
-    const { name, payload } = event.detail || {};
-    if (typeof name !== 'string') return;
-    for (const listener of emitListeners) listener(name, payload);
+holder.addEventListener('stateui:raised', (event) => {
+    for (const listener of raisedListeners) listener(event.detail);
+    const heard = editorHearing.heard(event.detail);
+    if (!heard) return;
+    for (const listener of heardListeners) listener(heard.name, heard.payload);
 });
 
 // The chat: the conversation is the editor's messages; the agent's tool calls its calls
@@ -822,7 +827,7 @@ async function choose(change) {
     } catch { ed({ prefsStatus: T['prefs.failed'] }); }
 }
 
-emitListeners.push((name, payload) => {
+heardListeners.push((name, payload) => {
     const value = valueOf(payload);
     switch (name) {
         case 'home': location.assign('/'); return;
@@ -1214,7 +1219,8 @@ const magneticShell = {
         write,
         state: editorState,
         pathOf: pathOfKey,
-        onEmit: (listener) => emitListeners.push(listener),
+        onHeard: (listener) => heardListeners.push(listener),
+        onRaised: (listener) => raisedListeners.push(listener),
         onReady: (listener) => readyListeners.push(listener),
         frame: () => (panel ? panel.frame() : null),
         inspect: (query) => (panel ? panel.inspect(query) : Promise.resolve(undefined))

@@ -1,12 +1,14 @@
 import { escapeHtml } from '@punyts/stateui-mcp';
 import type { PageAppDocument } from '../pages/PageApps.js';
 import { FAVICON_LINK } from './logo.js';
+import { HEARING_JS } from './raised.js';
+import type { Hearing } from './raised.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 
 /**
- * What a page app's emit does, set by the server: go to an address, or post a form to one and go where it answers
- * (`{id}` in either is the emit's payload). Nothing else can happen, whatever the app emits
+ * What a page app's node does when the page hears it, set by the server: go to an address, or post a form to one and go
+ * where it answers (`{id}` in either is the payload). Nothing else can happen, whatever the app raises
  */
 export type PageAction = { readonly go: string } | { readonly post: string; readonly form?: Readonly<Record<string, string>> };
 
@@ -20,7 +22,9 @@ export interface AppPageOptions {
     readonly app: PageAppDocument;
     /** What the page writes into the app's data once it is ready */
     readonly data: Readonly<Record<string, unknown>>;
-    /** What each emit of the app does */
+    /** What the page hears of the app's nodes with an `@id`, by the names of `actions` */
+    readonly hearing: Hearing;
+    /** What each name the page hears does */
     readonly actions: Readonly<Record<string, PageAction>>;
     /**
      * True when the app is an admin's published version: a page whose app is not ready in time loads again at
@@ -37,7 +41,7 @@ function block(id: string, value: unknown): string {
 /**
  * One of Magnetic's own pages as a StateUI app (sign in, a share link): the app fills the window, run in the page itself
  * on the page bundle (`stateuiHost.mount` with `inPage`, no live app, nothing synced), which the page drives alone. The page writes its data and does what the server
- * set for each of its emits (`/assets/app-page.js`)
+ * set for each name it hears (`/assets/app-page.js`)
  */
 export function appPage(options: AppPageOptions): string {
     return [
@@ -55,6 +59,7 @@ export function appPage(options: AppPageOptions): string {
         '<div class="page-app" id="page-app"></div>',
         block('page-app-document', options.app),
         block('page-app-data', options.data),
+        block('page-app-hearing', options.hearing),
         block('page-app-actions', options.actions),
         `<script src="/assets/page/${escapeHtml(options.pageBundle)}.js"></script>`,
         '<script type="module" src="/assets/host.js"></script>',
@@ -73,8 +78,9 @@ html, body.app-page { height: 100%; margin: 0; overflow: hidden; background: var
 `;
 
 /** `/assets/app-page.js`, after the host script */
-export const APP_PAGE_JS = String.raw`const read = (id) => JSON.parse(document.getElementById(id).textContent);
+export const APP_PAGE_JS = String.raw`${HEARING_JS}const read = (id) => JSON.parse(document.getElementById(id).textContent);
 const app = read('page-app-document');
+const hearing = hearingOf(read('page-app-hearing'));
 const data = read('page-app-data');
 const actions = read('page-app-actions');
 const holder = document.getElementById('page-app');
@@ -92,10 +98,10 @@ async function act(action, payload) {
     } catch { location.reload(); }
 }
 
-holder.addEventListener('stateui:emit', (event) => {
-    const { name, payload } = event.detail || {};
-    const action = typeof name === 'string' && Object.hasOwn(actions, name) ? actions[name] : undefined;
-    if (action) void act(action, payload);
+holder.addEventListener('stateui:raised', (event) => {
+    const heard = hearing.heard(event.detail);
+    const action = heard && Object.hasOwn(actions, heard.name) ? actions[heard.name] : undefined;
+    if (action) void act(action, heard.payload);
 });
 
 const panel = window.stateuiHost.mount(holder, { ...app, inPage: true }, document.title);
@@ -111,6 +117,7 @@ if (document.body.dataset.fallback === 'default') {
 }
 holder.addEventListener('stateui:ready', () => {
     ready = true;
+    for (const [path, value] of Object.entries(data)) hearing.keep(path, value);
     panel.write(Object.entries(data).map(([path, value]) => ({ path, value })));
 });
 `;

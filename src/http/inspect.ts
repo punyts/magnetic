@@ -5,7 +5,7 @@ import { SCRIPT_TEXTS } from './text.js';
  *
  * The inspector's tabs are part of the editor app (`magneticShell.editor`): this script writes what they show into the
  * editor's data (`$.data.editor` and the lists `components`, `paths`, `feed`), fills its `propertyFields` panel with
- * a field per property, and acts on its emits. It asks the live app about its nodes with `stateuiHost.inspect` and
+ * a field per property, and acts on what it hears from the editor. It asks the live app about its nodes with `stateuiHost.inspect` and
  * draws the hover, the selection and where a node lands on an overlay above it, in the app's own pixels: a layer that
  * follows the live app's element on its card (`magneticScreens.liveApp`) and scales with the canvas. With the Move
  * tool a drag on the layer pans the board (`magneticScreens.panBy`), which leaves the live app's own presses to it.
@@ -21,7 +21,7 @@ import { SCRIPT_TEXTS } from './text.js';
  * - The library (a panel of the editor beside the rail): drag a component onto the app, or press it and then click
  *   where it goes. Its Layout category starts with the layouts (row, column, grid, adhoc), each dropped as an empty
  *   bordered panel with that layout that takes all of its container (grow 1 in a row or a column, the whole area of an
- *   adhoc layout, the cell of a grid), a section that takes components and more layouts in turn. A card holds the pointer while it is dragged and emits `grab`, `dragMove` and `dragEnd` with the
+ *   adhoc layout, the cell of a grid), a section that takes components and more layouts in turn. A card holds the pointer while it is dragged and is heard as `grab`, `dragMove` and `dragEnd` with the
  *   pointer in the editor's frame, which covers the window, so in the page's own pixels: over the app frame the drop
  *   shows where it would land, let go there it lands, and anywhere else (or Escape) it is cancelled. It lands in the
  *   innermost node under the pointer whose component lays out children, an empty one too, and never in the app node,
@@ -549,12 +549,12 @@ function fieldsOf(info) {
         const label = labelFor(name);
         const linked = settings['<-' + name] || settings['<->' + name];
         const value = name in settings ? settings[name] : shape.default;
-        const on = { change: { command: 'emit', target: 'prop' + index } };
+        const on = { '@id': 'prop' + index };
         if (typeof linked === 'string') children[key] = { component: 'textField', size: 'sm', _label: fill(T['inspect.linked'], { label }), value: linked, readonly: true };
-        else if (shape.type === 'boolean') children[key] = { component: 'switchField', size: 'sm', _label: label, checked: value === true, on };
-        else if (Array.isArray(shape.values) && shape.values.every((option) => typeof option === 'string' && option !== '')) children[key] = { component: 'selectField', size: 'sm', _label: label, options: Object.fromEntries(shape.values.map((option) => [option, { _label: option }])), value: typeof value === 'string' ? value : '', on };
-        else if (shape.type === 'number' || shape.type === 'integer') children[key] = { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', on };
-        else children[key] = { component: 'textField', size: 'sm', _label: label, value: typeof value === 'string' ? value : '', on };
+        else if (shape.type === 'boolean') children[key] = { component: 'switchField', size: 'sm', _label: label, checked: value === true, ...on };
+        else if (Array.isArray(shape.values) && shape.values.every((option) => typeof option === 'string' && option !== '')) children[key] = { component: 'selectField', size: 'sm', _label: label, options: Object.fromEntries(shape.values.map((option) => [option, { _label: option }])), value: typeof value === 'string' ? value : '', ...on };
+        else if (shape.type === 'number' || shape.type === 'integer') children[key] = { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', ...on };
+        else children[key] = { component: 'textField', size: 'sm', _label: label, value: typeof value === 'string' ? value : '', ...on };
     }
     // Layout and placement first, where they are found without scrolling past the component's own properties
     const sections = layoutSections(info);
@@ -562,16 +562,16 @@ function fieldsOf(info) {
     return { component: 'panel', padding: 'none', children: { ...sections, propertiesTitle: { component: 'text', textRole: 'label', _text: T['inspector.properties'] }, ...children } };
 }
 
-/** A field for a setting of a layout or a placement (a FieldSpec of stateui-app), emitting target */
-function specField(label, spec, value, target) {
-    const on = { change: { command: 'emit', target } };
+/** A field for a setting of a layout or a placement (a FieldSpec of stateui-app), heard by its id (onRaised) */
+function specField(label, spec, value, id) {
+    const on = { '@id': id };
     if (spec.type === 'enum' && Array.isArray(spec.values)) {
         const options = { [UNSET]: { _label: T['inspector.notSet'] }, ...Object.fromEntries(spec.values.map((option) => [option, { _label: option }])) };
-        return { component: 'selectField', size: 'sm', _label: label, options, value: typeof value === 'string' && spec.values.includes(value) ? value : UNSET, on };
+        return { component: 'selectField', size: 'sm', _label: label, options, value: typeof value === 'string' && spec.values.includes(value) ? value : UNSET, ...on };
     }
-    if (spec.type === 'boolean') return { component: 'switchField', size: 'sm', _label: label, checked: value === true, on };
-    if (spec.type === 'integer' || spec.type === 'number') return { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', ...(typeof spec.min === 'number' && { min: spec.min }), ...(typeof spec.max === 'number' && { max: spec.max }), on };
-    return { component: 'textField', size: 'sm', _label: label, value: typeof value === 'string' ? value : '', on };
+    if (spec.type === 'boolean') return { component: 'switchField', size: 'sm', _label: label, checked: value === true, ...on };
+    if (spec.type === 'integer' || spec.type === 'number') return { component: 'numberField', size: 'sm', _label: label, value: typeof value === 'number' ? value : '', ...(typeof spec.min === 'number' && { min: spec.min }), ...(typeof spec.max === 'number' && { max: spec.max }), ...on };
+    return { component: 'textField', size: 'sm', _label: label, value: typeof value === 'string' ? value : '', ...on };
 }
 
 /** The type a node lays its parts out with, or null when it lays none out */
@@ -595,7 +595,7 @@ function layoutSections(info) {
             _label: T['inspector.layoutType'],
             options: Object.fromEntries(Object.keys(layouts).map((name) => [name, { _label: name }])),
             value: type,
-            on: { change: { command: 'emit', target: 'layoutType' } }
+            '@id': 'layoutType'
         };
         for (const [name, spec] of Object.entries(layouts[type].settings || {})) {
             const index = layoutFieldNames.length;
@@ -958,22 +958,11 @@ addEventListener('stateui:change', (event) => {
     traceTimer = setTimeout(readTrace, 800);
 });
 
-// The Data switch shows the shape of the data under the chat
-async function showDataLine(on) {
-    if (!on) { editor.set({ dataLine: '', noDataLine: true }); return; }
-    try {
-        const state = await getJson('/state');
-        const parts = Object.entries(state.data || {}).map(([name, value]) => name + (value && typeof value === 'object' ? ' (' + Object.keys(value).length + ')' : ': ' + preview(value)));
-        editor.set({ dataLine: 'Data: ' + (parts.length === 0 ? 'none yet' : parts.slice(0, 12).join(' · ')), noDataLine: false });
-    } catch {
-        editor.set({ dataLine: '', noDataLine: true });
-    }
-}
-
-function onEmit(name, payload) {
-    if (typeof name !== 'string') return;
-    // The page has already turned the toggle over (its listener runs first): show what it says now
-    if (name === 'showData') { void showDataLine(Boolean(editor.state.show && editor.state.show.data)); return; }
+/** The fields this script draws into the editor (a property's, a layout's or a placement's, the layout type): heard by their ids */
+function onRaised(report) {
+    if (!report || typeof report.id !== 'string' || report.event !== 'change') return;
+    const name = report.id;
+    const payload = report.value;
     const prop = /^prop(\d+)$/.exec(name);
     if (prop) {
         const field = fieldNames[Number(prop[1])];
@@ -999,8 +988,12 @@ function onEmit(name, payload) {
         if (spec) changePlacement(field, valueOf(payload), spec.type === 'size' ? TEXT_SAVE_MS : 0);
         return;
     }
+    if (name === 'layoutType') changeLayoutType(String(valueOf(payload)));
+}
+
+/** What the script hears of the editor's own nodes (EDITOR_HEARING) */
+function onHeard(name, payload) {
     switch (name) {
-        case 'layoutType': changeLayoutType(String(valueOf(payload))); return;
         case 'crumb': {
             const index = Number(String(valueOf(payload)).replace(/^c/, ''));
             if (crumbPaths[index]) void select(crumbPaths[index]);
@@ -1061,7 +1054,8 @@ document.addEventListener('keydown', (event) => {
 
 (async function start() {
     if (!host || !shell) return;
-    editor.onEmit(onEmit);
+    editor.onRaised(onRaised);
+    editor.onHeard(onHeard);
     // The editor writes again what it shows each time it (re)loads
     editor.onReady(() => { showLibrary(); showFeed(); if (selected) showProperties(selected.info); else clearProperties(); });
     try {

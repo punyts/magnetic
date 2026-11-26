@@ -11,7 +11,8 @@ export type ModelOperations = readonly Record<string, unknown>[];
 /**
  * One of Magnetic's own pages as a StateUI app (docs/design/magnetic-editable.md): its app name, the models of its
  * data, its definition in English (the other languages are locales), and its contract with the page that runs it.
- * The page drives it only through `$.data` and its emits, so an edited copy keeps working wherever its nodes are
+ * The page drives it only through `$.data` and hears it through the ids of its nodes (`@id`, src/http/raised.ts), so
+ * an edited copy keeps working wherever its nodes are
  */
 export interface PageSpec {
     /** The app's name, in every workspace that has it */
@@ -23,7 +24,7 @@ export interface PageSpec {
     readonly definition: () => Record<string, unknown>;
     /** Whether the app uses Magnetic's theme */
     readonly themed: boolean;
-    /** The emits a published copy must still raise, each from at least one node */
+    /** The ids a published copy must still carry, each on at least one node: the page's script hears those nodes */
     readonly required: readonly string[];
     /** The node keys a published copy must still have, wherever they are */
     readonly keys?: readonly string[];
@@ -69,31 +70,31 @@ export async function makePage(tools: readonly UiToolDefinition[], spec: PageSpe
     return { id: created['id'], revision };
 }
 
-/** Each emit target raised anywhere in a tree, and each node key in it */
-function walk(tree: unknown, emits: Set<string>, keys: Set<string>): void {
+/** Each `@id` carried anywhere in a tree, and each node key in it */
+function walk(tree: unknown, ids: Set<string>, keys: Set<string>): void {
     if (typeof tree !== 'object' || tree === null) return;
     if (Array.isArray(tree)) {
-        for (const item of tree) walk(item, emits, keys);
+        for (const item of tree) walk(item, ids, keys);
         return;
     }
     const record = tree as Record<string, unknown>;
-    if (record['command'] === 'emit' && typeof record['target'] === 'string') emits.add(record['target']);
+    if (typeof record['@id'] === 'string') ids.add(record['@id']);
     for (const [key, value] of Object.entries(record)) {
         if (key === 'children' && typeof value === 'object' && value !== null) for (const child of Object.keys(value)) keys.add(child);
-        walk(value, emits, keys);
+        walk(value, ids, keys);
     }
 }
 
 /**
- * What a copy of a page lacks of its contract: each required emit no node raises and each required key no node has,
+ * What a copy of a page lacks of its contract: each required id no node carries and each required key no node has,
  * in words for the admin. Empty when it may be published
  */
 export function contractGaps(spec: PageSpec, document: unknown): string[] {
-    const emits = new Set<string>();
+    const ids = new Set<string>();
     const keys = new Set<string>();
-    walk(document, emits, keys);
+    walk(document, ids, keys);
     return [
-        ...spec.required.filter((emit) => !emits.has(emit)).map((emit) => `Nothing raises "${emit}"`),
+        ...spec.required.filter((id) => !ids.has(id)).map((id) => `No part has the id "${id}"`),
         ...(spec.keys ?? []).filter((key) => !keys.has(key)).map((key) => `No part is called "${key}"`)
     ];
 }

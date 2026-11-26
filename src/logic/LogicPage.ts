@@ -1,5 +1,7 @@
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import { hearingIds } from '../http/raised.js';
+import type { Hearing } from '../http/raised.js';
 
 /** The app name of the Logic view's page, in every workspace that has it */
 export const LOGIC_APP = 'magnetic-logic';
@@ -15,10 +17,20 @@ export const LANES = ['server', 'browser'] as const;
 
 const L = '$.data.logic';
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+/** What the page script hears of the Logic view (src/http/raised.ts): the kind of unit is kept as it changes, for New */
+export const LOGIC_HEARING: Hearing = {
+    'unit.press': { name: 'open', from: 'row.id' },
+    'toServer.press': { name: 'move', from: 'row.id' },
+    'toBrowser.press': { name: 'move', from: 'row.id' },
+    'deleteUnit.press': { name: 'delete', from: 'row.id' },
+    'lanes.move': { name: 'move' },
+    'back.press': { name: 'back' },
+    'group.change': { keep: '$.data.logic.group' },
+    'create.press': { name: 'create', from: '$.data.logic.group' }
+};
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
-const action = (icon: string, title: string, hidden: string, on: Record<string, unknown>, tone?: string): Record<string, unknown> => ({
+const action = (icon: string, title: string, hidden: string, id: string, tone?: string): Record<string, unknown> => ({
     component: 'button',
     icon,
     iconPosition: 'only',
@@ -27,7 +39,7 @@ const action = (icon: string, title: string, hidden: string, on: Record<string, 
     _title: title,
     '<-hidden': hidden,
     ...(tone !== undefined && { tone }),
-    on: { press: on }
+    '@id': id
 });
 
 /**
@@ -44,7 +56,7 @@ function unitCard(t: ReturnType<typeof textsOf>): Record<string, unknown> {
         '<-selected': '$row.chosen',
         '<-_title': '$row.title',
         layout: { type: 'row', gap: 'sm', align: 'start' },
-        on: { press: emit('open', '$row.id') },
+        '@id': 'unit',
         children: {
             body: {
                 component: 'panel',
@@ -57,9 +69,9 @@ function unitCard(t: ReturnType<typeof textsOf>): Record<string, unknown> {
                     paths: { component: 'text', textRole: 'caption', muted: true, truncate: 1, '<-_text': '$row.paths' }
                 }
             },
-            toServer: action('chevron-left', t['views.moveToServer'], '$row.noServer', emit('move', '$row.id')),
-            toBrowser: action('chevron-right', t['views.moveToBrowser'], '$row.noBrowser', emit('move', '$row.id')),
-            delete: action('trash', t['views.delete'], '$row.fixed', emit('delete', '$row.id'), 'danger')
+            toServer: action('chevron-left', t['views.moveToServer'], '$row.noServer', 'toServer'),
+            toBrowser: action('chevron-right', t['views.moveToBrowser'], '$row.noBrowser', 'toBrowser'),
+            delete: action('trash', t['views.delete'], '$row.fixed', 'deleteUnit', 'danger')
         }
     };
 }
@@ -67,12 +79,12 @@ function unitCard(t: ReturnType<typeof textsOf>): Record<string, unknown> {
 /**
  * The Logic view as a page of Magnetic's (docs/design/magnetic-editor-in-page.md, B4b): the app's units in two lanes,
  * Server and Browser, and the screens' handlers below. The page script (`views.ts`) drives it through `$.data.logic` and
- * its emits only:
+ * hears it through the ids of its nodes only (`LOGIC_HEARING`):
  *
  * - It writes `units` (one record per unit: `id` its group and name, `runs` its lane, `order` its place in the lane,
  *   `kind`, `title`, `does`, `paths`, `chosen`, `fixed`, `noServer` and `noBrowser`), `handlers` (one record per
  *   handler: `id`, `screen` and `does`), `hasUnits`, `noHandlers`, `status`, `refusal` with `noRefusal`, and `noBack`.
- * - The page emits `open` with a unit's id, `move` with a unit's id (its button: to the other lane) or with the board's
+ * - It hears `open` with a unit's id, `move` with a unit's id (its button: to the other lane) or with the board's
  *   `{ key, from, to, index }` (a card dragged to a lane), `delete` with a unit's id, `create` with the group of the new
  *   unit, and `back` (to Statenet).
  */
@@ -80,14 +92,14 @@ export const LOGIC: PageSpec = {
     name: LOGIC_APP,
     title: 'Logic',
     themed: true,
-    required: ['open', 'move', 'delete', 'create', 'back'],
+    required: hearingIds(LOGIC_HEARING),
     sample: {
         [L]: {
             units: [
                 { id: 'machines.checkout', runs: 'server', order: 1, kind: 'Machine', title: 'checkout', does: 'idle → paying when $.data.cart.pay', paths: 'reads $.data.cart', chosen: false, fixed: false, noServer: true, noBrowser: true },
                 { id: 'rules.total', runs: 'browser', order: 1, kind: 'Rule', title: 'total', does: 'when $.data.cart.items → set', paths: 'writes $.data.cart.total', chosen: false, fixed: false, noServer: false, noBrowser: true }
             ],
-            handlers: [{ id: 'h1', screen: 'cart', does: '.pay · press → emit pay' }],
+            handlers: [{ id: 'h1', screen: 'cart', does: '.pay · press → set $.data.cart.paying' }],
             hasUnits: true,
             noHandlers: false
         }
@@ -121,16 +133,17 @@ export const LOGIC: PageSpec = {
                         padding: 'none',
                         layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
                         children: {
-                            back: { component: 'button', size: 'sm', variant: 'outline', _title: t['views.backToGraph'], '<-hidden': `${L}.noBack`, on: { press: emit('back') } },
+                            back: { component: 'button', size: 'sm', variant: 'outline', _title: t['views.backToGraph'], '<-hidden': `${L}.noBack`, '@id': 'back' },
                             group: {
                                 component: 'selectField',
                                 _label: t['views.unitKind'],
                                 width: 18,
                                 size: 'sm',
                                 options: Object.fromEntries(Object.entries(UNIT_GROUPS).map(([group, kind]) => [group, { _label: t[`views.unit.${kind}`] }])),
-                                '<-value': `${L}.group`
+                                '<-value': `${L}.group`,
+                                '@id': 'group'
                             },
-                            create: { component: 'button', size: 'sm', icon: 'plus', _title: t['views.newUnit'], on: { press: emit('create', `${L}.group`) } },
+                            create: { component: 'button', size: 'sm', icon: 'plus', _title: t['views.newUnit'], '@id': 'create' },
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${L}.status` }
                         }
                     },
@@ -155,7 +168,7 @@ export const LOGIC: PageSpec = {
                         columns: Object.fromEntries(LANES.map((lane) => [lane, { _title: t[`views.runs.${lane}`] }])),
                         '<-records': `${L}.units`,
                         card: unitCard(t),
-                        on: { move: emit('move') }
+                        '@id': 'lanes'
                     },
                     handlersTitle: { component: 'text', textRole: 'label', _text: t['views.handlers'], '<-hidden': `${L}.noHandlers` },
                     handlersNote: { component: 'text', textRole: 'caption', muted: true, _text: t['views.handlersNote'], '<-hidden': `${L}.noHandlers` },

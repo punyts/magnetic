@@ -48,10 +48,10 @@ $0.15, so allowances move.
   non-loopback host.
 - Pages are StateUI apps, not server HTML (`docs/design/magnetic-editable.md`). Sign-in, the link page, Your apps
   and the editor are each a `PageSpec` (`src/pages/PageSpec.ts`): an English definition with de/fr/es locales and a
-  contract of emits a copy must keep. Magnetic's code version is made with the agent's own tools in the system
+  contract of node ids (`@id`) a copy must keep, which the page script hears through a table (`src/http/raised.ts`). Magnetic's code version is made with the agent's own tools in the system
   workspace (`src/pages/PageApps.ts`); admins edit drafts in the pages workspace and publish them to `magnetic_page`
   (`src/pages/SitePages.ts`); each person's Your apps and editor are copies they may change (`src/pages/PersonPages.ts`).
-  A page talks to its server only through `$.data` and emits, never by node path. Versions are remade when a hash of
+  A page talks to its server only through `$.data` and the reports of nodes with an `@id` (`stateui:raised`), never by node path. Versions are remade when a hash of
   their definition and texts changes, under an advisory lock (`src/storage/exclusive.ts`) because two servers race.
 - Text: `src/http/text.ts` has `EN` and `DE`/`FR`/`ES` typed against it (a missing key fails the typecheck), and pages
   have their own `*Text.ts` files (billing, connections, data, orgs). Admin pages are English only.

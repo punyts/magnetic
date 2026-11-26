@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { RunningMagnetic } from '../server/startMagnetic.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
-import { STATENET_KEYS } from './StatenetPage.js';
+import { STATENET_HEARING, STATENET_KEYS } from './StatenetPage.js';
 
 const silent = { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined } as never;
 const noBrowser = { open: async () => ({ rendered: false }), rendered: async () => [], screenshot: async () => ({}), interact: async () => ({}), closePage: async () => undefined, close: async () => undefined } as unknown as PreviewBrowser;
@@ -34,7 +34,7 @@ describe("Statenet's page", () => {
         await test.drop();
     });
 
-    it('should serve a signed-in person the canvas around the tree, in every language, with the emits the page script acts on', async () => {
+    it('should serve a signed-in person the canvas around the tree, in every language, with the node ids the page script hears', async () => {
         // Act
         const anonymous = await fetch(`${magnetic.origin}/assets/statenet.json`);
         const served = await fetch(`${magnetic.origin}/assets/statenet.json`, { headers: { Cookie: alice } });
@@ -47,10 +47,11 @@ describe("Statenet's page", () => {
         expect(Object.keys(home.locales ?? {}).sort()).toEqual(['de', 'es', 'fr']);
         const canvas = home.root.children?.[STATENET_KEYS.canvas] as Node;
         expect(canvas).toMatchObject({ component: 'viewport', '<-zoom': '$.data.statenet.view.zoom', '<-inset': '$.data.statenet.inset' });
-        expect(Object.keys(canvas.on ?? {}).sort()).toEqual(['change', 'press']);
+        expect(canvas).toMatchObject({ '@id': 'canvas' });
         const tree = canvas.content as Node;
         expect(tree).toMatchObject({ component: 'treeDiagram', twoSided: true, leafBlock: 420, '<-nodes': '$.data.statenet.nodes' });
-        expect(Object.keys(tree.on ?? {}).sort()).toEqual(['layout', 'open', 'select']);
+        expect(tree).toMatchObject({ '@id': 'tree' });
+        expect(Object.keys(STATENET_HEARING).filter((key) => key.startsWith('tree.')).sort()).toEqual(['tree.layout', 'tree.open', 'tree.select']);
         expect(tree.card?.component).toBe('card');
     }, 60_000);
 });

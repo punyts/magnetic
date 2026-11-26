@@ -1,5 +1,6 @@
 import { SCREEN_COLUMNS } from '../editor/EditorApp.js';
-import { SCREENS_APP, SCREENS_KEYS } from '../screens/ScreensPage.js';
+import { SCREENS_APP, SCREENS_HEARING, SCREENS_KEYS } from '../screens/ScreensPage.js';
+import { HEARING_JS, hearingJs } from './raised.js';
 import { SCRIPT_TEXTS } from './text.js';
 
 /**
@@ -10,7 +11,7 @@ import { SCRIPT_TEXTS } from './text.js';
  *   app opens on with `POST /edit/<id>/screens`, through the same tools as the agent's.
  * - **The board** is Magnetic's page `magnetic-screens` (`src/screens/ScreensPage.ts`, `/assets/screens.json`), which
  *   the editor places first on its stage, under its panels, and the shell hands over (`magneticShell.page`). This
- *   script drives it through `$.data.screens` and acts on its emits. Its canvas pans and zooms itself, and the editor's zoom runs the canvas's commands. Every screen
+ *   script drives it through `$.data.screens` and acts on what it hears from it (`SCREENS_HEARING`). Its canvas pans and zooms itself, and the editor's zoom runs the canvas's commands. Every screen
  *   is a card in rows of five (Screens in a row on the panel changes it, kept in this browser), 160px apart. The card
  *   of the screen worked on holds the live app (an `embeddedApp` with `live`, attached through `stateuiHost.apps`);
  *   every other card shows its screen's name. Pressing a card makes its screen the one worked on.
@@ -47,7 +48,7 @@ import { SCRIPT_TEXTS } from './text.js';
  * - `window.magneticScreens.choose(name)` makes a screen the one worked on, for the views (`/assets/views.js`).
  *
  */
-export const SCREENS_JS = String.raw`${SCRIPT_TEXTS}const shell = window.magneticShell;
+export const SCREENS_JS = String.raw`${SCRIPT_TEXTS}${HEARING_JS}${hearingJs('boardHearing', SCREENS_HEARING)}const shell = window.magneticShell;
 const host = window.stateuiHost;
 const editor = shell ? shell.editor : null;
 const appId = document.body.dataset.appId;
@@ -417,9 +418,9 @@ const keptLoaded = fetch(base + '/views/kept?view=screens')
     }, () => undefined)
     .then(() => { if (shell && shell.address.now().view) keptView = { ...shell.address.now().view }; });
 
-function boardEmit(event) {
-    const { name, payload } = event.detail || {};
-    if (typeof name === 'string') void onBoard(name, payload);
+function boardHeard(event) {
+    const heard = boardHearing.heard(event.detail);
+    if (heard) void onBoard(heard.name, heard.payload);
 }
 
 /**
@@ -428,7 +429,7 @@ function boardEmit(event) {
  */
 function boardMounted(panel, element, doc) {
     holder = element;
-    element.addEventListener('stateui:emit', boardEmit);
+    element.addEventListener('stateui:raised', boardHeard);
     const canvas = doc ? keyPath(doc, CANVAS_KEY) : null;
     page = { panel, canvas, board: canvas + '.content' };
     if (!placedOnce) element.style.visibility = 'hidden';
@@ -441,7 +442,7 @@ function boardMounted(panel, element, doc) {
     pageArrived();
 }
 function boardDisposed() {
-    if (holder) holder.removeEventListener('stateui:emit', boardEmit);
+    if (holder) holder.removeEventListener('stateui:raised', boardHeard);
     holder = null;
     page = null;
     pageReady = new Promise((resolve) => { pageArrived = resolve; });
@@ -504,7 +505,7 @@ function placeLive(editing) {
         aloneApp = opened.attach({
             element: alone,
             ...(current && { screen: current }),
-            onEmit: () => undefined,
+            onRaised: () => undefined,
             onNavigate: (screen) => followed(screen)
         });
     }, () => undefined);
@@ -736,13 +737,13 @@ function freeName(stem) {
 
 function valueOf(payload) { return payload && typeof payload === 'object' && 'value' in payload ? payload.value : payload; }
 
-/** The screen an emit of a card is about: its ⋯ and × send the card's id, its app { app, screen } */
+/** The screen an event of a card is about: its ⋯ and × send the card's id, its app { app, screen } */
 function screenOf(payload) {
     if (typeof payload === 'string') return payload;
     return payload && typeof payload.screen === 'string' ? payload.screen : null;
 }
 
-/** What the board's page emits */
+/** What the script hears from the board's page */
 async function onBoard(name, payload) {
     switch (name) {
         case 'press': { const screen = screenOf(payload); if (screen) press(screen); return; }
@@ -777,8 +778,8 @@ async function onBoard(name, payload) {
     }
 }
 
-/** What the editor's Screens panel emits */
-async function onEmit(name, payload) {
+/** What the script hears from the editor's Screens panel */
+async function onHeard(name, payload) {
     switch (name) {
         case 'screenGo': if (typeof payload === 'string') press(payload); return;
         case 'screenNew': typedNew = String(valueOf(payload) || '').trim(); return;
@@ -887,7 +888,7 @@ function panBy(dx, dy) {
 window.magneticScreens = { choose: (name) => choose(name), liveApp, cards, panBy };
 
 if (shell && editor && host) {
-    editor.onEmit((name, payload) => void onEmit(name, payload));
+    editor.onHeard((name, payload) => void onHeard(name, payload));
     editor.onReady(() => show());
     shell.page(SCREENS_APP, { mounted: boardMounted, disposed: boardDisposed });
     shell.canvas.base({ zoomIn: () => pageCommand('zoomIn'), zoomOut: () => pageCommand('zoomOut'), zoomReset: () => pageCommand('zoomReset'), fit: () => fit() });

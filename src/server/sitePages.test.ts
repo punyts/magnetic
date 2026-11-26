@@ -27,15 +27,15 @@ const TAGLINE = 'Describe an app, and watch it being built.';
 const PAGE = '$.screens.home.children.page.children';
 
 describe("A page's contract", () => {
-    it('should name each emit and key a copy no longer has', () => {
+    it('should name each node id and key a copy no longer has', () => {
         // Arrange
-        const document = { screens: { home: { root: { component: 'panel', children: { a: { component: 'button', on: { press: { command: 'emit', target: 'provider' } } } } } } } };
+        const document = { screens: { home: { root: { component: 'panel', children: { a: { component: 'button', '@id': 'provider' }, c: { component: 'textField', '@id': 'workEmail' } } } } } };
 
         // Act
         const gaps = contractGaps({ ...SIGN_IN, keys: ['a', 'b'] }, document);
 
         // Assert
-        expect(gaps).toEqual(['Nothing raises "dev"', 'Nothing raises "sso"', 'No part is called "b"']);
+        expect(gaps).toEqual(['No part has the id "devUser"', 'No part has the id "sso"', 'No part is called "b"']);
     });
 });
 
@@ -132,7 +132,7 @@ describe("Magnetic's own pages, edited", () => {
         expect(await (await get('/admin/pages', admin)).text()).toContain('Published');
     });
 
-    it('should refuse to publish a draft that no longer raises an emit the page needs, and say why', async () => {
+    it('should refuse to publish a draft that has lost a node id the page hears, and say why', async () => {
         // Arrange
         const removed = await write(draft, admin, [{ op: 'remove', path: `${PAGE}.dev` }]);
 
@@ -142,7 +142,7 @@ describe("Magnetic's own pages, edited", () => {
         // Assert
         expect(removed.status).toBe(200);
         expect(refused.status).toBe(400);
-        expect(await refused.text()).toContain('Nothing raises &quot;dev&quot;');
+        expect(await refused.text()).toContain('No part has the id &quot;devUser&quot;');
         expect(JSON.stringify((await served('/signin')).document)).toContain('Apps, built while you watch.');
     });
 

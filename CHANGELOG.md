@@ -1,6 +1,20 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Pages hear their nodes by `@id`; no page emits** (docs/design/state-definitions-and-instances.md). Breaking: every
+  `emit` command is gone from Magnetic's pages. A node a page script acts on carries an `@id`, and each page has a
+  table (`src/http/raised.ts`, `Heard`/`Hearing`, `HEARING_JS`) that reads a `stateui:raised` report
+  (`<id>.<event>`) as the name its code acts on, with the payload from the event's value, the node's row, or a state
+  path the script keeps as fields change (panels have no state read). The tables are `SIGN_IN_HEARING`,
+  `LINK_HEARING`, `HOME_HEARING`, `EDITOR_HEARING`, `APPS_HEARING`, `STATENET_HEARING`, `SCREENS_HEARING`,
+  `THEME_HEARING`, `LOGIC_HEARING` and `SIDE_HEARING`; a page's contract (`PageSpec.required`) is now the ids its
+  table hears, and a copy that lost one is refused with `No part has the id "<id>"`. `magneticShell.editor.onEmit`
+  is replaced by `onHeard(name, payload)` and `onRaised(report)`; the inspector's property, layout and placement fields
+  are heard by their ids (`prop<n>`, `lay<n>`, `place<n>`, `layoutType`). The agent's instructions no longer offer
+  `emit`. Tests: `src/server/sitePages.test.ts` ("should name each node id and key a copy no longer has", "should
+  refuse to publish a draft that has lost a node id the page hears, and say why"), `src/logic/LogicPage.test.ts`,
+  `src/screens/ScreensPage.test.ts`, `src/side/SidePage.test.ts`, `src/statenet/StatenetPage.test.ts`,
+  `src/theme/ThemePage.test.ts`, `src/apps/AppsPage.test.ts`, and the e2e suite.
 - **A grant may name an app's definition, `<owner>/components/<app>`** (docs/design/state-definitions-and-instances.md).
   `StateGrants` accepts the address and its entries (`$.components.<app>`) beside `apps` and `data`. Test:
   `src/server/grants.test.ts` ("should share read on an app's definition, at its components address").

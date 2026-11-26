@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { RunningMagnetic } from '../server/startMagnetic.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
-import { SCREENS_KEYS } from './ScreensPage.js';
+import { SCREENS_HEARING, SCREENS_KEYS } from './ScreensPage.js';
 
 const silent = { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined } as never;
 const noBrowser = { open: async () => ({ rendered: false }), rendered: async () => [], screenshot: async () => ({}), interact: async () => ({}), closePage: async () => undefined, close: async () => undefined } as unknown as PreviewBrowser;
@@ -34,7 +34,7 @@ describe('The screens board page', () => {
         await test.drop();
     });
 
-    it('should serve a signed-in person the canvas around the board of screens, in every language, with the emits the page script acts on', async () => {
+    it('should serve a signed-in person the canvas around the board of screens, in every language, with the node ids the page script hears', async () => {
         // Act
         const anonymous = await fetch(`${magnetic.origin}/assets/screens.json`);
         const served = await fetch(`${magnetic.origin}/assets/screens.json`, { headers: { Cookie: alice } });
@@ -47,12 +47,13 @@ describe('The screens board page', () => {
         expect(Object.keys(home.locales ?? {}).sort()).toEqual(['de', 'es', 'fr']);
         const canvas = home.root.children?.[SCREENS_KEYS.canvas] as Node;
         expect(canvas).toMatchObject({ component: 'viewport', '<-zoom': '$.data.screens.view.zoom', '<-inset': '$.data.screens.inset' });
-        expect(Object.keys(canvas.on ?? {}).sort()).toEqual(['change', 'press']);
+        expect(canvas).toMatchObject({ '@id': 'canvas' });
         const board = canvas.content as Node;
         expect(board).toMatchObject({ component: 'board', key: 'id', columnField: 'column', orderField: 'row', bare: true, '<-records': '$.data.screens.tiles', '<-movable': '$.data.screens.names' });
-        expect(Object.keys(board.on ?? {})).toEqual(['move']);
+        expect(board).toMatchObject({ '@id': 'board' });
         const card = (board.card as Node).children?.['tile'] as Node;
         expect(card.children?.['app']).toMatchObject({ component: 'embeddedApp', '<-live': '$row.live', '<-active': '$row.active', '<-appScreen': '$row.id' });
-        expect(Object.keys(card.children?.['app']?.on ?? {}).sort()).toEqual(['menu', 'navigated', 'press']);
+        expect(card.children?.['app']).toMatchObject({ '@id': 'app' });
+        expect(Object.keys(SCREENS_HEARING).filter((key) => key.startsWith('app.')).sort()).toEqual(['app.menu', 'app.navigated', 'app.press']);
     }, 60_000);
 });

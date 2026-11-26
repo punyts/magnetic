@@ -1,5 +1,7 @@
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import { hearingIds } from '../http/raised.js';
+import type { Hearing } from '../http/raised.js';
 
 /** The app name of the side panel's page, in every workspace that has it */
 export const SIDE_APP = 'magnetic-side';
@@ -12,7 +14,42 @@ export const METHODS: readonly string[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELET
 
 const S = '$.data.side';
 
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+/**
+ * What the page script hears of the side panel (src/http/raised.ts). The fields it reads when a button is pressed are
+ * kept as they change: the base URL, the secret, the code and the form's name, choice and second line; a record's value
+ * in the form comes with its row (`recordValue`)
+ */
+export const SIDE_HEARING: Hearing = {
+    'close.press': { name: 'close' },
+    'openApp.press': { name: 'openApp' },
+    'openLogic.press': { name: 'openLogic' },
+    'editTheme.press': { name: 'editTheme' },
+    'makeDefault.press': { name: 'makeDefault' },
+    'removeTheme.press': { name: 'removeTheme' },
+    'use.press': { name: 'use' },
+    'openConnections.press': { name: 'openConnections' },
+    'link.press': { name: 'link', from: 'row.id' },
+    'code.change': { name: 'code', keep: '$.data.side.code' },
+    'save.press': { name: 'save', from: '$.data.side.code' },
+    'delete.press': { name: 'delete' },
+    'cell.change': { name: 'cell', from: 'row', merge: 'value' },
+    'removeRecord.press': { name: 'removeRecord', from: 'row.key' },
+    'fieldType.change': { name: 'fieldType', from: 'row', merge: 'type' },
+    'removeField.press': { name: 'removeField', from: 'row.name' },
+    'baseUrl.change': { keep: '$.data.side.baseUrl' },
+    'saveUrl.press': { name: 'baseUrl', from: '$.data.side.baseUrl' },
+    'secret.change': { keep: '$.data.side.secret' },
+    'keep.press': { name: 'secret', from: '$.data.side.secret' },
+    'connect.press': { name: 'connect' },
+    'try.press': { name: 'try', from: 'row.endpoint' },
+    'removeEndpoint.press': { name: 'removeEndpoint', from: 'row.endpoint' },
+    'name.change': { keep: '$.data.side.form.name' },
+    'choice.change': { name: 'choose', keep: '$.data.side.form.choice', from: '$.data.side.form.choice' },
+    'second.change': { keep: '$.data.side.form.second' },
+    'recordValue.input': { name: 'recordValue', from: 'row', merge: 'value' },
+    'recordValue.change': { name: 'recordValue', from: 'row', merge: 'value' },
+    'submit.press': { name: 'submit', from: '$.data.side.form' }
+};
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 const options = (values: readonly string[]): Record<string, { _label: string }> => Object.fromEntries(values.map((value) => [value, { _label: value }]));
 const row = (children: Record<string, unknown>, hidden?: string): Record<string, unknown> => ({
@@ -29,16 +66,16 @@ const column = (children: Record<string, unknown>, hidden?: string): Record<stri
     ...(hidden !== undefined && { '<-hidden': hidden }),
     children
 });
-const act = (title: string, on: Record<string, unknown>, hidden: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+const act = (title: string, id: string, hidden: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
     component: 'button',
     size: 'sm',
     variant: 'outline',
     _title: title,
     '<-hidden': hidden,
     ...extra,
-    on: { press: on }
+    '@id': id
 });
-const remove = (title: string, on: Record<string, unknown>, hidden: string): Record<string, unknown> => ({
+const remove = (title: string, id: string, hidden: string): Record<string, unknown> => ({
     component: 'button',
     icon: 'x',
     iconPosition: 'only',
@@ -47,7 +84,7 @@ const remove = (title: string, on: Record<string, unknown>, hidden: string): Rec
     tone: 'danger',
     '<-_title': title,
     '<-hidden': hidden,
-    on: { press: on }
+    '@id': id
 });
 const note = (text: string, hidden: string): Record<string, unknown> => ({ component: 'text', textRole: 'caption', muted: true, '<-_text': text, '<-hidden': hidden });
 
@@ -113,7 +150,8 @@ export const SIDE_BLANK: Readonly<Record<string, unknown>> = {
 /**
  * The side panel as a page of Magnetic's (docs/design/magnetic-editor-in-page.md, B4c): what Statenet opens beside a
  * card and the Logic view opens for a unit. One panel of sections, each shown when the part has it; the page script
- * (`views.ts`) writes `$.data.side` (the blank first, `SIDE_BLANK`, then the part's own) and handles its emits:
+ * (`views.ts`) writes `$.data.side` (the blank first, `SIDE_BLANK`, then the part's own) and hears it through the ids
+ * of its nodes (`SIDE_HEARING`), named here as the script acts on them:
  *
  * - The head: `title` and a Close (`close`). Notes: `note`, `detail` and `path`.
  * - Buttons: Open this app (`openApp`), Open in the Logic view (`openLogic`), Edit in the Theme view (`editTheme`), Make
@@ -135,7 +173,7 @@ export const SIDE: PageSpec = {
     name: SIDE_APP,
     title: 'Side panel',
     themed: true,
-    required: ['close', 'link', 'openApp', 'openLogic', 'editTheme', 'makeDefault', 'removeTheme', 'use', 'openConnections', 'submit', 'choose', 'code', 'save', 'delete', 'cell', 'removeRecord', 'fieldType', 'removeField', 'baseUrl', 'secret', 'connect', 'try', 'removeEndpoint'],
+    required: hearingIds(SIDE_HEARING),
     sample: {
         [S]: {
             ...SIDE_BLANK,
@@ -174,7 +212,7 @@ export const SIDE: PageSpec = {
                         layout: { type: 'row', gap: 'sm', align: 'start' },
                         children: {
                             title: { component: 'text', textRole: 'heading', element: 'h3', placement: { grow: 1 }, '<-_text': `${S}.title` },
-                            close: { component: 'button', icon: 'x', iconPosition: 'only', size: 'sm', variant: 'ghost', _title: t['views.close'], on: { press: emit('close') } }
+                            close: { component: 'button', icon: 'x', iconPosition: 'only', size: 'sm', variant: 'ghost', _title: t['views.close'], '@id': 'close' }
                         }
                     },
                     notes: column({
@@ -183,13 +221,13 @@ export const SIDE: PageSpec = {
                         path: note(`${S}.path`, `${S}.noPath`)
                     }, `${S}.noNotes`),
                     actions: row({
-                        openApp: act(t['views.openApp'], emit('openApp'), `${S}.noOpenApp`, { variant: 'solid' }),
-                        openLogic: act(t['views.openLogic'], emit('openLogic'), `${S}.noOpenLogic`, { variant: 'solid' }),
-                        editTheme: act(t['views.editTheme'], emit('editTheme'), `${S}.noEditTheme`, { variant: 'solid' }),
-                        makeDefault: act(t['views.makeDefault'], emit('makeDefault'), `${S}.noMakeDefault`),
-                        removeTheme: act(t['views.removeTheme'], emit('removeTheme'), `${S}.noRemoveTheme`, { tone: 'danger' }),
-                        use: act(t['views.useInApp'], emit('use'), `${S}.noUse`, { variant: 'solid' }),
-                        openConnections: act(t['views.openConnections'], emit('openConnections'), `${S}.noOpenConnections`, { variant: 'solid' })
+                        openApp: act(t['views.openApp'], 'openApp', `${S}.noOpenApp`, { variant: 'solid' }),
+                        openLogic: act(t['views.openLogic'], 'openLogic', `${S}.noOpenLogic`, { variant: 'solid' }),
+                        editTheme: act(t['views.editTheme'], 'editTheme', `${S}.noEditTheme`, { variant: 'solid' }),
+                        makeDefault: act(t['views.makeDefault'], 'makeDefault', `${S}.noMakeDefault`),
+                        removeTheme: act(t['views.removeTheme'], 'removeTheme', `${S}.noRemoveTheme`, { tone: 'danger' }),
+                        use: act(t['views.useInApp'], 'use', `${S}.noUse`, { variant: 'solid' }),
+                        openConnections: act(t['views.openConnections'], 'openConnections', `${S}.noOpenConnections`, { variant: 'solid' })
                     }, `${S}.noActions`),
                     linksPart: column({
                         linksTitle: { component: 'text', textRole: 'label', element: 'h4', '<-_text': `${S}.linksTitle` },
@@ -199,14 +237,14 @@ export const SIDE: PageSpec = {
                             divided: true,
                             placement: { height: '160px' },
                             '<-items': `${S}.links`,
-                            row: { component: 'button', size: 'sm', variant: 'ghost', '<-_title': '$row.label', on: { press: emit('link', '$row.id') } }
+                            row: { component: 'button', size: 'sm', variant: 'ghost', '<-_title': '$row.label', '@id': 'link' }
                         }
                     }, `${S}.noLinks`),
                     codePart: column({
-                        code: { component: 'textarea', rows: 12, '<-_label': `${S}.codeLabel`, '<-value': `${S}.code`, on: { change: emit('code', `${S}.code`) } },
+                        code: { component: 'textarea', rows: 12, '<-_label': `${S}.codeLabel`, '<-value': `${S}.code`, '@id': 'code' },
                         buttons: row({
-                            save: act(t['views.save'], emit('save', `${S}.code`), `${S}.noSave`, { variant: 'solid' }),
-                            delete: act(t['views.delete'], emit('delete'), `${S}.noDelete`, { tone: 'danger' })
+                            save: act(t['views.save'], 'save', `${S}.noSave`, { variant: 'solid' }),
+                            delete: act(t['views.delete'], 'delete', `${S}.noDelete`, { tone: 'danger' })
                         })
                     }, `${S}.noCode`),
                     inputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.inputs'], '<-hidden': `${S}.noInputs` },
@@ -222,8 +260,8 @@ export const SIDE: PageSpec = {
                         columns: {
                             key: { _title: t['views.kind.record'], field: 'keyShown', width: '80px' },
                             field: { _title: t['views.kind.field'], field: 'field', width: '90px' },
-                            value: { _title: t['views.value'], width: '1fr', cell: { component: 'input', size: 'sm', '<-value': '$row.value', '<-_label': '$row.label', on: { change: emit('cell', '$row') } } },
-                            remove: { _title: '', width: '40px', cell: remove('$row.removeText', emit('removeRecord', '$row.key'), '$row.noRemove') }
+                            value: { _title: t['views.value'], width: '1fr', cell: { component: 'input', size: 'sm', '<-value': '$row.value', '<-_label': '$row.label', '@id': 'cell' } },
+                            remove: { _title: '', width: '40px', cell: remove('$row.removeText', 'removeRecord', '$row.noRemove') }
                         }
                     },
                     more: note(`${S}.more`, `${S}.noMore`),
@@ -239,21 +277,21 @@ export const SIDE: PageSpec = {
                             padding: 'none',
                             layout: { type: 'row', gap: 'sm', align: 'end' },
                             children: {
-                                type: { component: 'selectField', size: 'sm', width: 16, options: options(FIELD_TYPES), '<-_label': '$row.name', '<-value': '$row.type', on: { change: emit('fieldType', '$row') } },
-                                remove: remove('$row.removeText', emit('removeField', '$row.name'), `${S}.noFields`)
+                                type: { component: 'selectField', size: 'sm', width: 16, options: options(FIELD_TYPES), '<-_label': '$row.name', '<-value': '$row.type', '@id': 'fieldType' },
+                                remove: remove('$row.removeText', 'removeField', `${S}.noFields`)
                             }
                         }
                     },
                     connection: column({
                         baseUrlRow: row({
-                            baseUrl: { component: 'textField', _label: t['views.baseUrl'], placement: { grow: 1 }, '<-value': `${S}.baseUrl` },
-                            saveUrl: act(t['views.save'], emit('baseUrl', `${S}.baseUrl`), `${S}.noManage`)
+                            baseUrl: { component: 'textField', _label: t['views.baseUrl'], placement: { grow: 1 }, '<-value': `${S}.baseUrl`, '@id': 'baseUrl' },
+                            saveUrl: act(t['views.save'], 'saveUrl', `${S}.noManage`)
                         }),
                         secretRow: row({
-                            secret: { component: 'textField', inputType: 'password', _label: t['views.newSecret'], placement: { grow: 1 }, '<-value': `${S}.secret` },
-                            keep: act(t['views.keep'], emit('secret', `${S}.secret`), `${S}.noSecret`)
+                            secret: { component: 'textField', inputType: 'password', _label: t['views.newSecret'], placement: { grow: 1 }, '<-value': `${S}.secret`, '@id': 'secret' },
+                            keep: act(t['views.keep'], 'keep', `${S}.noSecret`)
                         }, `${S}.noSecret`),
-                        connect: act(t['views.connect'], emit('connect'), `${S}.noConnect`)
+                        connect: act(t['views.connect'], 'connect', `${S}.noConnect`)
                     }, `${S}.noManage`),
                     endpointsPart: column({
                         endpointsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.endpoints'] },
@@ -265,17 +303,17 @@ export const SIDE: PageSpec = {
                             columns: {
                                 name: { _title: t['views.endpointName'], field: 'name', width: '1fr' },
                                 does: { _title: t['views.endpointPath'], field: 'does', width: '2fr' },
-                                try: { _title: '', width: '64px', cell: act(t['views.try'], emit('try', '$row.endpoint'), `${S}.noManage`, { variant: 'ghost' }) },
-                                remove: { _title: '', width: '40px', cell: remove('$row.removeText', emit('removeEndpoint', '$row.endpoint'), `${S}.noManage`) }
+                                try: { _title: '', width: '64px', cell: act(t['views.try'], 'try', `${S}.noManage`, { variant: 'ghost' }) },
+                                remove: { _title: '', width: '40px', cell: remove('$row.removeText', 'removeEndpoint', `${S}.noManage`) }
                             }
                         },
                         tried: { component: 'codeBlock', size: 'sm', wrap: true, '<-code': `${S}.tried`, '<-hidden': `${S}.noTried` }
                     }, `${S}.noEndpoints`),
                     form: column({
                         formNote: { component: 'text', textRole: 'label', '<-_text': `${S}.formNote` },
-                        name: { component: 'textField', '<-_label': `${S}.nameLabel`, '<-value': `${S}.form.name`, '<-hidden': `${S}.noName` },
-                        choice: { component: 'selectField', '<-_label': `${S}.choiceLabel`, '<-options': `${S}.choices`, '<-value': `${S}.form.choice`, '<-hidden': `${S}.noChoice`, on: { change: emit('choose', `${S}.form.choice`) } },
-                        second: { component: 'textField', '<-_label': `${S}.secondLabel`, '<-value': `${S}.form.second`, '<-hidden': `${S}.noSecond` },
+                        name: { component: 'textField', '<-_label': `${S}.nameLabel`, '<-value': `${S}.form.name`, '<-hidden': `${S}.noName`, '@id': 'name' },
+                        choice: { component: 'selectField', '<-_label': `${S}.choiceLabel`, '<-options': `${S}.choices`, '<-value': `${S}.form.choice`, '<-hidden': `${S}.noChoice`, '@id': 'choice' },
+                        second: { component: 'textField', '<-_label': `${S}.secondLabel`, '<-value': `${S}.form.second`, '<-hidden': `${S}.noSecond`, '@id': 'second' },
                         record: {
                             component: 'list',
                             rowHeight: 'md',
@@ -288,11 +326,11 @@ export const SIDE: PageSpec = {
                                 layout: { type: 'row', gap: 'sm', align: 'center' },
                                 children: {
                                     label: { component: 'text', textRole: 'caption', truncate: 1, '<-_text': '$row.label' },
-                                    value: { component: 'input', size: 'sm', placement: { grow: 1 }, '<-value': '$row.value', '<-_label': '$row.label' }
+                                    value: { component: 'input', size: 'sm', placement: { grow: 1 }, '<-value': '$row.value', '<-_label': '$row.label', '@id': 'recordValue' }
                                 }
                             }
                         },
-                        submit: { component: 'button', size: 'sm', variant: 'solid', '<-_title': `${S}.submitText`, on: { press: emit('submit', `${S}.form`) } }
+                        submit: { component: 'button', size: 'sm', variant: 'solid', '<-_title': `${S}.submitText`, '@id': 'submit' }
                     }, `${S}.noForm`)
                 }
             }

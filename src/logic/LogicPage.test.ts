@@ -5,7 +5,7 @@ import { contractGaps } from '../pages/PageSpec.js';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { RunningMagnetic } from '../server/startMagnetic.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
-import { LANES, LOGIC, UNIT_GROUPS } from './LogicPage.js';
+import { LANES, LOGIC, LOGIC_HEARING, UNIT_GROUPS } from './LogicPage.js';
 
 const silent = { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined } as never;
 const noBrowser = { open: async () => ({ rendered: false }), rendered: async () => [], screenshot: async () => ({}), interact: async () => ({}), closePage: async () => undefined, close: async () => undefined } as unknown as PreviewBrowser;
@@ -36,7 +36,7 @@ describe("The Logic view's page", () => {
         await test.drop();
     });
 
-    it('should serve a signed-in person the two lanes of units and the handlers, in every language, with every emit of its contract', async () => {
+    it('should serve a signed-in person the two lanes of units and the handlers, in every language, with every node id of its contract', async () => {
         // Act
         const anonymous = await fetch(`${magnetic.origin}/assets/logic.json`);
         const served = await fetch(`${magnetic.origin}/assets/logic.json`, { headers: { Cookie: alice } });
@@ -49,9 +49,10 @@ describe("The Logic view's page", () => {
         expect(Object.keys(home.locales ?? {}).sort()).toEqual(['de', 'es', 'fr']);
         expect(contractGaps(LOGIC, body.document)).toEqual([]);
         const lanes = home.root.children?.['lanes'] as Node;
-        expect(lanes).toMatchObject({ component: 'board', columnField: 'runs', '<-records': '$.data.logic.units', on: { move: { command: 'emit', target: 'move' } } });
+        expect(lanes).toMatchObject({ component: 'board', columnField: 'runs', '<-records': '$.data.logic.units', '@id': 'lanes' });
         expect(Object.keys(lanes.columns ?? {})).toEqual([...LANES]);
-        expect(lanes.card?.on).toEqual({ press: { command: 'emit', target: 'open', from: '$row.id' } });
+        expect(lanes.card).toMatchObject({ '@id': 'unit' });
+        expect(LOGIC_HEARING['unit.press']).toEqual({ name: 'open', from: 'row.id' });
         expect(Object.keys(home.root.children?.['head']?.children?.['group']?.options ?? {})).toEqual(Object.keys(UNIT_GROUPS));
     }, 60_000);
 });

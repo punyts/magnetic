@@ -3,6 +3,8 @@ import { FAVICON_LINK } from './logo.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
+import { HOME_HEARING } from '../home/HomeApp.js';
+import { HEARING_JS, hearingJs } from './raised.js';
 
 export interface HomePageOptions {
     /** The id of the person's "Your apps" app */
@@ -20,7 +22,7 @@ export interface HomePageOptions {
 
 /**
  * `GET /`: the person's "Your apps", a StateUI app, filling the window. The host script (`/assets/host.js`) runs it as
- * it runs any app, in the page itself on the page bundle (`data-surface="page"`, on `[data-app-frame]`); `/assets/home.js` acts on what it emits: `open` an app, `create` one and `signout`
+ * it runs any app, in the page itself on the page bundle (`data-surface="page"`, on `[data-app-frame]`); `/assets/home.js` acts on what it hears from it: `open` an app, `create` one and `signout`
  */
 export function homePage(options: HomePageOptions): string {
     return [
@@ -57,12 +59,13 @@ html, body.home { height: 100%; margin: 0; overflow: hidden; background: var(--p
 `;
 
 /**
- * `/assets/home.js`: what the home app emits, raised on the page by the host script as `stateui:emit`. `open` goes to
+ * `/assets/home.js`: what the home app's nodes with an `@id` raise, reported on the page by the host script as
+ * `stateui:raised` and read by `HOME_HEARING`. `open` goes to
  * an app, `shareAccept` and `shareReject` answer an app shared with the person (`POST /shares/<id>/accept|reject`), `create` makes one (`POST /new`, answered with its id) and opens its editor, `orgs` opens the org settings, `signout` signs out, and `mode`
  * and `language` keep the person's choice (`POST /prefs`) and load the page again in it, `editEditor` opens the person's
  * editor in the editor and `resetEditor` puts it back to Magnetic's
  */
-export const HOME_JS = String.raw`${SCRIPT_TEXTS}const notice = document.getElementById('notice');
+export const HOME_JS = String.raw`${SCRIPT_TEXTS}${HEARING_JS}${hearingJs('hearing', HOME_HEARING)}const notice = document.getElementById('notice');
 const APP_ID = /^[A-Za-z0-9-]{1,64}$/;
 let busy = false;
 
@@ -139,8 +142,10 @@ async function choose(change) {
     } catch { say(T['prefs.failed']); }
 }
 
-addEventListener('stateui:emit', (event) => {
-    const { name, payload } = event.detail || {};
+addEventListener('stateui:raised', (event) => {
+    const heard = hearing.heard(event.detail);
+    if (!heard) return;
+    const { name, payload } = heard;
     if (name === 'open' && typeof payload === 'string' && APP_ID.test(payload)) location.assign('/apps/' + encodeURIComponent(payload));
     else if (name === 'create') void create(payload);
     else if ((name === 'mode' || name === 'language') && typeof payload === 'string') void choose({ [name]: payload });

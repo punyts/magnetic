@@ -1,5 +1,7 @@
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
+import { hearingIds } from '../http/raised.js';
+import type { Hearing } from '../http/raised.js';
 
 /** The app name of Statenet's page, in every workspace that has it */
 export const STATENET_APP = 'magnetic-statenet';
@@ -11,7 +13,15 @@ const N = '$.data.statenet';
 
 /** The status and a refusal: across the top of the window, below the editor's name corner and its rail */
 const STATUS_PLACEMENT = { x: 'calc(50% - 180px)', y: '76px', width: '360px' };
-const emit = (target: string, from?: string): Record<string, unknown> => ({ command: 'emit', target, ...(from !== undefined && { from }) });
+/** What the page script hears of Statenet's page (src/http/raised.ts) */
+export const STATENET_HEARING: Hearing = {
+    'canvas.change': { name: 'view' },
+    'canvas.press': { name: 'press' },
+    'tree.select': { name: 'select' },
+    'tree.open': { name: 'open' },
+    'tree.layout': { name: 'layout' },
+    'add.press': { name: 'add', from: 'row.id' }
+};
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
 /**
@@ -57,7 +67,7 @@ function card(): Record<string, unknown> {
                 tone: 'accent',
                 '<-_title': '$row.addLabel',
                 '<-hidden': '$row.noAdd',
-                on: { press: emit('add', '$row.id') }
+                '@id': 'add'
             }
         }
     };
@@ -65,21 +75,23 @@ function card(): Record<string, unknown> {
 
 /**
  * Statenet as a page of Magnetic's (docs/design/magnetic-statenet-diagram.md): the owner's tree on a canvas that pans and
- * zooms. The page script (`views.ts`) drives it through `$.data.statenet` and its emits only:
+ * zooms. The page script (`views.ts`) drives it through `$.data.statenet` and hears it through the ids of its nodes only
+ * (`STATENET_HEARING`):
  *
  * - It writes `nodes` (one record per card: `id`, `parent`, `wrap`, the texts and the look), `links` (the edges across
  *   the tree), `selected`, `view` ({ x, y, zoom }, linked to the viewport), `inset` (what its panels cover), `status`
  *   with `noStatus` (what the page script is doing) and `refusal` with `noRefusal` (why a change was refused). Both
  *   show over the canvas, at the top of the area the panels leave.
- * - The page emits `select` and `open` ({ id, box }) for a card, `add` with a record's id for its +, `press` for a press
- *   on the empty canvas, `view` with the view once a pan or zoom ends, and `layout` once the cards are placed.
+ * - It hears `select` and `open` ({ id, box }) of a card and `layout` once the cards are placed (`tree`), a press of a
+ *   card's + (`add`, the record's id from its row), and a press on the empty canvas and the view once a pan or zoom ends
+ *   (`canvas`).
  * - The editor's zoom runs the commands of the node keyed `canvas` (`STATENET_KEYS`), wherever it is.
  */
 export const STATENET: PageSpec = {
     name: STATENET_APP,
     title: 'Statenet',
     themed: true,
-    required: ['select', 'open', 'add', 'view', 'layout'],
+    required: hearingIds(STATENET_HEARING),
     keys: [STATENET_KEYS.canvas],
     sample: {
         [N]: {
@@ -126,7 +138,7 @@ export const STATENET: PageSpec = {
                         '<-y': `${N}.view.y`,
                         '<-zoom': `${N}.view.zoom`,
                         '<-inset': `${N}.inset`,
-                        on: { change: emit('view'), press: emit('press') },
+                        '@id': 'canvas',
                         content: {
                             component: 'treeDiagram',
                             _label: t['shell.view.statenet'],
@@ -137,7 +149,7 @@ export const STATENET: PageSpec = {
                             '<-links': `${N}.links`,
                             '<-selected': `${N}.selected`,
                             card: card(),
-                            on: { select: emit('select'), open: emit('open'), layout: emit('layout') }
+                            '@id': 'tree'
                         }
                     },
                     status: {
