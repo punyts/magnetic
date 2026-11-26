@@ -1,6 +1,19 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **An app is built by hand in the suite, and the steps the editor cannot do are named.**
+  `e2e/build-by-hand.spec.ts` builds a "Reading list" app with the editor's own controls alone (no request to the
+  agent), its tests in order on one page at desktop size: Screens (a column, a heading, a field, a button, a list and
+  a badge placed from the library; text, label, placeholder and variant set in the inspector; the button moved with
+  Alt+Up, the badge deleted with Delete; a second screen added, renamed, given a text and a link back; the screen the
+  app opens on chosen), Theme (a theme from a preset, a second made the default, the accent set for all modes and for
+  dark alone), Statenet (a model with string, number and boolean fields and one removed; a dataset of it with a first
+  record, which the app binds; a record added and one edited), Logic (a rule that counts the records, typed as JSON,
+  seen to run in the inspector's State tab; another moved to the browser and deleted), then the app at `/apps/<id>`
+  as a visitor sees it, in light and in a dark browser. Four steps are `test.fixme`, each with a comment saying what
+  exists, what is missing and where it would go: what a button's press does (no `on` in the inspector), a link of a
+  list's items or a field's value to state (no `<-` or `<->`, no row or columns editor), a press that reaches the
+  logic, and an app's languages (no control at all).
 - **A model's fields changed at the side reach the rest of Statenet.** Fix: the model's panel wrote a field and kept
   the tree as it was read before, so the + of `$.data` offered a first record with only the fields the model had when
   the view opened (and a module's unit started from them). The tree is read again after each write of a model
