@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Fix: one maker of the statenet authority's key.** On an empty database two servers and `relay-certificate` each
+  inserted a key and read back the oldest by `created_at`, which a later-committed insert with an earlier time could
+  change after another had already signed with its own. `StatenetAuthority.keys()` now looks and inserts under a
+  database advisory lock (`statenet-authority`, `databaseExclusive`), taken only when no key is found: the first holder
+  makes the key and the others read it, so one row is ever made. Test: `src/statenet/StatenetAuthority.test.ts`
+  ("should make one key when several processes ask at once on an empty database…").
 - **The ids made for a page's marked nodes no longer depend on the order of the tree.** `ownTree` gave a marked node
   without an `@id` the shortest ending of its keys not yet used, so the first node keyed `notice` was `noticePart`,
   and a same-keyed marked node added before it took that id from it; copies of pages keep ids. The rule is now

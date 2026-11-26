@@ -8,6 +8,8 @@ import type { InstancePlacement, PartKind, Services } from '@punyts/stateui-mcp'
 import { listenToPartChanges, PgDirectory, PgOwnershipStore } from '@punyts/stateui-pg';
 import type { Database, PartChanges } from '@punyts/stateui-pg';
 import type { SecretBox } from '../auth/secrets.js';
+import { databaseExclusive } from '../storage/exclusive.js';
+import type { Exclusive } from '../storage/exclusive.js';
 import { readDirectoryView, STATENET_AUTHORITY } from './directoryView.js';
 import type { NamespaceWorkspaces } from './StateNamespaces.js';
 
@@ -35,29 +37,44 @@ export interface StatenetOptions {
     readonly heartbeatMs?: number;
 }
 
+/** The lock that making the authority's key is under */
+const AUTHORITY_LOCK = 'statenet-authority';
+
 /**
  * The certificate authority of Magnetic's statenet (docs/design/statenet-relays.md, "The mesh protocol"): an Ed25519
  * key pair kept as an owner_key row of `statenet`, sealed with the server's key. Every server on the database signs its
  * own certificate with it at start, and `magnetic relay-certificate` signs the relays'
  */
 export class StatenetAuthority {
+    /** One maker of the authority's key at a time, across every process on the database */
+    private readonly exclusive: Exclusive;
+
     constructor(
         private readonly db: Database,
         private readonly box: SecretBox
-    ) {}
+    ) {
+        this.exclusive = databaseExclusive(db);
+    }
 
-    /** The authority's key pair, made by the first server that needs it; servers that start at once agree on one */
+    /**
+     * The authority's key pair, made by the first that needs it. Servers and `relay-certificate` that start at once on
+     * an empty database agree on one: the look and the insert run under an advisory lock of the database
+     * (`AUTHORITY_LOCK`), so only the first to hold it finds no key and makes one, and the others read that one
+     */
     async keys(): Promise<KeyPair> {
-        const newest = async (): Promise<KeyPair | undefined> => {
+        const oldest = async (): Promise<KeyPair | undefined> => {
             const row = (await this.db.query<{ public_key: string; private_key: string }>('SELECT public_key, private_key FROM owner_key WHERE owner_id = $1 AND retired_at IS NULL ORDER BY created_at, kid LIMIT 1', [STATENET_AUTHORITY])).rows[0];
             return row === undefined ? undefined : { publicKey: row.public_key, privateKey: this.box.open(row.private_key) };
         };
-        const found = await newest();
+        const found = await oldest();
         if (found !== undefined) return found;
-        const pair = generateGrantKey();
-        await this.db.query('INSERT INTO owner_key (kid, owner_id, public_key, private_key) VALUES ($1, $2, $3, $4)', [randomUUID(), STATENET_AUTHORITY, pair.publicKey, this.box.seal(pair.privateKey)]);
-        // two servers that made one at once both read back the oldest, so they sign with the same authority
-        return (await newest()) as KeyPair;
+        return this.exclusive(AUTHORITY_LOCK, async () => {
+            const madeMeanwhile = await oldest();
+            if (madeMeanwhile !== undefined) return madeMeanwhile;
+            const pair = generateGrantKey();
+            await this.db.query('INSERT INTO owner_key (kid, owner_id, public_key, private_key) VALUES ($1, $2, $3, $4)', [randomUUID(), STATENET_AUTHORITY, pair.publicKey, this.box.seal(pair.privateKey)]);
+            return pair;
+        });
     }
 
     /** A node certificate signed by the authority, and the authority's public key that checks it */
