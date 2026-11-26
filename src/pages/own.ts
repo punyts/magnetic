@@ -43,6 +43,48 @@ function namesOf(value: unknown, into: Set<string>): void {
     }
 }
 
+/**
+ * The id made for each marked node that has none, by the node's path. A copy of a page keeps these ids, so an id comes
+ * from the node's own keys alone and never from the order the tree is read in.
+ *
+ * A node's chain is the keys of the nodes from its screen's name down to it (`home`, `bar`, `notice`). Its names
+ * are its chain's endings, shortest first, each in camel case with `Part` after it: `noticePart`, `barNoticePart`,
+ * `homeBarNoticePart`. Its id is its shortest name that is no name of any other marked node, no `@id` and no node's
+ * key. So two nodes with the same key both take a longer name, whichever comes first, and a node added later renames
+ * another only when one of its names is the id the other had. Moving a node renames it only if its new chain's names
+ * meet another's. Should every name of a node be taken, its whole chain is numbered (`homeNoticePart2`), in tree order
+ */
+export function generatedIds(chains: ReadonlyMap<string, readonly string[]>, taken: ReadonlySet<string>): Map<string, string> {
+    const namesOf = (keys: readonly string[]): string[] => {
+        const out: string[] = [];
+        let name = '';
+        for (let index = keys.length - 1; index >= 0; index -= 1) {
+            name = name === '' ? (keys[index] as string) : `${keys[index] as string}${capital(name)}`;
+            out.push(`${name}Part`);
+        }
+        return out;
+    };
+    /** How many marked nodes have each name */
+    const counts = new Map<string, number>();
+    for (const keys of chains.values()) for (const name of new Set(namesOf(keys))) counts.set(name, (counts.get(name) ?? 0) + 1);
+    const ids = new Map<string, string>();
+    const left: [string, string][] = [];
+    for (const [path, keys] of chains) {
+        const names = namesOf(keys);
+        const free = names.find((name) => counts.get(name) === 1 && !taken.has(name));
+        if (free !== undefined) ids.set(path, free);
+        else left.push([path, names[names.length - 1] ?? 'Part']);
+    }
+    const used = new Set<string>([...taken, ...counts.keys()]);
+    for (const [path, whole] of left) {
+        let id = whole;
+        for (let count = 2; used.has(id); count += 1) id = `${whole}${count}`;
+        used.add(id);
+        ids.set(path, id);
+    }
+    return ids;
+}
+
 /** The first value of a field, from the default its model gives it (`toolLook.use` reads `use` of `toolLook`'s default) */
 function firstValue(operations: ModelOperations, field: string): unknown {
     const [name, ...rest] = field.split('.');
@@ -84,23 +126,32 @@ export function ownTree(definition: Record<string, unknown>, models: Readonly<Re
         return { record: having, field: asked };
     };
 
-    const newId = (keys: readonly string[]): string => {
-        let id = '';
-        for (let index = keys.length - 1; index >= 0; index -= 1) {
-            id = id === '' ? (keys[index] as string) : `${keys[index] as string}${capital(id)}`;
-            if (!names.has(`${id}Part`)) break;
-        }
-        let made = `${id}Part`;
-        for (let count = 2; names.has(made); count += 1) made = `${id}Part${count}`;
-        names.add(made);
-        return made;
+    /** The trees of the definition: each with the key its nodes' chains start at and its state path */
+    const trees: { readonly value: unknown; readonly top: string; readonly path: string }[] = [];
+    for (const [key, value] of Object.entries(definition)) {
+        if (key === 'home') trees.push({ value, top: 'home', path: '$.screens.home' });
+        else if (key === 'screens' && isObject(value)) {
+            for (const [screen, body] of Object.entries(value)) trees.push({ value: isObject(body) && isObject(body['root']) ? body['root'] : body, top: screen, path: `$.screens.${screen}` });
+        } else trees.push({ value, top: key, path: `$.${key}` });
+    }
+
+    const isMarked = (value: Json): boolean => isNode(value) && Object.keys(value).some((key) => key.startsWith(OWN_PREFIX));
+
+    /** The chain of keys of each marked node that needs an id, by its state path, in the order of the tree */
+    const chains = new Map<string, readonly string[]>();
+    const collect = (value: unknown, keys: readonly string[], path: string): void => {
+        if (Array.isArray(value)) return value.forEach((item, index) => collect(item, keys, `${path}.${index}`));
+        if (!isObject(value)) return;
+        if (isMarked(value) && typeof value['@id'] !== 'string') chains.set(path, keys);
+        for (const [key, inner] of Object.entries(value)) collect(inner, isNode(inner) ? [...keys, key] : keys, `${path}.${key}`);
     };
+    for (const tree of trees) collect(tree.value, [tree.top], tree.path);
+    const made = generatedIds(chains, names);
 
     const walk = (value: unknown, keys: readonly string[], path: string): unknown => {
         if (Array.isArray(value)) return value.map((item, index) => walk(item, keys, `${path}.${index}`));
         if (!isObject(value)) return value;
-        const marked = isNode(value) && Object.keys(value).some((key) => key.startsWith(OWN_PREFIX));
-        const id = marked ? (typeof value['@id'] === 'string' ? value['@id'] : newId(keys)) : undefined;
+        const id = isMarked(value) ? (typeof value['@id'] === 'string' ? value['@id'] : (made.get(path) as string)) : undefined;
         const out: Json = {};
         for (const [key, inner] of Object.entries(value)) {
             if (id !== undefined && key.startsWith(OWN_PREFIX)) {
@@ -126,12 +177,12 @@ export function ownTree(definition: Record<string, unknown>, models: Readonly<Re
 
     const compiled: Json = {};
     for (const [key, value] of Object.entries(definition)) {
-        if (key === 'home') compiled[key] = walk(value, [], '$.screens.home');
+        if (key === 'home') compiled[key] = walk(value, ['home'], '$.screens.home');
         else if (key === 'screens' && isObject(value)) {
             compiled[key] = Object.fromEntries(
-                Object.entries(value).map(([screen, body]) => [screen, isObject(body) && isObject(body['root']) ? { ...body, root: walk(body['root'], [], `$.screens.${screen}`) } : walk(body, [], `$.screens.${screen}`)])
+                Object.entries(value).map(([screen, body]) => [screen, isObject(body) && isObject(body['root']) ? { ...body, root: walk(body['root'], [screen], `$.screens.${screen}`) } : walk(body, [screen], `$.screens.${screen}`)])
             );
-        } else compiled[key] = walk(value, [], `$.${key}`);
+        } else compiled[key] = walk(value, [key], `$.${key}`);
     }
 
     const linked = JSON.stringify(compiled);

@@ -1,6 +1,6 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { hiddenBy, OWN_JS, ownTree, ownWrites, pathOfId } from './own.js';
+import { generatedIds, hiddenBy, OWN_JS, ownTree, ownWrites, pathOfId } from './own.js';
 
 const MODELS = {
     page: [
@@ -43,12 +43,12 @@ describe("a node's own state in a page", () => {
 
         // Assert
         const home = owned.definition['home'] as { children: Record<string, Record<string, unknown> & { children: Record<string, Record<string, unknown>> }> };
-        expect(home.children['notice']).toEqual({ component: 'alert', '<-_text': '$.data.page.notice', hidden: true, '@id': 'noticePart' });
+        expect(home.children['notice']).toEqual({ component: 'alert', '<-_text': '$.data.page.notice', hidden: true, '@id': 'homeNoticePart' });
         expect(home.children['bar']?.children['save']).toEqual({ component: 'button', variant: 'ghost', '@id': 'save' });
         expect(home.children['bar']?.children['open']).toEqual({ component: 'button', variant: 'soft', hidden: false, '@id': 'openPart' });
         expect(home.children['bar']?.children['notice']?.['@id']).toBe('barNoticePart');
         expect(owned.own).toEqual({
-            '$.data.page.noNotice': ['noticePart.hidden'],
+            '$.data.page.noNotice': ['homeNoticePart.hidden'],
             '$.data.bar.look.save': ['save.variant'],
             '$.data.bar.look.open': ['openPart.variant'],
             '$.data.bar.narrow': ['openPart.hidden', 'barNoticePart.hidden']
@@ -57,6 +57,55 @@ describe("a node's own state in a page", () => {
         expect(owned.models['page']?.map((operation) => operation['field'])).toEqual(['notice']);
         expect(owned.models['bar']?.map((operation) => operation['field'])).toEqual(['zoom']);
         expect(owned.models['list']).toBe(MODELS.list);
+    });
+
+    it('should keep the id made for a node when a marked node is added elsewhere, before or after it, unless their names meet', () => {
+        // Arrange
+        const idsOf = (tree: Record<string, unknown>): string[] => [...ownTree(tree, MODELS, RECORDS).ids].sort();
+        const before = definition();
+        const added = definition() as { home: { children: Record<string, unknown> } };
+        added.home.children = {
+            first: { component: 'text', 'own:hidden': 'narrow' },
+            ...added.home.children,
+            side: { component: 'panel', children: { extra: { component: 'text', 'own:hidden': 'narrow' } } }
+        };
+        const meeting = definition() as { home: { children: Record<string, unknown> } };
+        meeting.home.children = { side: { component: 'panel', children: { open: { component: 'button', 'own:hidden': 'narrow' } } }, ...meeting.home.children };
+
+        // Act
+        const ids = idsOf(before);
+        const withAdded = idsOf(added);
+        const withMeeting = idsOf(meeting);
+
+        // Assert: both nodes keyed notice take a longer name, whichever the tree has first
+        expect(ids).toEqual(['barNoticePart', 'homeNoticePart', 'openPart', 'save']);
+        expect(withAdded).toEqual([...ids, 'extraPart', 'firstPart'].sort());
+        expect(withMeeting).toEqual(['barNoticePart', 'barOpenPart', 'homeNoticePart', 'save', 'sideOpenPart']);
+    });
+
+    it('should make an id from the keys of the node alone, pass over a name that is an id or a key already, and number a chain with no name left', () => {
+        // Arrange
+        const chains = new Map<string, readonly string[]>([
+            ['$.screens.home', ['home']],
+            ['$.screens.home.children.list.children.row', ['home', 'list', 'row']],
+            ['$.screens.other.children.list.children.row', ['other', 'list', 'row']],
+            ['$.screens.home.children.save', ['home', 'save']],
+            ['$.screens.home.children.only', ['home', 'only']]
+        ]);
+
+        // Act
+        const ids = generatedIds(chains, new Set(['savePart', 'onlyPart', 'homeOnlyPart']));
+        const reversed = generatedIds(new Map([...chains].reverse()), new Set(['savePart', 'onlyPart', 'homeOnlyPart']));
+
+        // Assert
+        expect(Object.fromEntries(ids)).toEqual({
+            '$.screens.home': 'homePart',
+            '$.screens.home.children.list.children.row': 'homeListRowPart',
+            '$.screens.other.children.list.children.row': 'otherListRowPart',
+            '$.screens.home.children.save': 'homeSavePart',
+            '$.screens.home.children.only': 'homeOnlyPart2'
+        });
+        expect(Object.fromEntries(reversed)).toEqual(Object.fromEntries(ids));
     });
 
     it('should refuse a field that is both a node’s own state and linked as data, and a field its model lacks', () => {
@@ -89,7 +138,7 @@ describe("a node's own state in a page", () => {
         // Assert
         expect(placed).toEqual([
             { path: '$.data.page', value: { notice: 'Full' } },
-            { path: '#noticePart.hidden', value: false, optional: true },
+            { path: '#homeNoticePart.hidden', value: false, optional: true },
             { path: '$.data.bar', value: { zoom: '50%', look: {} } },
             { path: '#save.variant', value: 'solid', optional: true },
             { path: '#openPart.variant', value: 'ghost', optional: true },
@@ -130,7 +179,7 @@ describe("a node's own state in a page", () => {
         expect(OWN_JS).toMatch(/^function ownWrites\(own, writes, place\) \{/);
         expect(OWN_JS.endsWith('}\n')).toBe(true);
         expect(inPage).toEqual(ownWrites(own, writes));
-        expect(inPage).toContainEqual({ path: '#noticePart.hidden', value: false, optional: true });
+        expect(inPage).toContainEqual({ path: '#homeNoticePart.hidden', value: false, optional: true });
     });
 
     it('should find a node by its id in a document and in an app’s state, and link a row’s field instead of owning it', () => {

@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The ids made for a page's marked nodes no longer depend on the order of the tree.** `ownTree` gave a marked node
+  without an `@id` the shortest ending of its keys not yet used, so the first node keyed `notice` was `noticePart`,
+  and a same-keyed marked node added before it took that id from it; copies of pages keep ids. The rule is now
+  `generatedIds` (`src/pages/own.ts`): a node's chain is the keys of the nodes from its screen's name down to it, its
+  names are the chain's endings in camel case with `Part` (`noticePart`, `barNoticePart`, `homeBarNoticePart`), and
+  its id is its shortest name that is no name of any other marked node, no `@id` and no node's key. Two nodes with the
+  same key both take a longer name; a node added later renames another only when one of its names is the id the other
+  had. A screen's marked root is `<screen>Part` (it was `Part`). Breaking: ids change once, for nodes that share a
+  key with another marked node (`noticePart` beside a `bar.notice` is `homeNoticePart`); a person's changed copy
+  with an old id loses those writes until it is reset. Tests: `src/pages/own.test.ts` ("should keep the id made for a
+  node when a marked node is added elsewhere…", "should make an id from the keys of the node alone…").
 - **The page scripts' `ownWrites` is the text of the server's.** `OWN_JS` (`src/pages/own.ts`) was a hand copy of
   `ownWrites`; it is now `ownWrites.toString()`, so the two cannot differ. The function is self-contained (it uses only
   its arguments) and takes an optional `place`: with it a place is the state path the caller gives (`PageSpec`'s
