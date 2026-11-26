@@ -1,6 +1,22 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A model's fields changed at the side reach the rest of Statenet.** Fix: the model's panel wrote a field and kept
+  the tree as it was read before, so the + of `$.data` offered a first record with only the fields the model had when
+  the view opened (and a module's unit started from them). The tree is read again after each write of a model
+  (`modelEditor` in `src/http/views.ts`). Test: `e2e/build-by-hand.spec.ts` ("Statenet: a model with fields of three
+  types…": the new dataset's form has the fields just added, and not the one removed).
+- **A token set for one mode leaves the other modes as they showed.** Fix: a value for all modes hides what a mode's
+  overlay sets, and a preset's overlays set most colours. Setting one mode of such a token then took the value for
+  all modes away and gave it only to the modes whose overlay set nothing, so the others went back to the preset's
+  colour: dark edited, light changed. Every other mode now takes the value it showed (`writeToken`), and while a
+  token has a value for all modes its mode cells show that value, not the overlay's hidden one. Test:
+  `e2e/build-by-hand.spec.ts` ("Theme: a theme is made from a preset…": after the accent is set for all modes and
+  then for dark, light and high contrast keep the first value, in the table and in the app).
+- **The Theme view stays on the theme just made.** Fix: making a theme changes the app, and the new revision read the
+  view again with the theme chosen before, which could draw over the new one: the theme was made, the view showed
+  the old one, and New theme pressed again was refused as a name taken. The theme a read asks for is the one chosen
+  from that moment (`loadTheme`). Test: `e2e/build-by-hand.spec.ts` (a second theme is made and is the one shown).
 - **A press on a part of the app takes the focus out of the inspector's field.** Fix: the Select tool's shield keeps
   the press from the browser, so after a property was typed the focus stayed in its field, and Delete and Alt+Arrow
   on the part pressed next did nothing (the keys are left to a field that has the focus). The press now leaves the

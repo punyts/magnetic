@@ -1013,7 +1013,8 @@ function modelEditor(part, id) {
     const write = (operations) => {
         const run = last.then(async () => {
             const answer = await change('data', { model: part.name, revision, operations }, reopen);
-            if (answer) revision = answer.revision;
+            // The tree is read again: a new dataset's first record, and a module's unit, start from the model's fields
+            if (answer) { revision = answer.revision; void loadGraph(); }
             return answer;
         });
         last = run.catch(() => undefined);
@@ -1183,6 +1184,9 @@ function valueIn(mode, path) { const token = theme.tokens.find((each) => each.pa
 /** The reads of the Theme and Logic views in flight: only the last one started draws, so a read that began before a write cannot undo what the write showed */
 let readTurn = 0;
 async function loadTheme(name) {
+    // The theme asked for is the one chosen from here on: a new revision (a theme just made changes the app) reads the
+    // view again while this read is under way, and must read this theme, not the one shown before
+    chosenTheme = name;
     const turn = ++readTurn;
     let answer;
     try { answer = await getJson('/theme' + (name ? '?theme=' + encodeURIComponent(name) : '')); } catch (error) { if (turn === readTurn) says(error.message, true); return; }
@@ -1223,7 +1227,8 @@ async function loadTheme(name) {
         row.allShown = '';
         row.allLabel = token.path + ' ' + T['views.allModes'];
         for (const mode of THEME_MODES) {
-            const set = Object.hasOwn(token.modes, mode);
+            // A value for all modes hides what a mode's overlay sets: the mode then shows the value it has, not one it set
+            const set = !own && Object.hasOwn(token.modes, mode);
             row[mode] = set ? shown(token.modes[mode]) : '';
             row[mode + 'Shown'] = theme.modes.includes(mode) ? shown(token.values[mode]) : '';
             row[mode + 'Label'] = token.path + ' ' + (T['views.mode.' + mode] || mode);
@@ -1287,9 +1292,10 @@ async function writeToken(token, mode, value) {
     const operations = [];
     const overlay = (name) => { if (!theme.overlays[name] && !operations.some((each) => each.op === 'add-overlay' && each.overlay === name)) operations.push({ op: 'add-overlay', overlay: name, kind: 'mode' }); };
     if ('own' in token) {
+        // What another mode's overlay sets was hidden under the base, so it takes the base's value too
         operations.push({ op: 'remove', path: token.path });
         for (const other of theme.modes) {
-            if (other === mode || Object.hasOwn(token.modes, other)) continue;
+            if (other === mode) continue;
             overlay(other);
             operations.push({ op: 'set', path: token.path, value: token.own, overlay: other });
         }
