@@ -4,6 +4,8 @@ import { textsOf } from '../http/text.js';
 import { writeLocales } from '../stateui/localize.js';
 import { run } from '../stateui/run.js';
 import { ensureMagneticTheme, MAGNETIC_THEME, THEME_STAMP } from '../stateui/theme.js';
+import { ownTree, ownWrites } from './own.js';
+import type { OwnMap } from './own.js';
 
 /** The operations of a model, as `ui_model_write` takes them */
 export type ModelOperations = readonly Record<string, unknown>[];
@@ -30,6 +32,37 @@ export interface PageSpec {
     readonly keys?: readonly string[];
     /** Data an admin's draft starts with, by state path, so what a page shows only sometimes is there to edit */
     readonly sample?: Readonly<Record<string, unknown>>;
+    /**
+     * The fields the page's script and server still name (`noNotice`) that are a node's own state, by their data path,
+     * each with the places it goes to (`<id>.<property>`): a write to one reaches those nodes by id (src/pages/own.ts)
+     */
+    readonly own: OwnMap;
+}
+
+/** A page as its file writes it: nodes mark their own state with `own:<property>`, and the model still lists those fields */
+export type PageSource = Omit<PageSpec, 'own'> & {
+    /** The data path of the page's record (`$.data.signin`) and the model of its fields */
+    readonly record: { readonly path: string; readonly model: string };
+};
+
+/**
+ * A page's spec from its source: each node marked with `own:<property>` holds that state itself, with an `@id` the
+ * page writes it by (a copy that drops the node drops the write); the fields leave the model, and the sample sets them
+ * on the nodes
+ */
+export function pageSpec(source: PageSource): PageSpec {
+    const { record, ...rest } = source;
+    const owned = ownTree(source.definition(), source.models, record.path, record.model);
+    const sample = source.sample === undefined ? undefined : Object.fromEntries(
+        ownWrites(owned.own, Object.entries(source.sample).map(([path, value]) => ({ path, value })), (target) => owned.paths[target] as string).map((write) => [write.path, write.value])
+    );
+    return {
+        ...rest,
+        models: owned.models,
+        definition: () => ownTree(source.definition(), source.models, record.path, record.model).definition,
+        ...(sample !== undefined && { sample }),
+        own: owned.own
+    };
 }
 
 /** Changes when Magnetic ships a new definition of the page: its models, its theme, its words in every language */

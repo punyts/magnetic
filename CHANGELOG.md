@@ -1,6 +1,15 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A page's own state is on its nodes, not in its data** (docs/design/state-definitions-and-instances.md). The 103
+  fields of Magnetic's ten pages that only fed a node's `hidden`, `variant` or `tone` (`noNotice`, `noSelection`,
+  `libraryLook`, …) left the pages' models. A definition marks the node (`'own:hidden': 'noNotice'`); `pageSpec`
+  (`src/pages/PageSpec.ts`, `src/pages/own.ts`) gives the node the field's first value and an `@id`, and lists where
+  each field goes (`PageSpec.own`). Page scripts and the server still name the field: `ownWrites` takes the write to
+  the node by id (`#noticePart.hidden`, optional, so a copy that dropped the node drops the write), and Your apps finds
+  the node in the person's copy (`pathOfId`). The editor's pane flags use the same map. In a row template a button
+  reads its row (`$row.noManage`). Tests: `src/pages/own.test.ts`, `src/pages/ownState.test.ts` (every page validates
+  with no `SUI-LINK-OWN`), `src/server/editor.browser.test.ts`.
 - **The editor's panels keep whether they are open; the record keeps data** (docs/design/state-definitions-and-instances.md,
   the editor's record). Breaking: the eighteen `…Hidden` fields of the `magnetic-editor` model are gone. Each pane
   (the chat, the inspector, the sheets, the side panel, the rails, the canvas pages) carries an `@id` (`chatPane`,

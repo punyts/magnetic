@@ -1,3 +1,4 @@
+import { OWN_JS } from '../pages/own.js';
 /**
  * How a page script hears the app it mounts (docs/design/state-definitions-and-instances.md): the runtime reports each
  * event of a node that carries an `@id` (`RaisedReport { id, event, value?, row? }`, raised on the panel's element as
@@ -34,7 +35,7 @@ export function hearingIds(hearing: Hearing): string[] {
  * keeps what it says to keep), else undefined; `keep(path, value)` records what the script writes to a state path a
  * press reads, and `known(path)` reads it back, with what was kept below it since.
  */
-export const HEARING_JS = String.raw`function hearingOf(table) {
+export const HEARING_JS = String.raw`${OWN_JS}function hearingOf(table) {
     const kept = {};
     const at = (value, field) => (value !== null && typeof value === 'object' ? value[field] : undefined);
     const fieldValue = (value) => (value !== null && typeof value === 'object' && !Array.isArray(value) && 'value' in value ? value.value : value);

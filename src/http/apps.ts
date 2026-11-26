@@ -4,7 +4,7 @@ import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 import { APPS_BOARD, ZOOM_CSS } from './zoom.js';
-import { APPS_HEARING } from '../apps/AppsPage.js';
+import { APPS, APPS_HEARING } from '../apps/AppsPage.js';
 import { HEARING_JS, hearingJs } from './raised.js';
 
 /** One tile on a board: an app on a workspace's board, or a workspace on the Orgs level */
@@ -192,11 +192,11 @@ function zoomOut() {
 
 function draw() {
     if (!panel) return;
-    panel.write([
+    panel.write(ownWrites(${JSON.stringify(APPS.own)}, [
         { path: A + '.tiles', value: records() },
         { path: A + '.lanes', value: Object.fromEntries(Array.from({ length: BOARD.columns }, (_, index) => ['c' + index, { _title: '' }])) },
         { path: A + '.filled', value: TILES.length > 0 }
-    ]);
+    ]));
 }
 
 /** The state path of the node a key names in a document */

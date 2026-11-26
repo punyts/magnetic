@@ -1,8 +1,8 @@
-import { LOGIC_APP, LOGIC_HEARING } from '../logic/LogicPage.js';
+import { LOGIC, LOGIC_APP, LOGIC_HEARING } from '../logic/LogicPage.js';
 import { SCREENS_APP } from '../screens/ScreensPage.js';
-import { FIELD_TYPES, METHODS, SIDE_APP, SIDE_BLANK, SIDE_HEARING } from '../side/SidePage.js';
-import { STATENET_APP, STATENET_HEARING } from '../statenet/StatenetPage.js';
-import { THEME_APP, THEME_HEARING } from '../theme/ThemePage.js';
+import { FIELD_TYPES, METHODS, SIDE, SIDE_APP, SIDE_BLANK, SIDE_HEARING } from '../side/SidePage.js';
+import { STATENET, STATENET_APP, STATENET_HEARING } from '../statenet/StatenetPage.js';
+import { THEME, THEME_APP, THEME_HEARING } from '../theme/ThemePage.js';
 import { SCRIPT_TEXTS } from './text.js';
 import { HEARING_JS, hearingJs } from './raised.js';
 
@@ -62,7 +62,11 @@ export const VIEWS_LAYERS_CSS = [
 ].join('\n');
 
 export const VIEWS_JS = String.raw`${SCRIPT_TEXTS}(function views() {
-${HEARING_JS}${hearingJs('netHearing', STATENET_HEARING)}${hearingJs('sideHearing', SIDE_HEARING)}${hearingJs('themeHearing', THEME_HEARING)}${hearingJs('logicHearing', LOGIC_HEARING)}const shell = window.magneticShell;
+${HEARING_JS}const NET_OWN = ${JSON.stringify(STATENET.own)};
+const SIDE_OWN = ${JSON.stringify(SIDE.own)};
+const THEME_OWN = ${JSON.stringify(THEME.own)};
+const LOGIC_OWN = ${JSON.stringify(LOGIC.own)};
+${hearingJs('netHearing', STATENET_HEARING)}${hearingJs('sideHearing', SIDE_HEARING)}${hearingJs('themeHearing', THEME_HEARING)}${hearingJs('logicHearing', LOGIC_HEARING)}const shell = window.magneticShell;
 const host = window.stateuiHost;
 if (!shell) return;
 const editor = shell.editor;
@@ -274,7 +278,7 @@ function keyPath(doc, key) {
     return null;
 }
 function netWrite(fields) {
-    if (net) net.panel.write(Object.entries(fields).map(([name, value]) => ({ path: NET + '.' + name, value })));
+    if (net) net.panel.write(ownWrites(NET_OWN, Object.entries(fields).map(([name, value]) => ({ path: NET + '.' + name, value }))));
 }
 function netCommand(command, value) {
     if (net && net.canvas) net.panel.command(net.canvas, command, value);
@@ -562,7 +566,7 @@ let sideCode = '';
 
 function sideWrite(fields) {
     for (const [name, value] of Object.entries(fields)) sideHearing.keep(SIDE + '.' + name, value);
-    if (sidePanel) sidePanel.write(Object.entries(fields).map(([name, value]) => ({ path: SIDE + '.' + name, value })));
+    if (sidePanel) sidePanel.write(ownWrites(SIDE_OWN, Object.entries(fields).map(([name, value]) => ({ path: SIDE + '.' + name, value }))));
 }
 /**
  * What the side panel's nodes raise: close, the code as it changes, a value typed into a new record's row, and what the
@@ -1011,7 +1015,7 @@ function connectionEditor(info, endpointName, id) {
         return answer;
     };
     const secretKept = info.keySet || info.clientSecretSet ? T['views.secretSet'] : T['views.secretNotSet'];
-    const endpoints = info.endpoints.map((endpoint) => ({ id: 'e-' + endpoint.name, name: endpoint.name === endpointName ? '▸ ' + endpoint.name : endpoint.name, endpoint: endpoint.name, does: endpoint.method + ' ' + endpoint.path, removeText: T['views.removeEndpoint'] + ' ' + endpoint.name }));
+    const endpoints = info.endpoints.map((endpoint) => ({ id: 'e-' + endpoint.name, noManage: !info.manages, name: endpoint.name === endpointName ? '▸ ' + endpoint.name : endpoint.name, endpoint: endpoint.name, does: endpoint.method + ' ' + endpoint.path, removeText: T['views.removeEndpoint'] + ' ' + endpoint.name }));
     return sideShow(id, {
         title: info.name,
         ...notes(info.baseUrl + ' · ' + T['views.auth.' + info.auth.kind] + (info.auth.kind === 'none' ? '' : ' · ' + secretKept), info.manages ? '' : T['views.noManage']),
@@ -1064,7 +1068,7 @@ let fromGraph = false;
 /** The page's data, below $.data.<view> */
 function pageWrite(fields) {
     if (page) for (const [name, value] of Object.entries(fields)) (page.view === 'theme' ? themeHearing : logicHearing).keep('$.data.' + page.view + '.' + name, value);
-    if (page) page.panel.write(Object.entries(fields).map(([name, value]) => ({ path: '$.data.' + page.view + '.' + name, value })));
+    if (page) page.panel.write(ownWrites(page.view === 'theme' ? THEME_OWN : LOGIC_OWN, Object.entries(fields).map(([name, value]) => ({ path: '$.data.' + page.view + '.' + name, value }))));
 }
 function viewHeard(event) {
     if (!page) return;

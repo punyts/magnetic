@@ -1,3 +1,4 @@
+import { pageSpec } from '../pages/PageSpec.js';
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { hearingIds } from '../http/raised.js';
@@ -87,7 +88,8 @@ function card(): Record<string, unknown> {
  *   (`canvas`).
  * - The editor's zoom runs the commands of the node keyed `canvas` (`STATENET_KEYS`), wherever it is.
  */
-export const STATENET: PageSpec = {
+export const STATENET: PageSpec = pageSpec({
+    record: { path: N, model: STATENET_APP },
     name: STATENET_APP,
     title: 'Statenet',
     themed: true,
@@ -158,12 +160,12 @@ export const STATENET: PageSpec = {
                         corners: 'pill',
                         elevation: 'raised',
                         placement: STATUS_PLACEMENT,
-                        '<-hidden': `${N}.noStatus`,
+                        'own:hidden': `${N}.noStatus`,
                         children: { text: { component: 'text', textRole: 'caption', muted: true, '<-_text': `${N}.status` } }
                     },
-                    refused: { component: 'alert', tone: 'danger', placement: STATUS_PLACEMENT, '<-_text': `${N}.refusal`, '<-hidden': `${N}.noRefusal` }
+                    refused: { component: 'alert', tone: 'danger', placement: STATUS_PLACEMENT, '<-_text': `${N}.refusal`, 'own:hidden': `${N}.noRefusal` }
                 }
             }
         };
     }
-};
+});

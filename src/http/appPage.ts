@@ -5,6 +5,7 @@ import { HEARING_JS } from './raised.js';
 import type { Hearing } from './raised.js';
 import { htmlOpen, schemeCss } from './pages.js';
 import type { PageLook } from './pages.js';
+import type { OwnMap } from '../pages/own.js';
 
 /**
  * What a page app's node does when the page hears it, set by the server: go to an address, or post a form to one and go
@@ -22,6 +23,8 @@ export interface AppPageOptions {
     readonly app: PageAppDocument;
     /** What the page writes into the app's data once it is ready */
     readonly data: Readonly<Record<string, unknown>>;
+    /** The fields of that data that are a node's own state, with where each goes (`PageSpec.own`) */
+    readonly own: OwnMap;
     /** What the page hears of the app's nodes with an `@id`, by the names of `actions` */
     readonly hearing: Hearing;
     /** What each name the page hears does */
@@ -59,6 +62,7 @@ export function appPage(options: AppPageOptions): string {
         '<div class="page-app" id="page-app"></div>',
         block('page-app-document', options.app),
         block('page-app-data', options.data),
+        block('page-app-own', options.own),
         block('page-app-hearing', options.hearing),
         block('page-app-actions', options.actions),
         `<script src="/assets/page/${escapeHtml(options.pageBundle)}.js"></script>`,
@@ -82,6 +86,7 @@ export const APP_PAGE_JS = String.raw`${HEARING_JS}const read = (id) => JSON.par
 const app = read('page-app-document');
 const hearing = hearingOf(read('page-app-hearing'));
 const data = read('page-app-data');
+const own = read('page-app-own');
 const actions = read('page-app-actions');
 const holder = document.getElementById('page-app');
 
@@ -118,6 +123,6 @@ if (document.body.dataset.fallback === 'default') {
 holder.addEventListener('stateui:ready', () => {
     ready = true;
     for (const [path, value] of Object.entries(data)) hearing.keep(path, value);
-    panel.write(Object.entries(data).map(([path, value]) => ({ path, value })));
+    panel.write(ownWrites(own, Object.entries(data).map(([path, value]) => ({ path, value }))));
 });
 `;

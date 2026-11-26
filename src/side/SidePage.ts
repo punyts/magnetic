@@ -1,3 +1,5 @@
+import { hiddenBy } from '../pages/own.js';
+import { pageSpec } from '../pages/PageSpec.js';
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { hearingIds } from '../http/raised.js';
@@ -56,14 +58,14 @@ const row = (children: Record<string, unknown>, hidden?: string): Record<string,
     component: 'panel',
     padding: 'none',
     layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
-    ...(hidden !== undefined && { '<-hidden': hidden }),
+    ...(hidden !== undefined && hiddenBy(hidden)),
     children
 });
 const column = (children: Record<string, unknown>, hidden?: string): Record<string, unknown> => ({
     component: 'panel',
     padding: 'none',
     layout: { type: 'column', gap: 'sm' },
-    ...(hidden !== undefined && { '<-hidden': hidden }),
+    ...(hidden !== undefined && hiddenBy(hidden)),
     children
 });
 const act = (title: string, id: string, hidden: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -71,7 +73,7 @@ const act = (title: string, id: string, hidden: string, extra: Record<string, un
     size: 'sm',
     variant: 'outline',
     _title: title,
-    '<-hidden': hidden,
+    ...hiddenBy(hidden),
     ...extra,
     '@id': id
 });
@@ -83,10 +85,10 @@ const remove = (title: string, id: string, hidden: string): Record<string, unkno
     variant: 'ghost',
     tone: 'danger',
     '<-_title': title,
-    '<-hidden': hidden,
+    ...hiddenBy(hidden),
     '@id': id
 });
-const note = (text: string, hidden: string): Record<string, unknown> => ({ component: 'text', textRole: 'caption', muted: true, '<-_text': text, '<-hidden': hidden });
+const note = (text: string, hidden: string): Record<string, unknown> => ({ component: 'text', textRole: 'caption', muted: true, '<-_text': text, ...hiddenBy(hidden) });
 
 /** Everything the panel shows, hidden: what the page script writes before it shows one kind of part */
 export const SIDE_BLANK: Readonly<Record<string, unknown>> = {
@@ -169,7 +171,8 @@ export const SIDE_BLANK: Readonly<Record<string, unknown>> = {
  * - A connection: `baseUrl` (`baseUrl`), a new `secret` (`secret`), Connect (`connect`), its `endpoints` (`id`, `name`, `endpoint`,
  *   `does`, `removeText`) with Try (`try`) and Remove (`removeEndpoint`), and what a try answered (`tried`).
  */
-export const SIDE: PageSpec = {
+export const SIDE: PageSpec = pageSpec({
+    record: { path: S, model: SIDE_APP },
     name: SIDE_APP,
     title: 'Side panel',
     themed: true,
@@ -217,7 +220,7 @@ export const SIDE: PageSpec = {
                     },
                     notes: column({
                         note: note(`${S}.note`, `${S}.noNote`),
-                        detail: { component: 'text', '<-_text': `${S}.detail`, '<-hidden': `${S}.noDetail` },
+                        detail: { component: 'text', '<-_text': `${S}.detail`, 'own:hidden': `${S}.noDetail` },
                         path: note(`${S}.path`, `${S}.noPath`)
                     }, `${S}.noNotes`),
                     actions: row({
@@ -247,16 +250,16 @@ export const SIDE: PageSpec = {
                             delete: act(t['views.delete'], 'delete', `${S}.noDelete`, { tone: 'danger' })
                         })
                     }, `${S}.noCode`),
-                    inputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.inputs'], '<-hidden': `${S}.noInputs` },
-                    inputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': `${S}.inputs`, '<-hidden': `${S}.noInputs` },
-                    outputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.outputs'], '<-hidden': `${S}.noOutputs` },
-                    outputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': `${S}.outputs`, '<-hidden': `${S}.noOutputs` },
+                    inputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.inputs'], 'own:hidden': `${S}.noInputs` },
+                    inputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': `${S}.inputs`, 'own:hidden': `${S}.noInputs` },
+                    outputsTitle: { component: 'text', textRole: 'label', element: 'h4', _text: t['views.fn.outputs'], 'own:hidden': `${S}.noOutputs` },
+                    outputs: { component: 'codeBlock', language: 'json', size: 'sm', wrap: true, '<-code': `${S}.outputs`, 'own:hidden': `${S}.noOutputs` },
                     records: {
                         component: 'table',
                         density: 'compact',
                         placement: { height: '280px' },
                         '<-items': `${S}.records`,
-                        '<-hidden': `${S}.noRecords`,
+                        'own:hidden': `${S}.noRecords`,
                         columns: {
                             key: { _title: t['views.kind.record'], field: 'keyShown', width: '80px' },
                             field: { _title: t['views.kind.field'], field: 'field', width: '90px' },
@@ -271,14 +274,14 @@ export const SIDE: PageSpec = {
                         divided: true,
                         placement: { height: '240px' },
                         '<-items': `${S}.fields`,
-                        '<-hidden': `${S}.noFields`,
+                        'own:hidden': `${S}.noFields`,
                         row: {
                             component: 'panel',
                             padding: 'none',
                             layout: { type: 'row', gap: 'sm', align: 'end' },
                             children: {
                                 type: { component: 'selectField', size: 'sm', width: 16, options: options(FIELD_TYPES), '<-_label': '$row.name', '<-value': '$row.type', '@id': 'fieldType' },
-                                remove: remove('$row.removeText', 'removeField', `${S}.noFields`)
+                                remove: remove('$row.removeText', 'removeField', '$row.noRemove')
                             }
                         }
                     },
@@ -303,23 +306,23 @@ export const SIDE: PageSpec = {
                             columns: {
                                 name: { _title: t['views.endpointName'], field: 'name', width: '1fr' },
                                 does: { _title: t['views.endpointPath'], field: 'does', width: '2fr' },
-                                try: { _title: '', width: '64px', cell: act(t['views.try'], 'try', `${S}.noManage`, { variant: 'ghost' }) },
-                                remove: { _title: '', width: '40px', cell: remove('$row.removeText', 'removeEndpoint', `${S}.noManage`) }
+                                try: { _title: '', width: '64px', cell: act(t['views.try'], 'try', '$row.noManage', { variant: 'ghost' }) },
+                                remove: { _title: '', width: '40px', cell: remove('$row.removeText', 'removeEndpoint', '$row.noManage') }
                             }
                         },
-                        tried: { component: 'codeBlock', size: 'sm', wrap: true, '<-code': `${S}.tried`, '<-hidden': `${S}.noTried` }
+                        tried: { component: 'codeBlock', size: 'sm', wrap: true, '<-code': `${S}.tried`, 'own:hidden': `${S}.noTried` }
                     }, `${S}.noEndpoints`),
                     form: column({
                         formNote: { component: 'text', textRole: 'label', '<-_text': `${S}.formNote` },
-                        name: { component: 'textField', '<-_label': `${S}.nameLabel`, '<-value': `${S}.form.name`, '<-hidden': `${S}.noName`, '@id': 'name' },
-                        choice: { component: 'selectField', '<-_label': `${S}.choiceLabel`, '<-options': `${S}.choices`, '<-value': `${S}.form.choice`, '<-hidden': `${S}.noChoice`, '@id': 'choice' },
-                        second: { component: 'textField', '<-_label': `${S}.secondLabel`, '<-value': `${S}.form.second`, '<-hidden': `${S}.noSecond`, '@id': 'second' },
+                        name: { component: 'textField', '<-_label': `${S}.nameLabel`, '<-value': `${S}.form.name`, 'own:hidden': `${S}.noName`, '@id': 'name' },
+                        choice: { component: 'selectField', '<-_label': `${S}.choiceLabel`, '<-options': `${S}.choices`, '<-value': `${S}.form.choice`, 'own:hidden': `${S}.noChoice`, '@id': 'choice' },
+                        second: { component: 'textField', '<-_label': `${S}.secondLabel`, '<-value': `${S}.form.second`, 'own:hidden': `${S}.noSecond`, '@id': 'second' },
                         record: {
                             component: 'list',
                             rowHeight: 'md',
                             placement: { height: '200px' },
                             '<-items': `${S}.form.record`,
-                            '<-hidden': `${S}.noRecord`,
+                            'own:hidden': `${S}.noRecord`,
                             row: {
                                 component: 'panel',
                                 padding: 'none',
@@ -336,4 +339,4 @@ export const SIDE: PageSpec = {
             }
         };
     }
-};
+});

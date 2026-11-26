@@ -1,3 +1,5 @@
+import { hiddenBy } from './own.js';
+import { pageSpec } from './PageSpec.js';
 import { report } from '@punyts/core';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { msSince } from '../server/reporting.js';
@@ -52,7 +54,7 @@ function buttons(items: string, id: string, variant: string, hidden: string): Re
     return {
         component: 'list',
         '<-items': items,
-        '<-hidden': hidden,
+        ...hiddenBy(hidden),
         rowHeight: 'lg',
         row: { component: 'button', variant, '<-_title': '$row.label', '@id': id }
     };
@@ -83,7 +85,8 @@ export const LINK_HEARING: Hearing = {
  * button per test user (`dev`, with the name), heard by `SIGN_IN_HEARING`. What the server signs in with is data (`providers`, `devUsers`, and
  * `no…` flags that hide what it lacks), so an edited page follows a change of the server's options
  */
-export const SIGN_IN: PageSpec = {
+export const SIGN_IN: PageSpec = pageSpec({
+    record: { path: S, model: 'magnetic-signin' },
     name: 'magnetic-signin',
     title: 'Sign in',
     themed: true,
@@ -126,14 +129,14 @@ export const SIGN_IN: PageSpec = {
             home: centred({
                 brand: brand(),
                 tagline: { component: 'text', _text: t['signin.tagline'] },
-                error: { component: 'alert', tone: 'danger', '<-_title': `${S}.error`, '<-hidden': `${S}.noError` },
+                error: { component: 'alert', tone: 'danger', '<-_title': `${S}.error`, 'own:hidden': `${S}.noError` },
                 // Why someone who signs in now gets no free agent use: the beta is full
-                notice: { component: 'alert', tone: 'info', _title: t['signin.betaFull'], '<-_text': `${S}.notice`, '<-hidden': `${S}.noNotice` },
+                notice: { component: 'alert', tone: 'info', _title: t['signin.betaFull'], '<-_text': `${S}.notice`, 'own:hidden': `${S}.noNotice` },
                 providers: buttons(`${S}.providers`, 'provider', 'solid', `${S}.noProviders`),
                 work: {
                     component: 'panel',
                     padding: 'none',
-                    '<-hidden': `${S}.noSso`,
+                    'own:hidden': `${S}.noSso`,
                     layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
                     children: {
                         email: { component: 'textField', placement: { grow: 1 }, _label: t['signin.workTitle'], _placeholder: t['signin.workEmail'], '<-value': `${S}.workEmail`, '@id': 'workEmail' },
@@ -143,7 +146,7 @@ export const SIGN_IN: PageSpec = {
                 dev: {
                     component: 'panel',
                     padding: 'none',
-                    '<-hidden': `${S}.noDevUsers`,
+                    'own:hidden': `${S}.noDevUsers`,
                     layout: { type: 'column', gap: 'sm' },
                     children: {
                         title: { component: 'text', textRole: 'heading', _text: t['signin.devTitle'] },
@@ -151,17 +154,18 @@ export const SIGN_IN: PageSpec = {
                         users: buttons(`${S}.devUsers`, 'devUser', 'soft', `${S}.noDevUsers`)
                     }
                 },
-                none: { component: 'text', textRole: 'caption', '<-hidden': `${S}.noNone`, _text: t['signin.none'] }
+                none: { component: 'text', textRole: 'caption', 'own:hidden': `${S}.noNone`, _text: t['signin.none'] }
             })
         };
     }
-};
+});
 
 /**
  * A share link that does not open an app at once: its title and why, Your apps (`home`), and for a remix link the
  * offer to copy the app (`remix`), heard by `LINK_HEARING`
  */
-export const LINK: PageSpec = {
+export const LINK: PageSpec = pageSpec({
+    record: { path: '$.data.link', model: 'magnetic-linkpage' },
     name: 'magnetic-link',
     title: 'Share links',
     themed: true,
@@ -190,7 +194,7 @@ export const LINK: PageSpec = {
                 remix: {
                     component: 'panel',
                     padding: 'none',
-                    '<-hidden': '$.data.link.noRemix',
+                    'own:hidden': '$.data.link.noRemix',
                     layout: { type: 'column', gap: 'sm' },
                     children: {
                         remix: { component: 'button', _title: t['link.remix'], '@id': 'remix' },
@@ -200,7 +204,7 @@ export const LINK: PageSpec = {
             })
         };
     }
-};
+});
 
 export const PAGE_APPS = { signIn: SIGN_IN, link: LINK } as const;
 

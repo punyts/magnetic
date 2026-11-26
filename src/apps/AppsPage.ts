@@ -1,3 +1,4 @@
+import { pageSpec } from '../pages/PageSpec.js';
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { hearingIds } from '../http/raised.js';
@@ -30,7 +31,8 @@ const field = (name: string, type: string, value: unknown): Record<string, unkno
  * - It hears a press of a card (`card`, the app's id from its row), the view once a pan or zoom ends (`canvas`'s
  *   change) and a press on the empty canvas (`canvas`).
  */
-export const APPS: PageSpec = {
+export const APPS: PageSpec = pageSpec({
+    record: { path: A, model: APPS_APP },
     name: APPS_APP,
     title: 'Apps',
     themed: true,
@@ -64,7 +66,7 @@ export const APPS: PageSpec = {
                 padding: 'none',
                 layout: { type: 'column', gap: 'none' },
                 children: {
-                    none: { component: 'text', muted: true, _text: t['apps.none'], '<-hidden': `${A}.filled` },
+                    none: { component: 'text', muted: true, _text: t['apps.none'], 'own:hidden': `${A}.filled` },
                     [APPS_KEYS.canvas]: {
                         component: 'viewport',
                         grid: true,
@@ -99,4 +101,4 @@ export const APPS: PageSpec = {
             }
         };
     }
-};
+});

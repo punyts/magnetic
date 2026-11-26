@@ -66,7 +66,7 @@ import { SitePages } from '../pages/SitePages.js';
 import { LAYOUTS } from '@punyts/stateui-app/core';
 import { EDITOR, EDITOR_APP, EditorApps } from '../editor/EditorApp.js';
 import { isBlankApp, STARTER_APP_LAYOUT, starterScreen } from '../editor/StarterScreen.js';
-import { LINK_HEARING, PAGE_APPS, PageApps, SIGN_IN_HEARING } from '../pages/PageApps.js';
+import { LINK, LINK_HEARING, PAGE_APPS, PageApps, SIGN_IN, SIGN_IN_HEARING } from '../pages/PageApps.js';
 import { SCREENS } from '../screens/ScreensPage.js';
 import { STATENET } from '../statenet/StatenetPage.js';
 import { THEME } from '../theme/ThemePage.js';
@@ -559,6 +559,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
                     noNone: providers.length > 0 || people.length > 0 || work || network
                 }
             },
+            own: SIGN_IN.own,
             hearing: SIGN_IN_HEARING,
             actions: { provider: { go: `/auth/{id}${query}` }, dev: button?.go !== undefined ? { go: button.go } : button?.post !== undefined ? { post: button.post, form: { token: '{id}', next } } : { post: '/signin/dev', form: { user: '{id}', next } }, sso: { go: `/signin/sso?email={id}${next === '/' ? '' : `&next=${encodeURIComponent(next)}`}` } }
         });
@@ -574,6 +575,7 @@ export async function startMagnetic(options: MagneticOptions): Promise<RunningMa
             app,
             fallback: app.published,
             data: { '$.data.link': { title, message, noRemix: remix === undefined } },
+            own: LINK.own,
             hearing: LINK_HEARING,
             actions: { home: { go: '/' }, ...(remix !== undefined && { remix: { post: `/s/${encodeURIComponent(remix)}/remix` } }) }
         });

@@ -1,3 +1,5 @@
+import { hiddenBy } from '../pages/own.js';
+import { pageSpec } from '../pages/PageSpec.js';
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { hearingIds } from '../http/raised.js';
@@ -46,7 +48,7 @@ function tile(addFirst: string): Record<string, unknown> {
         variant: size === 'lg' ? 'soft' : 'ghost',
         tone: 'neutral',
         '<-_title': label,
-        ...(hidden !== undefined && { '<-hidden': hidden }),
+        ...(hidden !== undefined && hiddenBy(hidden)),
         '@id': id
     });
     return {
@@ -128,7 +130,8 @@ function tile(addFirst: string): Record<string, unknown> {
  *   zoom ends, and `canvas` for a press on the empty canvas.
  * - The editor's zoom runs the commands of the node keyed `canvas` (`SCREENS_KEYS`), wherever it is.
  */
-export const SCREENS: PageSpec = {
+export const SCREENS: PageSpec = pageSpec({
+    record: { path: S, model: SCREENS_APP },
     name: SCREENS_APP,
     title: 'Screens',
     themed: true,
@@ -191,4 +194,4 @@ export const SCREENS: PageSpec = {
             }
         };
     }
-};
+});

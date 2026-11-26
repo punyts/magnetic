@@ -1,3 +1,5 @@
+import { pageSpec } from '../pages/PageSpec.js';
+import { ownWrites, pathOfId } from '../pages/own.js';
 import type { Authority } from '@punyts/state-sync/authority';
 import type { Services, UiToolDefinition } from '@punyts/stateui-mcp';
 import { LANGUAGE_NAMES, LANGUAGES, MODES } from '../prefs/Preferences.js';
@@ -224,12 +226,12 @@ function homeScreen(t: Texts): Record<string, unknown> {
                         '<-active': `${H}.tab`,
                         children: {
                             apps: tab(t['home.tabApps'], 'apps', {
-                                invitesWaiting: { component: 'alert', tone: 'info', icon: 'mail', _text: t['home.invitesWaiting'], '<-hidden': `${H}.noInvites` },
+                                invitesWaiting: { component: 'alert', tone: 'info', icon: 'mail', _text: t['home.invitesWaiting'], 'own:hidden': `${H}.noInvites` },
                                 // Shown only while changes people asked for wait for a decision
                                 requestsWaiting: {
                                     component: 'panel',
                                     padding: 'none',
-                                    '<-hidden': `${H}.noRequests`,
+                                    'own:hidden': `${H}.noRequests`,
                                     layout: { type: 'row', gap: 'sm', align: 'center' },
                                     children: {
                                         alert: { component: 'alert', tone: 'warning', icon: 'inbox', placement: { grow: 1 }, '<-_text': `${H}.requestsLine` },
@@ -255,7 +257,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                 invitesBox: {
                                     component: 'panel',
                                     bordered: true,
-                                    '<-hidden': `${H}.noInvites`,
+                                    'own:hidden': `${H}.noInvites`,
                                     _title: t['home.invitesTitle'],
                                     _description: t['home.invitesText'],
                                     layout: { type: 'column', gap: 'sm' },
@@ -267,7 +269,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     layout: { type: 'row', gap: 'sm', align: 'center' },
                                     children: {
                                         title: { component: 'text', textRole: 'heading', element: 'h2', placement: { grow: 1 }, _text: t['home.orgsTitle'] },
-                                        make: { component: 'button', size: 'sm', variant: 'soft', '<-hidden': `${H}.noMakeOrg`, _title: t['home.makeOrg'], '@id': 'makeOrg' }
+                                        make: { component: 'button', size: 'sm', variant: 'soft', 'own:hidden': `${H}.noMakeOrg`, _title: t['home.makeOrg'], '@id': 'makeOrg' }
                                     }
                                 },
                                 orgsHint: { component: 'text', textRole: 'caption', _text: t['home.orgsText'] },
@@ -281,7 +283,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     _description: t['home.usageText'],
                                     layout: { type: 'row', gap: 'lg', align: 'center', wrap: true },
                                     children: {
-                                        ring: { component: 'progress', shape: 'ring', size: 'lg', _label: t['home.billing'], '<-value': `${H}.usedCents`, '<-max': `${H}.totalCents`, '<-tone': `${H}.usageTone` },
+                                        ring: { component: 'progress', shape: 'ring', size: 'lg', _label: t['home.billing'], '<-value': `${H}.usedCents`, '<-max': `${H}.totalCents`, 'own:tone': `${H}.usageTone` },
                                         words: {
                                             component: 'panel',
                                             padding: 'none',
@@ -323,7 +325,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                                 data: link('data', t['home.data']),
                                                 requests: link('requests', t['home.requests']),
                                                 device: link('device', t['home.device']),
-                                                admin: link('admin', t['home.admin'], { '<-hidden': `${H}.notAdmin` }),
+                                                admin: link('admin', t['home.admin'], { 'own:hidden': `${H}.notAdmin` }),
                                                 signout: link('signout', t['home.signOut'], { variant: 'ghost' })
                                             }
                                         }
@@ -381,7 +383,8 @@ const HOME_FIELDS = [
 ];
 
 /** Your apps as a page of Magnetic's: made in English, with the other languages as locales */
-export const HOME: PageSpec = {
+export const HOME: PageSpec = pageSpec({
+    record: { path: H, model: HOME_MODEL },
     name: HOME_APP,
     title: 'Your apps',
     themed: false,
@@ -427,7 +430,7 @@ export const HOME: PageSpec = {
             home: homeScreen(t)
         };
     }
-};
+});
 
 /**
  * Each person's "Your apps": a StateUI app in their own workspace, made from Magnetic's version and kept when they change
@@ -474,7 +477,7 @@ export class HomeApps extends PersonPages {
         const state = own.get('$');
         const tab = valueAt(state, `${H}.tab`);
         const usage = data.usage ?? { line: '', today: '', usedCents: 0, totalCents: 1, tone: 'accent' };
-        const wanted: Array<[string, unknown]> = [
+        const fields: Array<[string, unknown]> = [
             ['$.data.apps', byId(data.apps)],
             ['$.data.orgs', byId(data.orgs ?? [])],
             ['$.data.invites', byId(data.invites ?? [])],
@@ -500,6 +503,13 @@ export class HomeApps extends PersonPages {
                 }
             ]
         ];
+        // A field that is a node's own state (the Admin link's hidden) goes to that node, wherever the person's copy has it
+        const placed = ownWrites(HOME.own, fields.map(([path, value]) => ({ path, value })), (target) => {
+            const dot = target.indexOf('.');
+            const node = pathOfId(state, target.slice(0, dot));
+            return node === undefined ? '' : node + target.slice(dot);
+        });
+        const wanted: Array<[string, unknown]> = placed.filter((write) => write.path !== '').map((write) => [write.path, write.value]);
         const set = async (path: string, value: unknown): Promise<void> => {
             if (own.write({ op: 'set', path, value } as Parameters<Authority['write']>[0]) === undefined) report?.('Your apps refused a write', { path });
         };

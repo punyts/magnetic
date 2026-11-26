@@ -1,3 +1,5 @@
+import { hiddenBy } from '../pages/own.js';
+import { pageSpec } from '../pages/PageSpec.js';
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { hearingIds } from '../http/raised.js';
@@ -37,7 +39,7 @@ const action = (icon: string, title: string, hidden: string, id: string, tone?: 
     size: 'sm',
     variant: 'ghost',
     _title: title,
-    '<-hidden': hidden,
+    ...hiddenBy(hidden),
     ...(tone !== undefined && { tone }),
     '@id': id
 });
@@ -88,7 +90,8 @@ function unitCard(t: ReturnType<typeof textsOf>): Record<string, unknown> {
  *   `{ key, from, to, index }` (a card dragged to a lane), `delete` with a unit's id, `create` with the group of the new
  *   unit, and `back` (to Statenet).
  */
-export const LOGIC: PageSpec = {
+export const LOGIC: PageSpec = pageSpec({
+    record: { path: L, model: LOGIC_APP },
     name: LOGIC_APP,
     title: 'Logic',
     themed: true,
@@ -133,7 +136,7 @@ export const LOGIC: PageSpec = {
                         padding: 'none',
                         layout: { type: 'row', gap: 'sm', align: 'end', wrap: true },
                         children: {
-                            back: { component: 'button', size: 'sm', variant: 'outline', _title: t['views.backToGraph'], '<-hidden': `${L}.noBack`, '@id': 'back' },
+                            back: { component: 'button', size: 'sm', variant: 'outline', _title: t['views.backToGraph'], 'own:hidden': `${L}.noBack`, '@id': 'back' },
                             group: {
                                 component: 'selectField',
                                 _label: t['views.unitKind'],
@@ -147,8 +150,8 @@ export const LOGIC: PageSpec = {
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${L}.status` }
                         }
                     },
-                    refused: { component: 'alert', tone: 'danger', '<-_text': `${L}.refusal`, '<-hidden': `${L}.noRefusal` },
-                    none: { component: 'text', muted: true, _text: t['views.noUnits'], '<-hidden': `${L}.hasUnits` },
+                    refused: { component: 'alert', tone: 'danger', '<-_text': `${L}.refusal`, 'own:hidden': `${L}.noRefusal` },
+                    none: { component: 'text', muted: true, _text: t['views.noUnits'], 'own:hidden': `${L}.hasUnits` },
                     notes: {
                         component: 'panel',
                         padding: 'none',
@@ -170,13 +173,13 @@ export const LOGIC: PageSpec = {
                         card: unitCard(t),
                         '@id': 'lanes'
                     },
-                    handlersTitle: { component: 'text', textRole: 'label', _text: t['views.handlers'], '<-hidden': `${L}.noHandlers` },
-                    handlersNote: { component: 'text', textRole: 'caption', muted: true, _text: t['views.handlersNote'], '<-hidden': `${L}.noHandlers` },
+                    handlersTitle: { component: 'text', textRole: 'label', _text: t['views.handlers'], 'own:hidden': `${L}.noHandlers` },
+                    handlersNote: { component: 'text', textRole: 'caption', muted: true, _text: t['views.handlersNote'], 'own:hidden': `${L}.noHandlers` },
                     handlers: {
                         component: 'list',
                         divided: true,
                         placement: { height: '160px' },
-                        '<-hidden': `${L}.noHandlers`,
+                        'own:hidden': `${L}.noHandlers`,
                         '<-items': `${L}.handlers`,
                         row: {
                             component: 'panel',
@@ -192,4 +195,4 @@ export const LOGIC: PageSpec = {
             }
         };
     }
-};
+});

@@ -1,3 +1,5 @@
+import { hiddenBy } from '../pages/own.js';
+import { pageSpec } from '../pages/PageSpec.js';
 import { textsOf } from '../http/text.js';
 import type { PageSpec } from '../pages/PageSpec.js';
 import { hearingIds } from '../http/raised.js';
@@ -74,7 +76,7 @@ const tool = (title: string, id: string, hidden?: string, extra: Record<string, 
     size: 'sm',
     variant: 'outline',
     _title: title,
-    ...(hidden !== undefined && { '<-hidden': hidden }),
+    ...(hidden !== undefined && hiddenBy(hidden)),
     ...extra,
     '@id': id
 });
@@ -94,7 +96,8 @@ const tool = (title: string, id: string, hidden?: string, extra: Record<string, 
  *   shared theme for every app), `clone`, `default`, `remove`, `add` with a theme's name, `create` with the preset
  *   and `back` (to Statenet).
  */
-export const THEME: PageSpec = {
+export const THEME: PageSpec = pageSpec({
+    record: { path: T, model: THEME_APP },
     name: THEME_APP,
     title: 'Theme',
     themed: true,
@@ -159,7 +162,7 @@ export const THEME: PageSpec = {
                                 size: 'sm',
                                 '<-options': `${T}.themes`,
                                 '<-value': `${T}.chosen`,
-                                '<-hidden': `${T}.noTheme`,
+                                'own:hidden': `${T}.noTheme`,
                                 '@id': 'choose'
                             },
                             makeDefault: tool(t['views.makeDefault'], 'makeDefault', `${T}.noDefault`),
@@ -172,7 +175,7 @@ export const THEME: PageSpec = {
                                 size: 'sm',
                                 '<-options': `${T}.others`,
                                 '<-value': `${T}.adding`,
-                                '<-hidden': `${T}.noOthers`,
+                                'own:hidden': `${T}.noOthers`,
                                 '@id': 'add'
                             },
                             preset: {
@@ -188,13 +191,13 @@ export const THEME: PageSpec = {
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${T}.status` }
                         }
                     },
-                    refused: { component: 'alert', tone: 'danger', '<-_text': `${T}.refusal`, '<-hidden': `${T}.noRefusal` },
-                    none: { component: 'text', muted: true, _text: t['views.noTheme'], '<-hidden': `${T}.hasTheme` },
+                    refused: { component: 'alert', tone: 'danger', '<-_text': `${T}.refusal`, 'own:hidden': `${T}.noRefusal` },
+                    none: { component: 'text', muted: true, _text: t['views.noTheme'], 'own:hidden': `${T}.hasTheme` },
                     shared: {
                         component: 'alert',
                         tone: 'info',
                         '<-_text': `${T}.sharedText`,
-                        '<-hidden': `${T}.notShared`,
+                        'own:hidden': `${T}.notShared`,
                         actions: {
                             component: 'panel',
                             padding: 'none',
@@ -208,7 +211,7 @@ export const THEME: PageSpec = {
                     specimens: {
                         component: 'panel',
                         padding: 'none',
-                        '<-hidden': `${T}.noTheme`,
+                        'own:hidden': `${T}.noTheme`,
                         layout: { type: 'grid', cols: 3, gap: 'md', collapseBelow: 'md' },
                         children: Object.fromEntries(THEME_MODES.map((mode) => [mode, specimen(mode, modeTitle(mode), t['views.specimenText'], t['views.specimenButton'])]))
                     },
@@ -216,7 +219,7 @@ export const THEME: PageSpec = {
                         component: 'table',
                         _empty: t['views.noTheme'],
                         placement: { height: '480px' },
-                        '<-hidden': `${T}.noTheme`,
+                        'own:hidden': `${T}.noTheme`,
                         '<-items': `${T}.tokens`,
                         columns: {
                             group: { _title: '', field: 'group', width: '100px' },
@@ -229,4 +232,4 @@ export const THEME: PageSpec = {
             }
         };
     }
-};
+});
