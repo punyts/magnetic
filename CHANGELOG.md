@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **Fix: adding a field in the model editor no longer ends in a revision notice.** Each row's type select raises a
+  change when the fields list is drawn, with the type the field already has; the editor wrote every one of them (adding
+  `weight` to a model with `name` sent four writes), and those written beside the add or with the revision of the
+  editor before it were refused: "The model is at revision N, not the revision expected…". `modelEditor`
+  (`src/http/views.ts`) now ignores a change to the type a field already has, keeps one revision, and writes one
+  change at a time, each at the revision the one before it left. Test: `e2e/views.spec.ts` ("a model's fields are
+  added one after another in the side panel, each written once and none refused"), which counts the writes.
 - **Fix: one maker of the statenet authority's key.** On an empty database two servers and `relay-certificate` each
   inserted a key and read back the oldest by `created_at`, which a later-committed insert with an earlier time could
   change after another had already signed with its own. `StatenetAuthority.keys()` now looks and inserts under a

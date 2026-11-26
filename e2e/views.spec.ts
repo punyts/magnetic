@@ -278,6 +278,45 @@ test.describe("The editor's views", () => {
         await expect(side.getByRole('textbox', { name: /^\S+ name$/ })).toHaveValue('Washer');
     });
 
+    test("a model's fields are added one after another in the side panel, each written once and none refused", async ({ page }, info) => {
+        // Arrange: a model of alice's, from a dataset made as the agent would
+        const seeded = uniqueName(info, 'crates');
+        await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset: seeded, records: { bolt: { name: 'Bolt' } } });
+        await pickView(editor, page, 'Statenet');
+        const side = sidePanel(page);
+        const writes: string[] = [];
+        page.on('request', (request) => {
+            if (request.method() === 'POST' && request.url().endsWith('/data')) writes.push(request.postData() ?? '');
+        });
+        const card = node(page, `$.models.${seeded}-item`);
+        await expect(card).toBeVisible();
+        await press(card);
+        await expect(side.getByRole('heading', { name: `${seeded}-item` })).toBeVisible();
+
+        // Act: two fields in a row
+        for (const [field, type] of [['weight', 'number'], ['fragile', 'boolean']] as const) {
+            await side.getByRole('textbox', { name: 'Field name' }).fill(field);
+            await side.getByRole('combobox', { name: 'Type', exact: true }).selectOption(type);
+            await side.getByRole('button', { name: 'Add the field' }).click();
+            await expect(side.getByRole('combobox', { name: field, exact: true })).toHaveValue(type);
+        }
+        await expect(graph(page)).toContainText('Saved');
+        await page.waitForTimeout(500);
+
+        // Assert: one write for each field, and nothing refused
+        expect(writes.map((body) => (JSON.parse(body) as { operations: Array<{ field: string }> }).operations.map((operation) => operation.field).join())).toEqual(['weight', 'fragile']);
+        await expect(graph(page).getByRole('alert')).toHaveCount(0);
+        await expect(graph(page)).not.toContainText('revision');
+
+        // Act: the type of a field changed in its row
+        await side.getByRole('combobox', { name: 'weight', exact: true }).selectOption('string');
+
+        // Assert: written once, at the revision the editor holds
+        await expect.poll(() => writes.length).toBe(3);
+        await expect(graph(page)).toContainText('Saved');
+        await expect(graph(page).getByRole('alert')).toHaveCount(0);
+    });
+
     test('a card of the graph opens its editor beside it: the app leads to its screens, a theme to the Theme view and back', async ({ page }, info) => {
         // Arrange: a theme of the app's own
         const name = uniqueName(info, 'card');

@@ -969,11 +969,29 @@ function datasetEditor(part, id, use) {
     });
 }
 
-/** A model's fields at the side: a type changed is set, Remove takes a field away (asked first), and a field is added below */
+/**
+ * A model's fields at the side: a type changed is set, Remove takes a field away (asked first), and a field is added
+ * below. The editor holds one revision of the model and writes one change at a time, each at the revision the one
+ * before it left. A row's select raises a change when the list is drawn (again, after a field is added), with the type
+ * the field already has: that is no change and writes nothing
+ */
 function modelEditor(part, id) {
     let revision = part.revision;
     const reopen = async () => modelEditor(await getJson('/part?kind=models&name=' + encodeURIComponent(part.name)), id);
     const fields = Object.entries(part.fields || {}).map(([field, declaration]) => ({ id: 'f-' + field, name: field, type: (declaration && declaration.type) || 'any', removeText: T['views.removeField'] + ' ' + field }));
+    /** The type each field has, as read or as last asked for */
+    const types = Object.fromEntries(fields.map((field) => [field.name, field.type]));
+    let last = Promise.resolve();
+    /** Writes operations once the write before is answered; the answer, or undefined when it was refused */
+    const write = (operations) => {
+        const run = last.then(async () => {
+            const answer = await change('data', { model: part.name, revision, operations });
+            if (answer) revision = answer.revision;
+            return answer;
+        });
+        last = run.catch(() => undefined);
+        return run;
+    };
     return sideShow(id, {
         title: part.name,
         fields,
@@ -982,17 +1000,19 @@ function modelEditor(part, id) {
     }, {
         fieldType: async (row) => {
             if (!row || typeof row.name !== 'string' || typeof row.type !== 'string') return;
-            const answer = await change('data', { model: part.name, revision, operations: [{ op: 'set', field: row.name, type: row.type }] });
-            if (answer) revision = answer.revision;
+            if (!Object.hasOwn(types, row.name) || types[row.name] === row.type) return;
+            const before = types[row.name];
+            types[row.name] = row.type;
+            if (!(await write([{ op: 'set', field: row.name, type: row.type }])) && types[row.name] === row.type) types[row.name] = before;
         },
         removeField: async (field) => {
             if (typeof field !== 'string' || !confirm(fill(T['views.removeFieldAsk'], { field, model: part.name }))) return;
-            if (await change('data', { model: part.name, revision, operations: [{ op: 'remove', field }] })) await reopen();
+            if (await write([{ op: 'remove', field }])) await reopen();
         },
         submit: async (form) => {
             const field = ((form && form.second) || '').trim();
             if (!field) { says(T['views.fieldNameNeeded'], true); return; }
-            if (await change('data', { model: part.name, revision, operations: [{ op: 'set', field, type: form.choice }] })) await reopen();
+            if (await write([{ op: 'set', field, type: form.choice }])) await reopen();
         }
     });
 }
