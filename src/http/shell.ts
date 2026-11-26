@@ -8,7 +8,7 @@ import { SIDE_APP } from '../side/SidePage.js';
 import { STATENET_APP } from '../statenet/StatenetPage.js';
 import { THEME_APP } from '../theme/ThemePage.js';
 import { ZOOM_CSS } from './zoom.js';
-import { EDITOR, EDITOR_HEARING } from '../editor/EditorApp.js';
+import { EDITOR, EDITOR_FIELDS, EDITOR_HEARING } from '../editor/EditorApp.js';
 import { HEARING_JS, hearingJs } from './raised.js';
 import { SCRIPT_TEXTS, textBlock, textsOf } from './text.js';
 
@@ -172,8 +172,9 @@ export const LAYERS_CSS = `.inspect-layer { position: absolute; left: 0; top: 0;
 
 /**
  * `/assets/shell.js`, after the host script: mounts the editor and drives it (the chat, Share, the choices, the tools,
- * the frame size and the zoom), and runs the canvas. What it shows goes into the editor's data (`$.data.editor` and its
- * lists); what the person does there comes back as reports of the editor's nodes with an `@id`, read by `EDITOR_HEARING`
+ * the frame size and the zoom), and runs the canvas. What it shows goes into the editor's data (a record per namespace,
+ * `$.data.chat`, `$.data.inspector` and so on, each field at its path in `EDITOR_FIELDS`, and its lists); what the person
+ * does there comes back as reports of the editor's nodes with an `@id`, read by `EDITOR_HEARING`
  * (`onHeard`, or `onRaised` for the report itself). `/assets/inspect.js` adds the selection, the
  * properties, the component library and the state, through the same editor (`magneticShell.editor`)
  */
@@ -264,17 +265,23 @@ let noScreens = false;
 
 /** The fields that are a node's own state (a pane's hidden, a button's look), each with where it goes by id (src/pages/own.ts) */
 const OWN = ${JSON.stringify(EDITOR.own)};
+/** The data path of each field of the editor, in the namespace it belongs to (EDITOR_FIELDS: status is $.data.chat.status) */
+const FIELDS = ${JSON.stringify(EDITOR_FIELDS)};
 
 /**
- * Writes fields of the editor; the same value written again changes nothing. A field that is a node's own state
- * (chatHidden, noSelection, libraryLook) is written to that node by its id, the others to $.data.editor
+ * Writes fields of the editor, each by its name alone, at its path in FIELDS; the same value written again changes
+ * nothing. A field that is a node's own state (chatHidden, noSelection, libraryLook) is written to that node by its id,
+ * the others to their namespace of the editor's data ($.data.chat, $.data.inspector, ...). A name the editor does not
+ * have is a mistake in this script
  */
 function ed(fields) {
     const writes = [];
     for (const [name, value] of Object.entries(fields)) {
+        const path = FIELDS[name];
+        if (path === undefined) throw new Error('The editor has no field ' + name);
         if (JSON.stringify(editorState[name]) === JSON.stringify(value)) continue;
         editorState[name] = value;
-        writes.push({ path: '$.data.editor.' + name, value });
+        writes.push({ path, value });
     }
     write(writes);
 }

@@ -91,7 +91,7 @@ function unitCard(t: ReturnType<typeof textsOf>): Record<string, unknown> {
  *   unit, and `back` (to Statenet).
  */
 export const LOGIC: PageSpec = pageSpec({
-    record: { path: L, model: LOGIC_APP },
+    records: [{ path: L, model: LOGIC_APP }],
     name: LOGIC_APP,
     title: 'Logic',
     themed: true,

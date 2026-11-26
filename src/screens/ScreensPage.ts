@@ -131,7 +131,7 @@ function tile(addFirst: string): Record<string, unknown> {
  * - The editor's zoom runs the commands of the node keyed `canvas` (`SCREENS_KEYS`), wherever it is.
  */
 export const SCREENS: PageSpec = pageSpec({
-    record: { path: S, model: SCREENS_APP },
+    records: [{ path: S, model: SCREENS_APP }],
     name: SCREENS_APP,
     title: 'Screens',
     themed: true,

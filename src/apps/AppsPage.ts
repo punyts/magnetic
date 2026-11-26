@@ -32,7 +32,7 @@ const field = (name: string, type: string, value: unknown): Record<string, unkno
  *   change) and a press on the empty canvas (`canvas`).
  */
 export const APPS: PageSpec = pageSpec({
-    record: { path: A, model: APPS_APP },
+    records: [{ path: A, model: APPS_APP }],
     name: APPS_APP,
     title: 'Apps',
     themed: true,

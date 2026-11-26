@@ -4,7 +4,8 @@ import { SCRIPT_TEXTS } from './text.js';
  * `/assets/inspect.js`: the editor's inspector, after `/assets/host.js` and `/assets/shell.js`.
  *
  * The inspector's tabs are part of the editor app (`magneticShell.editor`): this script writes what they show into the
- * editor's data (`$.data.editor` and the lists `components`, `paths`, `feed`), fills its `propertyFields` panel with
+ * editor's data (its records, such as `$.data.inspector`, and the lists `components`, `paths`, `feed`), fills its
+ * `propertyFields` panel with
  * a field per property, and acts on what it hears from the editor. It asks the live app about its nodes with `stateuiHost.inspect` and
  * draws the hover, the selection and where a node lands on an overlay above it, in the app's own pixels: a layer that
  * follows the live app's element on its card (`magneticScreens.liveApp`) and scales with the canvas. With the Move

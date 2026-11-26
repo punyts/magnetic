@@ -89,7 +89,7 @@ function card(): Record<string, unknown> {
  * - The editor's zoom runs the commands of the node keyed `canvas` (`STATENET_KEYS`), wherever it is.
  */
 export const STATENET: PageSpec = pageSpec({
-    record: { path: N, model: STATENET_APP },
+    records: [{ path: N, model: STATENET_APP }],
     name: STATENET_APP,
     title: 'Statenet',
     themed: true,

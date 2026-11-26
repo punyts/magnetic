@@ -1,6 +1,25 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **The editor's data is in namespaces, a record for each part of the editor.** `$.data.editor` (one model,
+  `magnetic-editor`, of several dozen unrelated fields) is gone. The editor's data is eleven records, each with a
+  model (`magnetic-editor-<namespace>`) and a binding of its own (`RECORDS` in `src/editor/EditorApp.ts`): `app`
+  (the app's name and workspace, the notice, whether it is blank), `chat` (status and data lines, focus and context
+  chips, the model, the agent's note, agent use), `inspector` (status, heading, breadcrumb, tab, the state path's
+  detail), `sharing`, `preferences`, `feedback`, `canvas` (view, frame size, zoom), `rail` (tool, layers, the
+  buttons' looks), `screensPanel`, `connectionsPanel` and `sharedPanel`. The lists (`messages`, `calls`,
+  `links`, `components`, `screens`, `connections`, `shared`, `paths`, `feed`) are as they were. Fields keep their
+  names, and a name is in one namespace only: `EDITOR_FIELDS` maps each to its data path (`status` to
+  `$.data.chat.status`), is made from the models, and is in `/assets/shell.js` as `FIELDS`, so the scripts still
+  write `ed({ status })` and `editor.set({ … })`; a name the editor does not have now throws there. A pane's flag
+  (`chatHidden`) maps under `$.data.panes`, which is no data: `EDITOR.own` takes it to the pane's own `hidden` by id.
+  `pageSpec` takes `records` (a list of `{ path, model }`) in place of `record`, and `ownTree(definition, models,
+  records)` takes each `own:` field out of the model of its record; a field named without a path is the first
+  record's that has it. Breaking: `$.data.editor` and the model `magnetic-editor` are no more, a person's changed
+  copy of the editor keeps the old paths until they reset it, and `PageSource.record` and `ownTree`'s `base` and
+  `model` arguments are replaced. Tests: `src/editor/EditorApp.test.ts` (each field in one namespace with a model
+  and a binding, the panes' flags), `src/pages/own.test.ts` (two records), `src/pages/ownState.test.ts`, and the
+  e2e suite over the editor.
 - **A page's own state is on its nodes, not in its data** (docs/design/state-definitions-and-instances.md). The 103
   fields of Magnetic's ten pages that only fed a node's `hidden`, `variant` or `tone` (`noNotice`, `noSelection`,
   `libraryLook`, …) left the pages' models. A definition marks the node (`'own:hidden': 'noNotice'`); `pageSpec`

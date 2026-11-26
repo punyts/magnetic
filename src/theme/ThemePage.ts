@@ -97,7 +97,7 @@ const tool = (title: string, id: string, hidden?: string, extra: Record<string, 
  *   and `back` (to Statenet).
  */
 export const THEME: PageSpec = pageSpec({
-    record: { path: T, model: THEME_APP },
+    records: [{ path: T, model: THEME_APP }],
     name: THEME_APP,
     title: 'Theme',
     themed: true,

@@ -31,13 +31,13 @@ export const EDITOR_APP = 'magnetic-editor';
  * The page drives the editor through its data and the ids of its nodes only, never through the paths of its nodes, so a person (or
  * the agent) can move, restyle, add or drop any panel and the rest keeps working:
  *
- * - The page writes `$.data.editor` (one record: the app's name, the tool, the zoom, the status, which panels are open,
- *   the selection's breadcrumb and details, the person's choices) and the lists `messages`, `calls`, `links`,
- *   `components`, `paths` and `feed`.
+ * - The page writes the editor's data, a record per namespace (`$.data.app`, `chat`, `inspector`, `sharing`,
+ *   `preferences`, `feedback`, `canvas`, `rail`, `screensPanel`, `connectionsPanel`, `sharedPanel`: `RECORDS`), and the
+ *   lists `messages`, `calls`, `links`, `components`, `screens`, `connections`, `shared`, `paths` and `feed`.
  * - The page hears what the person does through the ids of the editor's nodes (`EDITOR_HEARING`) and acts on it.
  * - Two parts are found by their key wherever they are: `stage`, the full-window area whose children float (each is
  *   let through), and `propertyFields`, the panel the page fills with a field per property of the selected node. The
- *   inspector's tabs follow `$.data.editor.tab`.
+ *   inspector's tabs follow `$.data.inspector.tab`.
  */
 export const EDITOR_KEYS = { stage: 'stage', propertyFields: 'propertyFields' } as const;
 
@@ -140,9 +140,7 @@ export const EDITOR_HEARING: Hearing = {
     'feedbackSend.press': { name: 'feedbackSend' }
 };
 
-const E = '$.data.editor';
-
-/** The fields of `$.data.editor` that are true until the page says otherwise: what starts hidden */
+/** The fields of the editor's data that are true until the page says otherwise: what starts hidden */
 const HIDDEN_AT_FIRST = [
     'noSelection', 'noDetail', 'noFocus', 'noDataLine', 'noNotice', 'cannotRemove', 'notWorking', 'notBlank', 'noStatus', 'noModels', 'noMessages',
     'isHome', 'notHome', 'noScreensStatus', 'notInOrg', 'noConnectionsStatus', 'cannotManage', 'noSharedStatus', 'cannotManageData', 'noBudget'
@@ -157,55 +155,112 @@ export const EDITOR_PANES: Readonly<Record<string, string>> = Object.fromEntries
     ['chat', 'inspector', 'share', 'prefs', 'hint', 'drawer', 'narrow', 'library', 'screens', 'connections', 'shared', 'feedback', 'side', 'statenet', 'theme', 'logic', 'wide', 'board'].map((name) => [`${name}Hidden`, `${name}Pane`])
 );
 
-/** The models of the editor's data */
-const MODELS: Record<string, readonly Record<string, unknown>[]> = {
-    'magnetic-editor': [
-        ...['appName', 'workspaceName', 'connectionsStatus', 'sharedStatus', 'zoom', 'status', 'dataLine', 'inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'shareStatus', 'prefsStatus', 'notice', 'note', 'feedbackText', 'feedbackStatus', 'budgetLine'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
-        { op: 'set', field: 'size', type: 'string', default: 'desktop' },
-        // The frame's size among the common sizes of the device chosen (`1280x800`), and those sizes as options
-        { op: 'set', field: 'frame', type: 'string', default: '1280x800' },
-        { op: 'set', field: 'frames', type: 'object', default: {} },
-        { op: 'set', field: 'feedbackKind', type: 'string', default: 'bug' },
-        { op: 'set', field: 'tool', type: 'string', default: 'use' },
-        { op: 'set', field: 'shareRight', type: 'string', default: 'use' },
-        { op: 'set', field: 'mode', type: 'string', default: 'system' },
-        { op: 'set', field: 'language', type: 'string', default: 'en' },
-        { op: 'set', field: 'crumb', type: 'string', default: '' },
-        { op: 'set', field: 'crumbs', type: 'object', default: {} },
+type Operation = Record<string, unknown>;
+const texts = (...fields: string[]): Operation[] => fields.map((field) => ({ op: 'set', field, type: 'string', default: '' }));
+const flags = (...fields: string[]): Operation[] => fields.map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) }));
+
+/**
+ * The editor's data by namespace: each is one record at `$.data.<namespace>` with a model of its own
+ * (`magnetic-editor-<namespace>`, `magnetic-editor-screens-panel`), named for the part of the editor its fields are about. A field's name is unique
+ * across the namespaces, so the page script names a field alone and `EDITOR_FIELDS` says where it is
+ */
+const RECORDS: Readonly<Record<string, readonly Operation[]>> = {
+    // The app worked on and the window it is edited in: its name and workspace, a notice over everything, and whether
+    // the window is narrow (below 760px) and the app blank
+    app: [...texts('appName', 'workspaceName', 'notice'), ...flags('noNotice', 'isNarrow', 'blank', 'notBlank')],
+    // The chat bar and the chat: the status and data lines, what the next request is about, the model, the agent's
+    // activity and the person's agent use
+    chat: [
+        ...texts('status', 'dataLine', 'note', 'budgetLine'),
         // What the next request is about: a chip per thing, keyed by an id the page gives it
         { op: 'set', field: 'focusItems', type: 'object', default: {} },
         // What the view shown sends the agent: a fixed chip per part (the view, and in Screens each layer that is on)
         { op: 'set', field: 'contextItems', type: 'object', default: {} },
+        { op: 'set', field: 'model', type: 'string', default: '' },
+        { op: 'set', field: 'models', type: 'object', default: {} },
         // The person's agent use, in cents of their whole budget, and the ring's tone (accent, then warning, then danger)
         { op: 'set', field: 'budgetUsed', type: 'number', default: 0 },
         { op: 'set', field: 'budgetTotal', type: 'number', default: 1 },
         { op: 'set', field: 'budgetTone', type: 'string', default: 'accent' },
-        { op: 'set', field: 'tab', type: 'string', default: 'properties' },
-        { op: 'set', field: 'model', type: 'string', default: '' },
-        { op: 'set', field: 'models', type: 'object', default: {} },
-        ...['working', 'blank', 'hasMessages', 'keepOpen', 'orgOpen', 'chatOff', 'notScreensView', 'noBoard', 'isNarrow', ...HIDDEN_AT_FIRST].map((field) => ({ op: 'set', field, type: 'boolean', default: HIDDEN_AT_FIRST.includes(field) })),
-        // The view the canvas shows (Screens, Statenet, Theme, Logic), and the layers on the screen tiles
-        { op: 'set', field: 'view', type: 'string', default: 'screens' },
-        { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
-        // How the rail's buttons look: solid while on, ghost while off (the page writes them with the tool and the layers)
-        { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
-        { op: 'set', field: 'libraryLook', type: 'string', default: 'ghost' },
-        { op: 'set', field: 'libraryTone', type: 'string', default: 'neutral' },
-        { op: 'set', field: 'screensLook', type: 'string', default: 'ghost' },
-        { op: 'set', field: 'screensTone', type: 'string', default: 'neutral' },
-        { op: 'set', field: 'connectionsLook', type: 'string', default: 'ghost' },
-        { op: 'set', field: 'connectionsTone', type: 'string', default: 'neutral' },
-        { op: 'set', field: 'sharedLook', type: 'string', default: 'ghost' },
-        { op: 'set', field: 'sharedTone', type: 'string', default: 'neutral' },
-        // The Screens panel: the screen worked on, the names typed, and what the last change said
-        ...['screenName', 'screenRename', 'screenNew', 'screensStatus'].map((field) => ({ op: 'set', field, type: 'string', default: '' })),
-        // How many screens the canvas lays side by side before it starts a new row
-        { op: 'set', field: 'screenColumns', type: 'string', default: 'n5' },
-        { op: 'set', field: 'layerLook', type: 'object', default: { layout: 'ghost', data: 'ghost', logic: 'ghost' } },
-        // And their tone: the accent while on, the ink while off
-        { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
-        { op: 'set', field: 'layerTone', type: 'object', default: { layout: 'neutral', data: 'neutral', logic: 'neutral' } }
+        ...flags('working', 'hasMessages', 'keepOpen', 'chatOff', 'notWorking', 'noStatus', 'noDataLine', 'noFocus', 'noModels', 'noMessages', 'noBudget')
     ],
+    // The inspector: what it is doing, the selection's breadcrumb and heading, the open tab, and the state path chosen
+    inspector: [
+        ...texts('inspectorStatus', 'heading', 'detailPath', 'detailValue', 'detailShown', 'detailRead', 'detailWritten', 'crumb'),
+        { op: 'set', field: 'crumbs', type: 'object', default: {} },
+        { op: 'set', field: 'tab', type: 'string', default: 'properties' },
+        ...flags('noSelection', 'cannotRemove', 'noDetail')
+    ],
+    // The Share sheet: what a new link allows, whether the org may open the app, and what the last change said
+    sharing: [...texts('shareStatus'), { op: 'set', field: 'shareRight', type: 'string', default: 'use' }, ...flags('orgOpen', 'notInOrg')],
+    // The person's choices: light or dark, and the language
+    preferences: [...texts('prefsStatus'), { op: 'set', field: 'mode', type: 'string', default: 'system' }, { op: 'set', field: 'language', type: 'string', default: 'en' }],
+    // The feedback sheet: what is being written, and what sending it said
+    feedback: [...texts('feedbackText', 'feedbackStatus'), { op: 'set', field: 'feedbackKind', type: 'string', default: 'bug' }],
+    // The canvas: the view it shows (Screens, Statenet, Theme, Logic), the frame's device and size, and the zoom
+    canvas: [
+        ...texts('zoom'),
+        { op: 'set', field: 'view', type: 'string', default: 'screens' },
+        { op: 'set', field: 'size', type: 'string', default: 'desktop' },
+        // The frame's size among the common sizes of the device chosen (`1280x800`), and those sizes as options
+        { op: 'set', field: 'frame', type: 'string', default: '1280x800' },
+        { op: 'set', field: 'frames', type: 'object', default: {} },
+        ...flags('notScreensView', 'noBoard')
+    ],
+    // The rail: the pointer tool, the layers on the screen tiles, and how its buttons look: solid while on, ghost while
+    // off, the accent while on, the ink while off (the page writes the looks with the tool, the layers and the panels)
+    rail: [
+        { op: 'set', field: 'tool', type: 'string', default: 'use' },
+        { op: 'set', field: 'layers', type: 'object', default: { layout: false, data: false, logic: false } },
+        { op: 'set', field: 'toolLook', type: 'object', default: { use: 'solid', move: 'ghost', select: 'ghost' } },
+        { op: 'set', field: 'toolTone', type: 'object', default: { use: 'accent', move: 'neutral', select: 'neutral' } },
+        { op: 'set', field: 'layerLook', type: 'object', default: { layout: 'ghost', data: 'ghost', logic: 'ghost' } },
+        { op: 'set', field: 'layerTone', type: 'object', default: { layout: 'neutral', data: 'neutral', logic: 'neutral' } },
+        ...['library', 'screens', 'connections', 'shared'].flatMap((panel) => [
+            { op: 'set', field: `${panel}Look`, type: 'string', default: 'ghost' },
+            { op: 'set', field: `${panel}Tone`, type: 'string', default: 'neutral' }
+        ])
+    ],
+    // The Screens panel: the screen worked on, the names typed, what the last change said, and how many screens the
+    // canvas lays side by side before it starts a new row
+    screensPanel: [...texts('screenName', 'screenRename', 'screenNew', 'screensStatus'), { op: 'set', field: 'screenColumns', type: 'string', default: 'n5' }, ...flags('isHome', 'notHome', 'noScreensStatus')],
+    // The Connections panel: what it says of the workspace's connections, and whether the person may manage them
+    connectionsPanel: [...texts('connectionsStatus'), ...flags('noConnectionsStatus', 'cannotManage')],
+    // The Shared data panel: the same for the datasets shared with the workspace
+    sharedPanel: [...texts('sharedStatus'), ...flags('noSharedStatus', 'cannotManageData')]
+};
+
+/** The model of a namespace of the editor's data */
+const modelOf = (namespace: string): string => `magnetic-editor-${namespace.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+
+/**
+ * Where each field the page script names is: a field of the editor's data to its data path (`status` to
+ * `$.data.chat.status`), made from the models, and each pane's flag (`chatHidden`) to a path under `$.data.panes`, which
+ * is no data: a pane's flag is the pane's own `hidden`, and `EDITOR.own` takes a write there to the pane by its id. The
+ * script (src/http/shell.ts, `ed`) keeps the field names and writes each at its path here
+ */
+export const EDITOR_FIELDS: Readonly<Record<string, string>> = (() => {
+    const paths: Record<string, string> = {};
+    const add = (field: string, path: string): void => {
+        if (paths[field] !== undefined) throw new Error(`The editor's field ${field} is in two namespaces`);
+        paths[field] = path;
+    };
+    for (const [namespace, operations] of Object.entries(RECORDS)) for (const operation of operations) add(String(operation['field']), `$.data.${namespace}.${String(operation['field'])}`);
+    for (const flag of Object.keys(EDITOR_PANES)) add(flag, `$.data.panes.${flag}`);
+    return paths;
+})();
+
+/** The data path of a field of the editor, or of a part of one (`toolLook.use`) */
+function e(field: string): string {
+    const [name, ...rest] = field.split('.');
+    const path = EDITOR_FIELDS[name as string];
+    if (path === undefined) throw new Error(`The editor has no field ${String(name)}`);
+    return [path, ...rest].join('.');
+}
+
+/** The models of the editor's data */
+const MODELS: Record<string, readonly Record<string, unknown>[]> = {
+    ...Object.fromEntries(Object.entries(RECORDS).map(([namespace, operations]) => [modelOf(namespace), operations])),
     'magnetic-message': [
         { op: 'set', field: 'id', type: 'string', required: true },
         { op: 'set', field: 'author', type: 'string', required: true },
@@ -328,7 +383,7 @@ const VIEW_PLACEMENT = {
 /** A canvas page has no frame of its own: no border, no corners, nothing behind it but its page */
 const CANVAS_FRAME = { embed: { border: 'transparent', radius: '0px', fill: 'transparent' } };
 /**
- * The canvas: Magnetic's pages the view selector shows (`$.data.editor.view`), each a live embeddedApp the page's app
+ * The canvas: Magnetic's pages the view selector shows (`$.data.canvas.view`), each a live embeddedApp the page's app
  * host opens by name, first on the stage so every panel lies over it. The screens board and Statenet take the whole
  * window, Theme and Logic the area the panels leave. Each stays mounted while hidden, so it keeps where the person left
  * it; the page script shows one at a time through their own `hidden` (`boardPane`, `statenetPane`, `themePane`, `logicPane`). Each is
@@ -390,7 +445,7 @@ function frameSize(t: Texts, id: string, extra: Record<string, unknown>): Record
         titlePosition: 'hidden',
         _label: t['shell.frameSize'],
         options: { desktop: { _label: t['shell.size.desktop'] }, tablet: { _label: t['shell.size.tablet'] }, phone: { _label: t['shell.size.phone'] } },
-        '<-value': `${E}.size`,
+        '<-value': e('size'),
         '@id': id,
         ...extra
     };
@@ -405,8 +460,8 @@ function frameDimensions(t: Texts, id: string, extra: Record<string, unknown>): 
         width: 'auto',
         titlePosition: 'hidden',
         _label: t['shell.frameDimensions'],
-        '<-options': `${E}.frames`,
-        '<-value': `${E}.frame`,
+        '<-options': e('frames'),
+        '<-value': e('frame'),
         '@id': id,
         ...extra
     };
@@ -419,14 +474,14 @@ function nameCorner(t: Texts): Record<string, unknown> {
     return float({ x: '12px', y: '12px', maxWidth: 'clamp(calc(100% - 176px), (100vw - 760px) * 1000, max(calc(50% - 32px), calc(100% - 120px)))' }, {
         bar: row({
             home: { component: 'image', src: LOGO, _alt: t['shell.allApps'], interactive: true, backdrop: false, ratio: '1:1', fit: 'contain', placement: { height: '28px' }, '@id': 'home' },
-            name: bound(`${E}.appName`, { textRole: 'heading', truncate: 1, placement: { grow: 1 } }),
+            name: bound(e('appName'), { textRole: 'heading', truncate: 1, placement: { grow: 1 } }),
             // The workspace the app is in: the person's own, or an org's. Below 760px the corner has room only for the logo, the
             // name and Open, all on one line: the workspace and the frame size are on the top rail
-            workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1, 'own:hidden': `${E}.isNarrow` }),
-            size: frameSize(t, 'size', { 'own:hidden': `${E}.isNarrow` }),
-            frame: frameDimensions(t, 'frame', { 'own:hidden': `${E}.isNarrow` }),
+            workspace: bound(e('workspaceName'), { textRole: 'caption', muted: true, truncate: 1, 'own:hidden': e('isNarrow') }),
+            size: frameSize(t, 'size', { 'own:hidden': e('isNarrow') }),
+            frame: frameDimensions(t, 'frame', { 'own:hidden': e('isNarrow') }),
             // Turns the frame between landscape and portrait: its width and height swap. Below 760px the corner has no room
-            turn: icon(t['shell.turn'], 'turn', 'rotate-rectangle', { 'own:hidden': `${E}.isNarrow` }),
+            turn: icon(t['shell.turn'], 'turn', 'rotate-rectangle', { 'own:hidden': e('isNarrow') }),
             // Soft, so its box shows: every part of the bar is then a box with the same space either side
             open: button(t['shell.open'], 'open', { tone: 'accent', variant: 'soft' })
         }, { layout: { ...CORNER_ROW.layout, wrap: false } })
@@ -443,7 +498,7 @@ export const EDITOR_VIEWS = ['screens', 'statenet', 'theme', 'logic'] as const;
 function shareCorner(t: Texts): Record<string, unknown> {
     return float({ right: '12px', y: '12px' }, {
         bar: row({
-            views: { component: 'segmented', size: 'sm', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, 'own:hidden': `${E}.isNarrow`, '@id': 'views' },
+            views: { component: 'segmented', size: 'sm', _label: t['shell.view'], options: viewOptions(t), '<-value': e('view'), 'own:hidden': e('isNarrow'), '@id': 'views' },
             feedback: icon(t['feedback.open'], 'feedback', 'bug'),
             prefs: icon(t['prefs.open'], 'prefs', 'prefs'),
             share: { component: 'button', size: 'sm', _title: t['shell.share'], '@id': 'share' }
@@ -469,8 +524,8 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
         icon: glyph,
         iconPosition: 'only',
         _title: t[key],
-        'own:variant': `${E}.toolLook.${name}`,
-        'own:tone': `${E}.toolTone.${name}`,
+        'own:variant': e(`toolLook.${name}`),
+        'own:tone': e(`toolTone.${name}`),
         '@id': `tool${name.charAt(0).toUpperCase()}${name.slice(1)}${top}`
     });
     const layer = (name: 'layout' | 'data' | 'logic', id: string): Record<string, unknown> => ({
@@ -478,16 +533,16 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
         size: 'sm',
         fill: !narrow,
         _title: t[`shell.layer.${name}`],
-        'own:variant': `${E}.layerLook.${name}`,
-        'own:tone': `${E}.layerTone.${name}`,
+        'own:variant': e(`layerLook.${name}`),
+        'own:tone': e(`layerTone.${name}`),
         '@id': id + top
     });
     const line = narrow ? 'row' : 'column';
     // Below 760px, the rail's tools are the Screens view's; the view menu shows in every view
-    const screensOnly = narrow ? { 'own:hidden': `${E}.notScreensView` } : {};
+    const screensOnly = narrow ? { 'own:hidden': e('notScreensView') } : {};
     return float(narrow ? { x: '12px', y: '64px', maxWidth: 'calc(100% - 24px)' } : { x: '12px', center: 'y' }, {
         ...(narrow && {
-            viewMenu: { component: 'selectField', size: 'sm', variant: 'soft', width: 'auto', titlePosition: 'hidden', _label: t['shell.view'], options: viewOptions(t), '<-value': `${E}.view`, '@id': 'viewMenu' }
+            viewMenu: { component: 'selectField', size: 'sm', variant: 'soft', width: 'auto', titlePosition: 'hidden', _label: t['shell.view'], options: viewOptions(t), '<-value': e('view'), '@id': 'viewMenu' }
         }),
         tools: {
             ...screensOnly,
@@ -499,10 +554,10 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
                 move: tool('move', 'shell.moveKey', 'hand'),
                 select: tool('select', 'shell.selectKey', 'select'),
                 // Solid while the library shows, as a tool is while it is on
-                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], 'own:variant': `${E}.libraryLook`, 'own:tone': `${E}.libraryTone`, '@id': 'library' + top },
-                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], 'own:variant': `${E}.screensLook`, 'own:tone': `${E}.screensTone`, '@id': 'screensPanel' + top },
-                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], 'own:variant': `${E}.connectionsLook`, 'own:tone': `${E}.connectionsTone`, '@id': 'connectionsPanel' + top },
-                shared: { component: 'button', size: 'sm', icon: 'shared-data', iconPosition: 'only', _title: t['sharedPanel.open'], 'own:variant': `${E}.sharedLook`, 'own:tone': `${E}.sharedTone`, '@id': 'sharedPanel' + top }
+                library: { component: 'button', size: 'sm', icon: 'components', iconPosition: 'only', _title: t['library.open'], 'own:variant': e('libraryLook'), 'own:tone': e('libraryTone'), '@id': 'library' + top },
+                screens: { component: 'button', size: 'sm', icon: 'screens', iconPosition: 'only', _title: t['screens.open'], 'own:variant': e('screensLook'), 'own:tone': e('screensTone'), '@id': 'screensPanel' + top },
+                connections: { component: 'button', size: 'sm', icon: 'connections', iconPosition: 'only', _title: t['connectionsPanel.open'], 'own:variant': e('connectionsLook'), 'own:tone': e('connectionsTone'), '@id': 'connectionsPanel' + top },
+                shared: { component: 'button', size: 'sm', icon: 'shared-data', iconPosition: 'only', _title: t['sharedPanel.open'], 'own:variant': e('sharedLook'), 'own:tone': e('sharedTone'), '@id': 'sharedPanel' + top }
             }
         },
         line: { component: 'divider', orientation: narrow ? 'vertical' : 'horizontal', ...screensOnly },
@@ -515,7 +570,7 @@ function rail(t: Texts, narrow = false): Record<string, unknown> {
             children: { layerLayout: layer('layout', 'layerLayout'), layerData: layer('data', 'layerData'), layerLogic: layer('logic', 'layerLogic') }
         },
         // Below 760px the name corner has no room for the workspace and the frame size
-        ...(narrow && { workspace: bound(`${E}.workspaceName`, { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, 'sizeTop', screensOnly), frame: frameDimensions(t, 'frameTop', screensOnly) })
+        ...(narrow && { workspace: bound(e('workspaceName'), { textRole: 'caption', muted: true, truncate: 1 }), size: frameSize(t, 'sizeTop', screensOnly), frame: frameDimensions(t, 'frameTop', screensOnly) })
     // The divider and the Layers label get the room the buttons' own padding gives their icons, not the tools' tight gap
     }, narrow ? { hidden: true, '@id': 'narrowPane', layout: { type: 'row', gap: 'sm', align: 'center' } } : { hidden: false, '@id': 'widePane', layout: { type: 'column', gap: 'md' } });
 }
@@ -525,11 +580,11 @@ function zoom(t: Texts): Record<string, unknown> {
     return float({ right: '12px', bottom: ABOVE_CHAT }, {
         bar: row({
             out: icon(t['shell.zoomOutKey'], 'zoomOut', 'minus'),
-            reset: { component: 'button', size: 'sm', variant: 'ghost', tone: 'neutral', '<-_title': `${E}.zoom`, '@id': 'zoomReset' },
+            reset: { component: 'button', size: 'sm', variant: 'ghost', tone: 'neutral', '<-_title': e('zoom'), '@id': 'zoomReset' },
             in: icon(t['shell.zoomInKey'], 'zoomIn', 'plus'),
             fit: icon(t['shell.fitKey'], 'zoomFit', 'fit')
         }, { layout: { type: 'row', gap: 'none', align: 'center' } })
-    }, { 'own:hidden': `${E}.noBoard` });
+    }, { 'own:hidden': e('noBoard') });
 }
 
 /** The chat bar at the bottom: what the next request is about, the request, the model and Send */
@@ -538,14 +593,14 @@ function chatBar(t: Texts): Record<string, unknown> {
     const line = (children: Record<string, unknown>, hidden: string): Record<string, unknown> =>
         row(children, { padding: 'md', theme: { panel: { padding: '0px 14px' } }, ...hiddenBy(hidden) });
     return float({ center: 'x', bottom: '12px', width: fit('640px') }, {
-        status: line({ text: bound(`${E}.status`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noStatus`),
+        status: line({ text: bound(e('status'), { textRole: 'caption', placement: { grow: 1 } }) }, e('noStatus')),
         // Each thing the next request is about is a chip with its own ×; Clear takes them all
         focus: line({
             about: { component: 'text', textRole: 'caption', _text: t['chat.about'] },
-            chips: { component: 'chipList', size: 'sm', placement: { grow: 1 }, _label: t['chat.about'], '<-items': `${E}.focusItems`, '@id': 'focusRemove' },
+            chips: { component: 'chipList', size: 'sm', placement: { grow: 1 }, _label: t['chat.about'], '<-items': e('focusItems'), '@id': 'focusRemove' },
             clear: button(t['chat.clear'], 'focusClear')
-        }, `${E}.noFocus`),
-        dataLine: line({ text: bound(`${E}.dataLine`, { textRole: 'caption', placement: { grow: 1 } }) }, `${E}.noDataLine`),
+        }, e('noFocus')),
+        dataLine: line({ text: bound(e('dataLine'), { textRole: 'caption', placement: { grow: 1 } }) }, e('noDataLine')),
         bar: {
             component: 'panel',
             padding: 'none',
@@ -558,7 +613,7 @@ function chatBar(t: Texts): Record<string, unknown> {
                 chat: icon(t['shell.showChat'], 'chatToggle', 'chat'),
                 // What the view shown tells the agent with each request: fixed chips, the view and in Screens each layer on, as tall
                 // as the bar's controls (a chip is three quarters of the control height)
-                view: { component: 'chipList', size: 'md', tone: 'accent', theme: { size: { control: { md: '48px' } } }, removable: false, _label: t['chat.view'], '<-items': `${E}.contextItems` },
+                view: { component: 'chipList', size: 'md', tone: 'accent', theme: { size: { control: { md: '48px' } } }, removable: false, _label: t['chat.view'], '<-items': e('contextItems') },
                 input: {
                     component: 'textareaField',
                     variant: 'ghost',
@@ -573,7 +628,7 @@ function chatBar(t: Texts): Record<string, unknown> {
                     rows: 1,
                     sendOnEnter: true,
                     // Off while the person may not ask the agent (their agent use is spent); the agent-use ring's tip says why
-                    '<-disabled': `${E}.chatOff`,
+                    '<-disabled': e('chatOff'),
                     '@id': 'request',
                     on: { send: { command: 'clear' } }
                 },
@@ -583,14 +638,14 @@ function chatBar(t: Texts): Record<string, unknown> {
                     component: 'tooltip',
                     side: 'top',
                     delay: 0,
-                    '<-_text': `${E}.budgetLine`,
-                    'own:hidden': `${E}.noBudget`,
+                    '<-_text': e('budgetLine'),
+                    'own:hidden': e('noBudget'),
                     // A small dial, 24px across, in the middle of the bar's height (36px)
                     placement: { height: '36px' },
-                    trigger: { component: 'progress', shape: 'ring', size: 'sm', theme: { size: { icon: { sm: '9.6px' } } }, _label: t['chat.budgetRing'], '<-value': `${E}.budgetUsed`, '<-max': `${E}.budgetTotal`, 'own:tone': `${E}.budgetTone` }
+                    trigger: { component: 'progress', shape: 'ring', size: 'sm', theme: { size: { icon: { sm: '9.6px' } } }, _label: t['chat.budgetRing'], '<-value': e('budgetUsed'), '<-max': e('budgetTotal'), 'own:tone': e('budgetTone') }
                 },
-                model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': `${E}.models`, '<-value': `${E}.model`, 'own:hidden': `${E}.noModels`, '@id': 'model' },
-                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': `${E}.chatOff`, on: { press: { command: 'send', target: '#bar.children.input' } } }
+                model: { component: 'selectField', size: 'sm', variant: 'soft', corners: 'pill', width: 20, titlePosition: 'hidden', _label: t['shell.model'], '<-options': e('models'), '<-value': e('model'), 'own:hidden': e('noModels'), '@id': 'model' },
+                send: { component: 'button', size: 'sm', corners: 'pill', _title: t['shell.send'], icon: 'send', iconPosition: 'only', '<-disabled': e('chatOff'), on: { press: { command: 'send', target: '#bar.children.input' } } }
             }
         }
         // A round end at one line (half its 50px height), and the same corners when the lines above it show, as the
@@ -604,8 +659,8 @@ function chatPanel(t: Texts): Record<string, unknown> {
         { center: 'x', bottom: '76px', width: fit('640px'), height: 'min(480px, calc(100% - 176px))' },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.chat'] }, close: icon(t['shell.closeChat'], 'chatClose', 'x') }),
-            empty: caption(t['chat.empty'], { 'own:hidden': `${E}.hasMessages` }),
-            messages: { component: 'messageList', '<-records': '$.data.messages', 'own:hidden': `${E}.noMessages`, placement: { grow: 1 } },
+            empty: caption(t['chat.empty'], { 'own:hidden': e('hasMessages') }),
+            messages: { component: 'messageList', '<-records': '$.data.messages', 'own:hidden': e('noMessages'), placement: { grow: 1 } },
             drawer: {
                 component: 'panel',
                 padding: 'none',
@@ -614,10 +669,10 @@ function chatPanel(t: Texts): Record<string, unknown> {
                 children: {
                     head: row({
                         title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.activity'] },
-                        keep: { component: 'switchField', size: 'sm', _label: t['shell.keepOpen'], '<-checked': `${E}.keepOpen`, '@id': 'keepOpen' },
-                        stop: { component: 'button', size: 'sm', variant: 'soft', tone: 'danger', _title: t['shell.stop'], 'own:hidden': `${E}.notWorking`, '@id': 'stop' }
+                        keep: { component: 'switchField', size: 'sm', _label: t['shell.keepOpen'], '<-checked': e('keepOpen'), '@id': 'keepOpen' },
+                        stop: { component: 'button', size: 'sm', variant: 'soft', tone: 'danger', _title: t['shell.stop'], 'own:hidden': e('notWorking'), '@id': 'stop' }
                     }),
-                    note: bound(`${E}.note`, { textRole: 'caption', truncate: 2 }),
+                    note: bound(e('note'), { textRole: 'caption', truncate: 2 }),
                     calls: { component: 'list', '<-items': '$.data.calls', density: 'compact', placement: { height: '120px' }, row: { component: 'text', truncate: 1, textRole: 'caption', '<-_text': '$row.line' } }
                 }
             }
@@ -653,14 +708,14 @@ function propertiesTab(t: Texts): Record<string, unknown> {
         padding: 'sm',
         layout: { type: 'column', gap: 'sm' },
         children: {
-            crumbs: { component: 'breadcrumb', '<-items': `${E}.crumbs`, '<-current': `${E}.crumb`, 'own:hidden': `${E}.noSelection`, '@id': 'crumb' },
-            heading: bound(`${E}.heading`, { textRole: 'label' }),
+            crumbs: { component: 'breadcrumb', '<-items': e('crumbs'), '<-current': e('crumb'), 'own:hidden': e('noSelection'), '@id': 'crumb' },
+            heading: bound(e('heading'), { textRole: 'label' }),
             // What to do with the selected node, above its fields so it is always in sight: give it to the agent with
             // the next request, or delete it
             actions: row({
                 addToChat: { component: 'button', variant: 'soft', size: 'sm', icon: 'message-plus', _title: t['inspector.addToChat'], '@id': 'addToChat' },
-                remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', 'own:hidden': `${E}.cannotRemove`, _title: t['inspector.delete'], '@id': 'remove' }
-            }, { 'own:hidden': `${E}.noSelection` }),
+                remove: { component: 'button', variant: 'soft', tone: 'danger', size: 'sm', 'own:hidden': e('cannotRemove'), _title: t['inspector.delete'], '@id': 'remove' }
+            }, { 'own:hidden': e('noSelection') }),
             [EDITOR_KEYS.propertyFields]: { component: 'panel', padding: 'none', children: {} }
         }
     };
@@ -680,7 +735,7 @@ function connectionsPanel(t: Texts): Record<string, unknown> {
                 close: icon(t['connectionsPanel.close'], 'connectionsClose', 'x')
             }),
             hint: caption(t['connectionsPanel.hint']),
-            status: bound(`${E}.connectionsStatus`, { textRole: 'caption', muted: true, 'own:hidden': `${E}.noConnectionsStatus` }),
+            status: bound(e('connectionsStatus'), { textRole: 'caption', muted: true, 'own:hidden': e('noConnectionsStatus') }),
             list: {
                 component: 'list',
                 '<-items': '$.data.connections',
@@ -688,7 +743,7 @@ function connectionsPanel(t: Texts): Record<string, unknown> {
                 placement: { grow: 1 },
                 row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', '@id': 'connectionAsk' }
             },
-            manage: button(t['connectionsPanel.manage'], 'connectionsManage', { variant: 'soft', 'own:hidden': `${E}.cannotManage` })
+            manage: button(t['connectionsPanel.manage'], 'connectionsManage', { variant: 'soft', 'own:hidden': e('cannotManage') })
         },
         { hidden: true, '@id': 'connectionsPane' }
     );
@@ -708,7 +763,7 @@ function sharedPanel(t: Texts): Record<string, unknown> {
                 close: icon(t['sharedPanel.close'], 'sharedClose', 'x')
             }),
             hint: caption(t['sharedPanel.hint']),
-            status: bound(`${E}.sharedStatus`, { textRole: 'caption', muted: true, 'own:hidden': `${E}.noSharedStatus` }),
+            status: bound(e('sharedStatus'), { textRole: 'caption', muted: true, 'own:hidden': e('noSharedStatus') }),
             list: {
                 component: 'list',
                 '<-items': '$.data.shared',
@@ -716,7 +771,7 @@ function sharedPanel(t: Texts): Record<string, unknown> {
                 placement: { grow: 1 },
                 row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-_title': '$row.title', '<-_subtitle': '$row.subtitle', '@id': 'sharedAsk' }
             },
-            manage: button(t['sharedPanel.manage'], 'sharedManage', { variant: 'soft', 'own:hidden': `${E}.cannotManageData` })
+            manage: button(t['sharedPanel.manage'], 'sharedManage', { variant: 'soft', 'own:hidden': e('cannotManageData') })
         },
         { hidden: true, '@id': 'sharedPane' }
     );
@@ -773,7 +828,7 @@ function screensPanel(t: Texts): Record<string, unknown> {
                 _label: t['screens.columns'],
                 // keyed n1, n2…: a key may not be integer-like
                 options: Object.fromEntries(SCREEN_COLUMNS.map((count) => [`n${count}`, { _label: String(count) }])),
-                '<-value': `${E}.screenColumns`,
+                '<-value': e('screenColumns'),
                 '@id': 'screenColumns'
             },
             list: {
@@ -783,16 +838,16 @@ function screensPanel(t: Texts): Record<string, unknown> {
                 placement: { grow: 1 },
                 row: { component: 'card', elevation: 'flat', padding: 'sm', interactive: true, '<-selected': '$row.current', '<-_title': '$row.title', '<-_subtitle': '$row.note', '@id': 'screenGo' }
             },
-            add: row({ name: name('screenNew', t['screens.new'], `${E}.screenNew`, { _placeholder: t['screens.newPlaceholder'] }), go: button(t['screens.add'], 'screenAdd', { variant: 'soft', tone: 'accent' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
+            add: row({ name: name('screenNew', t['screens.new'], e('screenNew'), { _placeholder: t['screens.newPlaceholder'] }), go: button(t['screens.add'], 'screenAdd', { variant: 'soft', tone: 'accent' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
             thisTitle: { component: 'text', textRole: 'label', _text: t['screens.this'] },
-            rename: row({ name: name('screenRenameText', t['screens.rename'], `${E}.screenRename`), go: button(t['screens.rename'], 'screenRename', { variant: 'soft' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
+            rename: row({ name: name('screenRenameText', t['screens.rename'], e('screenRename')), go: button(t['screens.rename'], 'screenRename', { variant: 'soft' }) }, { layout: { type: 'row', gap: 'sm', align: 'end' } }),
             actions: row({
                 copy: button(t['screens.copy'], 'screenCopy', { variant: 'soft' }),
-                home: button(t['screens.makeHome'], 'screenHome', { variant: 'soft', 'own:hidden': `${E}.isHome` }),
-                isHome: caption(t['screens.isHome'], { muted: true, 'own:hidden': `${E}.notHome` }),
+                home: button(t['screens.makeHome'], 'screenHome', { variant: 'soft', 'own:hidden': e('isHome') }),
+                isHome: caption(t['screens.isHome'], { muted: true, 'own:hidden': e('notHome') }),
                 remove: button(t['screens.delete'], 'screenDelete', { variant: 'soft', tone: 'danger' })
             }, { layout: { type: 'row', gap: 'sm', align: 'center', wrap: true } }),
-            status: bound(`${E}.screensStatus`, { textRole: 'caption', tone: 'danger', 'own:hidden': `${E}.noScreensStatus` })
+            status: bound(e('screensStatus'), { textRole: 'caption', tone: 'danger', 'own:hidden': e('noScreensStatus') })
         },
         { hidden: true, '@id': 'screensPane' }
     );
@@ -854,14 +909,14 @@ function stateTab(t: Texts): Record<string, unknown> {
             detail: {
                 component: 'panel',
                 padding: 'none',
-                'own:hidden': `${E}.noDetail`,
+                'own:hidden': e('noDetail'),
                 layout: { type: 'column', gap: 'sm' },
                 children: {
-                    path: bound(`${E}.detailPath`, { textRole: 'label' }),
-                    value: bound(`${E}.detailValue`, { textRole: 'caption' }),
-                    shown: bound(`${E}.detailShown`, { textRole: 'caption' }),
-                    read: bound(`${E}.detailRead`, { textRole: 'caption' }),
-                    written: bound(`${E}.detailWritten`, { textRole: 'caption' }),
+                    path: bound(e('detailPath'), { textRole: 'label' }),
+                    value: bound(e('detailValue'), { textRole: 'caption' }),
+                    shown: bound(e('detailShown'), { textRole: 'caption' }),
+                    read: bound(e('detailRead'), { textRole: 'caption' }),
+                    written: bound(e('detailWritten'), { textRole: 'caption' }),
                     ask: { component: 'button', size: 'sm', variant: 'soft', _title: t['inspect.ask'], '@id': 'ask' }
                 }
             },
@@ -878,11 +933,11 @@ function inspector(t: Texts): Record<string, unknown> {
         {
             head: row({
                 title: { component: 'text', textRole: 'label', _text: t['shell.inspector'] },
-                status: bound(`${E}.inspectorStatus`, { textRole: 'caption', truncate: 1, placement: { grow: 1 } }),
+                status: bound(e('inspectorStatus'), { textRole: 'caption', truncate: 1, placement: { grow: 1 } }),
                 close: icon(t['shell.closeInspector'], 'inspectorClose', 'x')
             }),
             // The tabs take the inspector's height below its head, and the open tab scrolls
-            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': `${E}.tab`, '@id': 'tab', children: { properties: propertiesTab(t), state: stateTab(t) } }
+            tabs: { component: 'tabs', placement: { grow: 1 }, '<-active': e('tab'), '@id': 'tab', children: { properties: propertiesTab(t), state: stateTab(t) } }
         },
         { hidden: true, '@id': 'inspectorPane' }
     );
@@ -897,7 +952,7 @@ function shareSheet(t: Texts): Record<string, unknown> {
         { right: '12px', y: BELOW_RAIL, width: fit('352px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['shell.shareThis'] }, close: icon(t['editor.close'], 'shareClose', 'x') }),
-            org: { component: 'switchField', size: 'sm', _label: t['shell.orgOpen'], '<-checked': `${E}.orgOpen`, 'own:hidden': `${E}.notInOrg`, '@id': 'orgOpen' },
+            org: { component: 'switchField', size: 'sm', _label: t['shell.orgOpen'], '<-checked': e('orgOpen'), 'own:hidden': e('notInOrg'), '@id': 'orgOpen' },
             make: {
                 component: 'panel',
                 padding: 'none',
@@ -909,14 +964,14 @@ function shareSheet(t: Texts): Record<string, unknown> {
                         placement: { grow: 1 },
                         _label: t['shell.shareCan'],
                         options: { use: { _label: t['shell.right.use'] }, view: { _label: t['shell.right.view'] }, remix: { _label: t['shell.right.remix'] } },
-                        '<-value': `${E}.shareRight`,
+                        '<-value': e('shareRight'),
                         '@id': 'shareRight'
                     },
                     make: { component: 'button', size: 'sm', _title: t['shell.makeLink'], '@id': 'shareMake' }
                 }
             },
             note: caption(t['shell.shareNote']),
-            status: bound(`${E}.shareStatus`, { textRole: 'caption' }),
+            status: bound(e('shareStatus'), { textRole: 'caption' }),
             links: {
                 component: 'list',
                 '<-items': '$.data.links',
@@ -947,9 +1002,9 @@ function prefsSheet(t: Texts): Record<string, unknown> {
         { right: '12px', y: BELOW_RAIL, width: fit('240px') },
         {
             head: row({ title: { component: 'text', textRole: 'label', placement: { grow: 1 }, _text: t['prefs.title'] }, close: icon(t['editor.close'], 'prefsClose', 'x') }),
-            mode: { component: 'selectField', size: 'sm', _label: t['prefs.mode'], options: Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }])), '<-value': `${E}.mode`, '@id': 'mode' },
-            language: { component: 'selectField', size: 'sm', _label: t['prefs.language'], options: Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }])), '<-value': `${E}.language`, '@id': 'language' },
-            status: bound(`${E}.prefsStatus`, { textRole: 'caption' })
+            mode: { component: 'selectField', size: 'sm', _label: t['prefs.mode'], options: Object.fromEntries(MODES.map((mode) => [mode, { _label: t[`prefs.${mode}`] }])), '<-value': e('mode'), '@id': 'mode' },
+            language: { component: 'selectField', size: 'sm', _label: t['prefs.language'], options: Object.fromEntries(LANGUAGES.map((language) => [language, { _label: LANGUAGE_NAMES[language] }])), '<-value': e('language'), '@id': 'language' },
+            status: bound(e('prefsStatus'), { textRole: 'caption' })
         },
         { hidden: true, '@id': 'prefsPane', padding: 'md' }
     );
@@ -969,7 +1024,7 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
                 size: 'sm',
                 _label: t['feedback.kind'],
                 options: { bug: { _label: t['feedback.kind.bug'] }, comment: { _label: t['feedback.kind.comment'] }, feature: { _label: t['feedback.kind.feature'] } },
-                '<-value': `${E}.feedbackKind`,
+                '<-value': e('feedbackKind'),
                 '@id': 'feedbackKind'
             },
             text: {
@@ -979,11 +1034,11 @@ function feedbackSheet(t: Texts): Record<string, unknown> {
                 maxLength: 4000,
                 _label: t['feedback.text'],
                 _placeholder: t['feedback.placeholder'],
-                '<-value': `${E}.feedbackText`,
+                '<-value': e('feedbackText'),
                 '@id': 'feedbackText'
             },
             note: caption(t['feedback.note'], { muted: true }),
-            send: row({ status: bound(`${E}.feedbackStatus`, { textRole: 'caption', placement: { grow: 1 } }), send: button(t['feedback.send'], 'feedbackSend', { variant: 'solid', tone: 'accent' }) })
+            send: row({ status: bound(e('feedbackStatus'), { textRole: 'caption', placement: { grow: 1 } }), send: button(t['feedback.send'], 'feedbackSend', { variant: 'solid', tone: 'accent' }) })
         },
         { hidden: true, '@id': 'feedbackPane', padding: 'md' }
     );
@@ -1027,7 +1082,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
                     share: shareSheet(t),
                     prefs: prefsSheet(t),
                     feedback: feedbackSheet(t),
-                    notice: float({ center: 'x', y: '12px', width: fit('480px') }, { text: bound(`${E}.notice`, { tone: 'danger' }) }, { 'own:hidden': `${E}.noNotice` })
+                    notice: float({ center: 'x', y: '12px', width: fit('480px') }, { text: bound(e('notice'), { tone: 'danger' }) }, { 'own:hidden': e('noNotice') })
                 }
             }
         }
@@ -1038,7 +1093,7 @@ function editorScreen(t: Texts): Record<string, unknown> {
 function definition(): Record<string, unknown> {
     const t = textsOf('en');
     const data = {
-        editor: { model: 'magnetic-editor', scope: 'person' },
+        ...Object.fromEntries(Object.keys(RECORDS).map((namespace) => [namespace, { model: modelOf(namespace), scope: 'person' }])),
         messages: { model: 'magnetic-message', scope: 'person' },
         calls: { model: 'magnetic-call', scope: 'person' },
         links: { model: 'magnetic-link', scope: 'person' },
@@ -1054,7 +1109,7 @@ function definition(): Record<string, unknown> {
 
 /** The editor as a page of Magnetic's, which a person's copy and an admin's draft are made from */
 const SPEC: PageSpec = pageSpec({
-    record: { path: E, model: 'magnetic-editor' },
+    records: Object.keys(RECORDS).map((namespace) => ({ path: `$.data.${namespace}`, model: modelOf(namespace) })),
     name: EDITOR_APP,
     title: 'The editor',
     themed: true,
@@ -1067,7 +1122,7 @@ const SPEC: PageSpec = pageSpec({
 /** The editor: its panes' flags go to the panes by id, as the other fields that are a node's own state do */
 export const EDITOR: PageSpec = {
     ...SPEC,
-    own: { ...SPEC.own, ...Object.fromEntries(Object.entries(EDITOR_PANES).map(([flag, id]) => [`${E}.${flag}`, [`${id}.hidden`]])) }
+    own: { ...SPEC.own, ...Object.fromEntries(Object.entries(EDITOR_PANES).map(([flag, id]) => [e(flag), [`${id}.hidden`]])) }
 };
 
 /** The editor's assembled document and icons, as a page mounts it */

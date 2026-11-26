@@ -86,7 +86,7 @@ export const LINK_HEARING: Hearing = {
  * `no…` flags that hide what it lacks), so an edited page follows a change of the server's options
  */
 export const SIGN_IN: PageSpec = pageSpec({
-    record: { path: S, model: 'magnetic-signin' },
+    records: [{ path: S, model: 'magnetic-signin' }],
     name: 'magnetic-signin',
     title: 'Sign in',
     themed: true,
@@ -165,7 +165,7 @@ export const SIGN_IN: PageSpec = pageSpec({
  * offer to copy the app (`remix`), heard by `LINK_HEARING`
  */
 export const LINK: PageSpec = pageSpec({
-    record: { path: '$.data.link', model: 'magnetic-linkpage' },
+    records: [{ path: '$.data.link', model: 'magnetic-linkpage' }],
     name: 'magnetic-link',
     title: 'Share links',
     themed: true,

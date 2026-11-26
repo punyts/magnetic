@@ -384,7 +384,7 @@ const HOME_FIELDS = [
 
 /** Your apps as a page of Magnetic's: made in English, with the other languages as locales */
 export const HOME: PageSpec = pageSpec({
-    record: { path: H, model: HOME_MODEL },
+    records: [{ path: H, model: HOME_MODEL }],
     name: HOME_APP,
     title: 'Your apps',
     themed: false,

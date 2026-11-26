@@ -172,7 +172,7 @@ export const SIDE_BLANK: Readonly<Record<string, unknown>> = {
  *   `does`, `removeText`) with Try (`try`) and Remove (`removeEndpoint`), and what a try answered (`tried`).
  */
 export const SIDE: PageSpec = pageSpec({
-    record: { path: S, model: SIDE_APP },
+    records: [{ path: S, model: SIDE_APP }],
     name: SIDE_APP,
     title: 'Side panel',
     themed: true,

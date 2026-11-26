@@ -47,23 +47,42 @@ function namesOf(value: unknown, into: Set<string>): void {
 function firstValue(operations: ModelOperations, field: string): unknown {
     const [name, ...rest] = field.split('.');
     const operation = operations.find((each) => each['field'] === name);
-    if (operation === undefined) throw new Error(`The page's model has no field ${name} for a node's own state`);
+    if (operation === undefined) throw new Error(`The page's models have no field ${String(name)} for a node's own state`);
     return rest.reduce<unknown>((value, key) => (isObject(value) ? value[key] : undefined), operation['default']);
 }
 
+/** One record of a page's data: its data path (`$.data.signin`) and the name of the model of its fields */
+export interface PageRecord {
+    readonly path: string;
+    readonly model: string;
+}
+
 /**
- * Compiles a page's definition. `base` is the data path of the page's record (`$.data.signin`) and `model` the name of
- * its model in `models`. A marked field that the tree also links as data fails: it is one or the other
+ * Compiles a page's definition. `records` are the records of the page's data, one per namespace. A node names a field by
+ * its data path (`$.data.chat.noStatus`), or by its name alone, which is the first record whose model has it. A marked
+ * field that the tree also links as data fails: it is one or the other
  */
-export function ownTree(definition: Record<string, unknown>, models: Readonly<Record<string, ModelOperations>>, base: string, model: string): Owned {
-    const operations = models[model];
-    if (operations === undefined) throw new Error(`The page has no model ${model}`);
+export function ownTree(definition: Record<string, unknown>, models: Readonly<Record<string, ModelOperations>>, records: readonly PageRecord[]): Owned {
+    for (const record of records) if (models[record.model] === undefined) throw new Error(`The page has no model ${record.model}`);
+    const operationsOf = (record: PageRecord): ModelOperations => models[record.model] as ModelOperations;
     const names = new Set<string>();
     namesOf(definition, names);
     const own: Record<string, string[]> = {};
     const paths: Record<string, string> = {};
     const ids = new Set<string>();
-    const fields = new Set<string>();
+    /** The fields that became a node's state, by the model they leave */
+    const fields = new Map<string, Set<string>>();
+    const taken = new Set<string>();
+
+    /** The record a marked field is of, and the field in it */
+    const fieldOf = (asked: string): { record: PageRecord; field: string } => {
+        const named = records.find((record) => asked.startsWith(`${record.path}.`));
+        if (named !== undefined) return { record: named, field: asked.slice(named.path.length + 1) };
+        const root = asked.split('.')[0];
+        const having = records.find((record) => operationsOf(record).some((operation) => operation['field'] === root));
+        if (having === undefined) throw new Error(`The page's models have no field ${String(root)} for a node's own state`);
+        return { record: having, field: asked };
+    };
 
     const newId = (keys: readonly string[]): string => {
         let id = '';
@@ -86,12 +105,14 @@ export function ownTree(definition: Record<string, unknown>, models: Readonly<Re
         for (const [key, inner] of Object.entries(value)) {
             if (id !== undefined && key.startsWith(OWN_PREFIX)) {
                 const property = key.slice(OWN_PREFIX.length);
-                const asked = String(inner);
-                const field = asked.startsWith(`${base}.`) ? asked.slice(base.length + 1) : asked;
-                out[property] = firstValue(operations, field);
-                (own[`${base}.${field}`] ??= []).push(`${id}.${property}`);
+                const { record, field } = fieldOf(String(inner));
+                out[property] = firstValue(operationsOf(record), field);
+                (own[`${record.path}.${field}`] ??= []).push(`${id}.${property}`);
                 paths[`${id}.${property}`] = `${path}.${property}`;
-                fields.add(field);
+                let gone = fields.get(record.model);
+                if (gone === undefined) fields.set(record.model, (gone = new Set<string>()));
+                gone.add(field);
+                taken.add(`${record.path}.${field}`);
                 continue;
             }
             out[key] = walk(inner, isNode(inner) ? [...keys, key] : keys, `${path}.${key}`);
@@ -114,18 +135,22 @@ export function ownTree(definition: Record<string, unknown>, models: Readonly<Re
     }
 
     const linked = JSON.stringify(compiled);
-    for (const field of fields) {
-        if (linked.includes(`"${base}.${field}"`)) throw new Error(`The field ${field} is a node's own state and is also linked as data`);
+    for (const path of taken) {
+        if (linked.includes(`"${path}"`)) throw new Error(`The field ${path} is a node's own state and is also linked as data`);
     }
-    const gone = (operation: Record<string, unknown>): boolean => {
-        const name = String(operation['field']);
-        if (fields.has(name)) return true;
-        const inner = operation['default'];
-        return isObject(inner) && Object.keys(inner).length > 0 && Object.keys(inner).every((key) => fields.has(`${name}.${key}`));
+    const left = (model: string, operations: ModelOperations): ModelOperations => {
+        const gone = fields.get(model);
+        if (gone === undefined) return operations;
+        return operations.filter((operation) => {
+            const name = String(operation['field']);
+            if (gone.has(name)) return false;
+            const inner = operation['default'];
+            return !(isObject(inner) && Object.keys(inner).length > 0 && Object.keys(inner).every((key) => gone.has(`${name}.${key}`)));
+        });
     };
     return {
         definition: compiled,
-        models: { ...models, [model]: operations.filter((operation) => !gone(operation)) },
+        models: Object.fromEntries(Object.entries(models).map(([model, operations]) => [model, left(model, operations)])),
         own,
         paths,
         ids: [...ids]

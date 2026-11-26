@@ -3,7 +3,7 @@ import type { PreviewBrowser } from '@punyts/stateui-mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startMagnetic } from '../server/startMagnetic.js';
 import type { RunningMagnetic } from '../server/startMagnetic.js';
-import { EDITOR_APP, EDITOR_KEYS, EditorApps } from './EditorApp.js';
+import { EDITOR, EDITOR_APP, EDITOR_FIELDS, EDITOR_KEYS, EDITOR_PANES, EditorApps } from './EditorApp.js';
 import type { TestDatabase } from '@punyts/stateui-pg/testing';
 import { Stamps } from '../storage/Stamps.js';
 import { magneticTestDatabase } from '../testing/testDb.js';
@@ -31,6 +31,46 @@ function pathOfKey(node: unknown, key: string, at: string): string | undefined {
     }
     return undefined;
 }
+
+describe("the editor's data", () => {
+    it('should keep each field in one namespace with a model and a binding of its own, apart from the lists', () => {
+        // Arrange
+        const definition = EDITOR.definition() as { data: Record<string, { model: string }> };
+        const lists = ['messages', 'calls', 'links', 'components', 'screens', 'connections', 'shared', 'paths', 'feed'];
+        const namespaces = Object.keys(definition.data).filter((name) => !lists.includes(name));
+
+        // Act
+        const paths = Object.entries(EDITOR_FIELDS).filter(([field]) => EDITOR_PANES[field] === undefined);
+        const linked = [...new Set(JSON.stringify(definition).match(/$.data.[A-Za-z]+/g) ?? [])].map((path) => path.slice('$.data.'.length));
+
+        // Assert
+        expect(namespaces).toEqual(['app', 'chat', 'inspector', 'sharing', 'preferences', 'feedback', 'canvas', 'rail', 'screensPanel', 'connectionsPanel', 'sharedPanel']);
+        expect(linked.filter((name) => definition.data[name] === undefined)).toEqual([]);
+        expect(EDITOR_FIELDS['status']).toBe('$.data.chat.status');
+        expect(EDITOR_FIELDS['inspectorStatus']).toBe('$.data.inspector.inspectorStatus');
+        expect(EDITOR_FIELDS['screenColumns']).toBe('$.data.screensPanel.screenColumns');
+        for (const [field, path] of paths) {
+            const [, , namespace, name] = path.split('.');
+            expect(name, path).toBe(field);
+            expect(namespaces, path).toContain(namespace);
+            expect(/^d+$/.test(field), path).toBe(false);
+            // A field is in its namespace's model, or it is a node's own state and left the model
+            const inModel = EDITOR.models[definition.data[namespace as string]?.model ?? '']?.some((operation) => operation['field'] === field) === true;
+            const own = Object.keys(EDITOR.own).some((owned) => owned === path || owned.startsWith(`${path}.`));
+            expect(inModel || own, path).toBe(true);
+        }
+        for (const namespace of namespaces) expect(EDITOR.models[definition.data[namespace]?.model ?? '']?.length, namespace).toBeGreaterThan(0);
+    });
+
+    it("should take each pane's flag to the pane's own hidden by its id", () => {
+        // Act
+        const places = Object.fromEntries(Object.entries(EDITOR_PANES).map(([flag, id]) => [flag, EDITOR.own[EDITOR_FIELDS[flag] as string]]));
+
+        // Assert
+        expect(places['chatHidden']).toEqual(['chatPane.hidden']);
+        for (const [flag, id] of Object.entries(EDITOR_PANES)) expect(places[flag], flag).toEqual([`${id}.hidden`]);
+    });
+});
 
 describe('EditorApps', () => {
     let magnetic: RunningMagnetic;

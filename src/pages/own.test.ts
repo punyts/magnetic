@@ -4,11 +4,18 @@ import { hiddenBy, ownTree, ownWrites, pathOfId } from './own.js';
 const MODELS = {
     page: [
         { op: 'set', field: 'notice', type: 'string', default: '' },
-        { op: 'set', field: 'noNotice', type: 'boolean', default: true },
+        { op: 'set', field: 'noNotice', type: 'boolean', default: true }
+    ],
+    bar: [
+        { op: 'set', field: 'zoom', type: 'string', default: '100%' },
         { op: 'set', field: 'look', type: 'object', default: { save: 'ghost', open: 'soft' } },
         { op: 'set', field: 'narrow', type: 'boolean', default: false }
-    ]
+    ],
+    list: [{ op: 'set', field: 'id', type: 'string', required: true }]
 };
+
+/** The page's data in two namespaces, each a record with its own model */
+const RECORDS = [{ path: '$.data.page', model: 'page' }, { path: '$.data.bar', model: 'bar' }];
 
 const definition = (): Record<string, unknown> => ({
     title: 'Page',
@@ -29,9 +36,9 @@ const definition = (): Record<string, unknown> => ({
 });
 
 describe("a node's own state in a page", () => {
-    it('should give each marked node the first value and an id, take the fields out of the model and list where each goes', () => {
+    it('should give each marked node the first value and an id, take the fields out of the model of their record and list where each goes', () => {
         // Act
-        const owned = ownTree(definition(), MODELS, '$.data.page', 'page');
+        const owned = ownTree(definition(), MODELS, RECORDS);
 
         // Assert
         const home = owned.definition['home'] as { children: Record<string, Record<string, unknown> & { children: Record<string, Record<string, unknown>> }> };
@@ -41,22 +48,24 @@ describe("a node's own state in a page", () => {
         expect(home.children['bar']?.children['notice']?.['@id']).toBe('barNoticePart');
         expect(owned.own).toEqual({
             '$.data.page.noNotice': ['noticePart.hidden'],
-            '$.data.page.look.save': ['save.variant'],
-            '$.data.page.look.open': ['openPart.variant'],
-            '$.data.page.narrow': ['openPart.hidden', 'barNoticePart.hidden']
+            '$.data.bar.look.save': ['save.variant'],
+            '$.data.bar.look.open': ['openPart.variant'],
+            '$.data.bar.narrow': ['openPart.hidden', 'barNoticePart.hidden']
         });
         expect(owned.paths['openPart.hidden']).toBe('$.screens.home.children.bar.children.open.hidden');
         expect(owned.models['page']?.map((operation) => operation['field'])).toEqual(['notice']);
+        expect(owned.models['bar']?.map((operation) => operation['field'])).toEqual(['zoom']);
+        expect(owned.models['list']).toBe(MODELS.list);
     });
 
     it('should refuse a field that is both a node’s own state and linked as data, and a field its model lacks', () => {
         // Arrange
-        const both = { home: { component: 'panel', children: { a: { component: 'text', 'own:hidden': 'narrow' }, b: { component: 'switchField', '<-checked': '$.data.page.narrow' } } } };
+        const both = { home: { component: 'panel', children: { a: { component: 'text', 'own:hidden': 'narrow' }, b: { component: 'switchField', '<-checked': '$.data.bar.narrow' } } } };
         const unknown = { home: { component: 'text', 'own:hidden': 'missing' } };
 
         // Act
-        const linked = (): unknown => ownTree(both, MODELS, '$.data.page', 'page');
-        const lacking = (): unknown => ownTree(unknown, MODELS, '$.data.page', 'page');
+        const linked = (): unknown => ownTree(both, MODELS, RECORDS);
+        const lacking = (): unknown => ownTree(unknown, MODELS, RECORDS);
 
         // Assert
         expect(linked).toThrow('narrow');
@@ -65,10 +74,11 @@ describe("a node's own state in a page", () => {
 
     it('should take a write of a field to its nodes by id, and split a record written above such fields', () => {
         // Arrange
-        const { own } = ownTree(definition(), MODELS, '$.data.page', 'page');
+        const { own } = ownTree(definition(), MODELS, RECORDS);
         const writes = [
-            { path: '$.data.page', value: { notice: 'Full', noNotice: false, look: { save: 'solid', open: 'ghost' } } },
-            { path: '$.data.page.narrow', value: true },
+            { path: '$.data.page', value: { notice: 'Full', noNotice: false } },
+            { path: '$.data.bar', value: { zoom: '50%', look: { save: 'solid', open: 'ghost' } } },
+            { path: '$.data.bar.narrow', value: true },
             { path: '$.data.other', value: 1 }
         ];
 
@@ -77,8 +87,9 @@ describe("a node's own state in a page", () => {
 
         // Assert
         expect(placed).toEqual([
-            { path: '$.data.page', value: { notice: 'Full', look: {} } },
+            { path: '$.data.page', value: { notice: 'Full' } },
             { path: '#noticePart.hidden', value: false },
+            { path: '$.data.bar', value: { zoom: '50%', look: {} } },
             { path: '#save.variant', value: 'solid' },
             { path: '#openPart.variant', value: 'ghost' },
             { path: '#openPart.hidden', value: true },
@@ -89,7 +100,7 @@ describe("a node's own state in a page", () => {
 
     it('should find a node by its id in a document and in an app’s state, and link a row’s field instead of owning it', () => {
         // Arrange
-        const owned = ownTree(definition(), MODELS, '$.data.page', 'page');
+        const owned = ownTree(definition(), MODELS, RECORDS);
         const state = { screens: { home: owned.definition['home'] } };
         const document = { screens: { home: { root: owned.definition['home'] } } };
 
@@ -102,6 +113,6 @@ describe("a node's own state in a page", () => {
         expect(inDocument).toBe('$.screens.home.children.bar.children.open');
         expect(pathOfId(state, 'nobody')).toBeUndefined();
         expect(hiddenBy('$row.done')).toEqual({ '<-hidden': '$row.done' });
-        expect(hiddenBy('$.data.page.narrow')).toEqual({ 'own:hidden': '$.data.page.narrow' });
+        expect(hiddenBy('$.data.bar.narrow')).toEqual({ 'own:hidden': '$.data.bar.narrow' });
     });
 });
