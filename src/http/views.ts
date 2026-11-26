@@ -35,7 +35,7 @@ import { HEARING_JS, hearingJs } from './raised.js';
  *   listed below.
  *
  * Every change goes through the person's own tools on the server (`POST /edit/<id>/views/<what>`), as the agent's do;
- * a refusal shows the tool's message. The views' text is `T` (the page's texts), and the agent's next request is told
+ * a refusal shows the tool's message, and a change elsewhere meanwhile a sentence of the page's. The views' text is `T` (the page's texts), and the agent's next request is told
  * about the view shown (`magneticShell.contextOf`).
  */
 /**
@@ -115,11 +115,14 @@ function element(tag, attributes, children) {
     for (const child of children || []) if (child) made.append(child);
     return made;
 }
-/** What the view says last: a change saved, or why it was refused. The page of the view shown shows it */
+/**
+ * What the view says last: a change saved, or why it was refused. The page of the view shown shows it. A refusal stays
+ * until the person closes it (dismiss), the next change is made, or the view changes; one closed is open again for the next
+ */
 let said = '';
 function says(text, refused) {
     said = text || '';
-    const fields = { status: refused ? '' : said, refusal: refused ? said : '', noRefusal: !refused || !said };
+    const fields = { status: refused ? '' : said, refusal: refused ? said : '', noRefusal: !refused || !said, refusalOpen: true };
     if (page) { pageWrite(fields); return; }
     netWrite({ ...fields, noStatus: refused || !said });
 }
@@ -139,12 +142,22 @@ async function getJson(path) {
     if (!response.ok) throw new Error(body.message || T['views.loadFailed']);
     return body;
 }
-/** A change through the person's tools; the answer, or undefined after saying why it was refused */
-async function change(what, body) {
+/**
+ * A change through the person's tools; the answer, or undefined after saying why it was refused. A change refused
+ * because what it changes is at another revision now (the agent or another window wrote it: 409) is not the person's
+ * mistake: what they see is read again (reread, or else the view's own load) and they are told so in their words, not
+ * the tool's, which are written for the agent
+ */
+async function change(what, body, reread) {
     says(T['views.saving']);
     try {
         const response = await fetch(base + '/' + what, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const answer = await response.json().catch(() => ({}));
+        if (response.status === 409) {
+            try { await (reread ? reread() : load()); } catch { /* what shows stays; the sentence says to try again */ }
+            says(T['views.changedElsewhere'], true);
+            return undefined;
+        }
         if (!response.ok) {
             const first = Array.isArray(answer.errors) ? answer.errors.find((error) => error && error.severity !== 'warning') || answer.errors[0] : undefined;
             says((first && first.message) || answer.message || T['views.refused'], true);
@@ -369,6 +382,7 @@ function netHeard(event) {
         case 'select': if (id) choose(id, box); else closeSide(); return;
         case 'open': if (id) choose(id, box); return;
         case 'press': closeSide(); return;
+        case 'dismiss': says(''); return;
         case 'add': {
             const node = graph && graph.nodes.find((each) => each.id === id);
             if (node && node.add) { chosenBox = null; void addUnder(node); }
@@ -763,14 +777,15 @@ async function addUnder(node) {
             }
             case 'unit': {
                 // A module's unit works on what the module needs: the form starts from one on its first need's fields
-                const module = await getJson('/part?kind=logic&name=' + encodeURIComponent(nameOf(node)));
+                let module = await getJson('/part?kind=logic&name=' + encodeURIComponent(nameOf(node)));
+                const reread = async () => { module = await getJson('/part?kind=logic&name=' + encodeURIComponent(nameOf(node))); };
                 const groups = ['rules', 'machines', 'tables'];
                 const template = (group) => JSON.stringify(moduleTemplate(module.body, group), null, 2);
                 return addForm(node, T['views.new.unit'], { choice: { label: T['views.unitKind'], values: groups, texts: groups.map((each) => T['views.unit.' + UNIT_KINDS[each]]) }, second: T['views.unitName'] }, async (form) => {
                     const value = codeValue();
                     if (value === undefined) return;
                     const unit = form.choice + '.' + (form.second || '').trim();
-                    if (await change('logic', { module: nameOf(node), unit, revision: module.revision, value })) {
+                    if (await change('logic', { module: nameOf(node), unit, revision: module.revision, value }, reread)) {
                         await loadGraph();
                         const made = graph.nodes.find((each) => each.id === node.id + '.' + unit);
                         if (made) await moduleUnitEditor(made);
@@ -846,17 +861,19 @@ function moduleEditor(node) {
 /** A unit of a logic module as JSON, saved or deleted through the module's own writes */
 async function moduleUnitEditor(node) {
     const moduleName = nameOf(above(node, 1));
-    const module = await getJson('/part?kind=logic&name=' + encodeURIComponent(moduleName));
+    let module = await getJson('/part?kind=logic&name=' + encodeURIComponent(moduleName));
+    // After a change elsewhere the code typed stays as it is, and the module's revision is read again
+    const reread = async () => { module = await getJson('/part?kind=logic&name=' + encodeURIComponent(moduleName)); };
     const unit = node.note + '.' + node.label;
     const records = module.body[node.note] || {};
     return sideShow(node.id, { title: unit, ...notes(fill(T['views.fromModule'], { module: moduleName })), code: JSON.stringify(records[node.label] || {}, null, 2), codeLabel: unit, noCode: false, noSave: false, noDelete: false }, {
         save: async (text) => {
             const value = codeValue(text);
-            if (value !== undefined && await change('logic', { module: moduleName, unit, revision: module.revision, value })) await loadGraph();
+            if (value !== undefined && await change('logic', { module: moduleName, unit, revision: module.revision, value }, reread)) await loadGraph();
         },
         delete: async () => {
             if (!confirm(fill(T['views.removeUnitAsk'], { unit }))) return;
-            if (await change('logic', { module: moduleName, unit, revision: module.revision, remove: true })) { closeSide(); await loadGraph(); }
+            if (await change('logic', { module: moduleName, unit, revision: module.revision, remove: true }, reread)) { closeSide(); await loadGraph(); }
         }
     });
 }
@@ -953,17 +970,17 @@ function datasetEditor(part, id, use) {
     }, {
         cell: async (row) => {
             if (!row || typeof row.key !== 'string' || typeof row.field !== 'string') return;
-            const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'set', path: row.key + '.' + row.field, value: typed(String(row.value)) }] });
+            const answer = await change('data', { dataset: part.name, revision, operations: [{ op: 'set', path: row.key + '.' + row.field, value: typed(String(row.value)) }] }, reopen);
             if (answer) revision = answer.revision;
         },
         removeRecord: async (key) => {
             if (typeof key !== 'string' || !confirm(fill(T['views.removeRecordAsk'], { key }))) return;
-            if (await change('data', { dataset: part.name, revision, operations: [{ op: 'remove', path: key }] })) await reopen();
+            if (await change('data', { dataset: part.name, revision, operations: [{ op: 'remove', path: key }] }, reopen)) await reopen();
         },
         submit: async (form) => {
             const value = recordValue(form && form.record);
             if (Object.keys(value).length === 0) { says(T['views.recordEmpty'], true); return; }
-            if (await change('data', { dataset: part.name, revision, operations: [{ op: 'add', value }] })) await reopen();
+            if (await change('data', { dataset: part.name, revision, operations: [{ op: 'add', value }] }, reopen)) await reopen();
         },
         ...(use && use.acts)
     });
@@ -985,7 +1002,7 @@ function modelEditor(part, id) {
     /** Writes operations once the write before is answered; the answer, or undefined when it was refused */
     const write = (operations) => {
         const run = last.then(async () => {
-            const answer = await change('data', { model: part.name, revision, operations });
+            const answer = await change('data', { model: part.name, revision, operations }, reopen);
             if (answer) revision = answer.revision;
             return answer;
         });
@@ -1096,6 +1113,7 @@ function viewHeard(event) {
     if (!heard) return;
     const { name, payload } = heard;
     if (name === 'back') { setView('statenet'); return; }
+    if (name === 'dismiss') { says(''); return; }
     if (page.view === 'theme') void themeHeard(name, payload);
     else if (page.view === 'logic') void logicHeard(name, payload);
 }

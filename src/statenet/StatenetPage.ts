@@ -21,7 +21,8 @@ export const STATENET_HEARING: Hearing = {
     'tree.select': { name: 'select' },
     'tree.open': { name: 'open' },
     'tree.layout': { name: 'layout' },
-    'add.press': { name: 'add', from: 'row.id' }
+    'add.press': { name: 'add', from: 'row.id' },
+    'refused.close': { name: 'dismiss' }
 };
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
 
@@ -81,7 +82,8 @@ function card(): Record<string, unknown> {
  *
  * - It writes `nodes` (one record per card: `id`, `parent`, `wrap`, the texts and the look), `links` (the edges across
  *   the tree), `selected`, `view` ({ x, y, zoom }, linked to the viewport), `inset` (what its panels cover), `status`
- *   with `noStatus` (what the page script is doing) and `refusal` with `noRefusal` (why a change was refused). Both
+ *   with `noStatus` (what the page script is doing) and `refusal` with `noRefusal` (why a change was refused, which
+ *   the person can close: `dismiss`; `refusalOpen` opens it again for the next one). Both
  *   show over the canvas, at the top of the area the panels leave.
  * - It hears `select` and `open` ({ id, box }) of a card and `layout` once the cards are placed (`tree`), a press of a
  *   card's + (`add`, the record's id from its row), and a press on the empty canvas and the view once a pan or zoom ends
@@ -117,7 +119,8 @@ export const STATENET: PageSpec = pageSpec({
             field('status', 'string', ''),
             field('noStatus', 'boolean', true),
             field('refusal', 'string', ''),
-            field('noRefusal', 'boolean', true)
+            field('noRefusal', 'boolean', true),
+            field('refusalOpen', 'boolean', true)
         ]
     },
     definition: () => {
@@ -163,7 +166,7 @@ export const STATENET: PageSpec = pageSpec({
                         'own:hidden': `${N}.noStatus`,
                         children: { text: { component: 'text', textRole: 'caption', muted: true, '<-_text': `${N}.status` } }
                     },
-                    refused: { component: 'alert', tone: 'danger', placement: STATUS_PLACEMENT, '<-_text': `${N}.refusal`, 'own:hidden': `${N}.noRefusal` }
+                    refused: { component: 'alert', tone: 'danger', placement: STATUS_PLACEMENT, '<-_text': `${N}.refusal`, dismissible: true, 'own:hidden': `${N}.noRefusal`, 'own:open': `${N}.refusalOpen`, '@id': 'refused' }
                 }
             }
         };

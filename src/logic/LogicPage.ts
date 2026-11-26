@@ -27,6 +27,7 @@ export const LOGIC_HEARING: Hearing = {
     'deleteUnit.press': { name: 'delete', from: 'row.id' },
     'lanes.move': { name: 'move' },
     'back.press': { name: 'back' },
+    'refused.close': { name: 'dismiss' },
     'group.change': { keep: '$.data.logic.group' },
     'create.press': { name: 'create', from: '$.data.logic.group' }
 };
@@ -117,6 +118,7 @@ export const LOGIC: PageSpec = pageSpec({
             field('status', 'string', ''),
             field('refusal', 'string', ''),
             field('noRefusal', 'boolean', true),
+            field('refusalOpen', 'boolean', true),
             field('noBack', 'boolean', true)
         ]
     },
@@ -150,7 +152,7 @@ export const LOGIC: PageSpec = pageSpec({
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${L}.status` }
                         }
                     },
-                    refused: { component: 'alert', tone: 'danger', '<-_text': `${L}.refusal`, 'own:hidden': `${L}.noRefusal` },
+                    refused: { component: 'alert', tone: 'danger', '<-_text': `${L}.refusal`, dismissible: true, 'own:hidden': `${L}.noRefusal`, 'own:open': `${L}.refusalOpen`, '@id': 'refused' },
                     none: { component: 'text', muted: true, _text: t['views.noUnits'], 'own:hidden': `${L}.hasUnits` },
                     notes: {
                         component: 'panel',

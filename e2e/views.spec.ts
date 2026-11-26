@@ -280,7 +280,7 @@ test.describe("The editor's views", () => {
 
     test("a model's fields are added one after another in the side panel, each written once and none refused", async ({ page }, info) => {
         // Arrange: a model of alice's, from a dataset made as the agent would
-        const seeded = uniqueName(info, 'crates');
+        const seeded = uniqueName(info, 'a-crates');
         await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset: seeded, records: { bolt: { name: 'Bolt' } } });
         await pickView(editor, page, 'Statenet');
         const side = sidePanel(page);
@@ -315,6 +315,44 @@ test.describe("The editor's views", () => {
         await expect.poll(() => writes.length).toBe(3);
         await expect(graph(page)).toContainText('Saved');
         await expect(graph(page).getByRole('alert')).toHaveCount(0);
+    });
+
+    test('a change made elsewhere meanwhile is said in plain words, read again, and the notice closes', async ({ page }, info) => {
+        // Arrange: a model open at the side, and a field added to it elsewhere, as the agent or another window would
+        const seeded = uniqueName(info, 'a-pallets');
+        const model = `${seeded}-item`;
+        await seedDataset({ user: 'alice', email: 'alice-views@example.test', dataset: seeded, records: { bolt: { name: 'Bolt' } } });
+        await pickView(editor, page, 'Statenet');
+        const side = sidePanel(page);
+        await press(node(page, `$.models.${model}`));
+        await expect(side.getByRole('heading', { name: model })).toBeVisible();
+        const views = `${new URL(page.url()).pathname.replace(/\/$/, '')}/views`;
+        const read = (await (await page.request.get(`${views}/part?kind=models&name=${model}`)).json()) as { revision: number };
+        const elsewhere = await page.request.post(`${views}/data`, { data: { model, revision: read.revision, operations: [{ op: 'set', field: 'elsewhere', type: 'string' }] } });
+        expect(elsewhere.status()).toBe(200);
+
+        // Act: a field added here, at the revision the editor read
+        await side.getByRole('textbox', { name: 'Field name' }).fill('here');
+        await side.getByRole('button', { name: 'Add the field' }).click();
+
+        // Assert: the page's own sentence, not the tool's, and the model read again
+        const notice = graph(page).getByRole('alert');
+        await expect(notice).toContainText('This changed somewhere else. It was read again; try once more.');
+        await expect(graph(page)).not.toContainText('ui_get');
+        await expect(side.getByRole('combobox', { name: 'elsewhere', exact: true })).toHaveValue('string');
+        await expect(side.getByRole('combobox', { name: 'here', exact: true })).toHaveCount(0);
+
+        // Act and Assert: the notice closes
+        await notice.getByRole('button', { name: 'Close' }).click();
+        await expect(graph(page).getByRole('alert')).toHaveCount(0);
+
+        // Act and Assert: once more, and it is written; a later refusal shows again though the last was closed
+        await side.getByRole('textbox', { name: 'Field name' }).fill('here');
+        await side.getByRole('button', { name: 'Add the field' }).click();
+        await expect(side.getByRole('combobox', { name: 'here', exact: true })).toBeVisible();
+        await expect(graph(page).getByRole('alert')).toHaveCount(0);
+        await side.getByRole('button', { name: 'Add the field' }).click();
+        await expect(graph(page).getByRole('alert')).toContainText('Give the field a name first.');
     });
 
     test('a card of the graph opens its editor beside it: the app leads to its screens, a theme to the Theme view and back', async ({ page }, info) => {

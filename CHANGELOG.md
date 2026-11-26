@@ -1,6 +1,17 @@
 # Changelog
 
 ## 0.1.0 (unreleased)
+- **A change made elsewhere meanwhile is said in the person's words, and the views' red notice closes.** A view's
+  change refused with 409 (what it changes is at another revision: the agent or another window wrote it) showed the
+  tool's message, written for the agent ("Read it again with ui_get…"). `change` in `src/http/views.ts` now reads
+  what shows again (the dataset or model editor reopens, a module's unit editor reads the module's revision and keeps
+  the code typed, the Theme and Logic views load again) and says `views.changedElsewhere`: "This changed somewhere
+  else. It was read again; try once more." (en, de, fr, es). The refusal of the Statenet, Theme and Logic pages is a
+  dismissible alert with the id `refused`: its close is heard as `dismiss` and clears it, and its `open` is the
+  page's `refusalOpen`, written true with every notice so one closed shows the next. As before it also clears when the
+  next change starts and when the view changes. Breaking: the three pages gain the node id `refused`, which a copy
+  must keep. Test: `e2e/views.spec.ts` ("a change made elsewhere meanwhile is said in plain words, read again, and
+  the notice closes").
 - **Fix: adding a field in the model editor no longer ends in a revision notice.** Each row's type select raises a
   change when the fields list is drawn, with the type the field already has; the editor wrote every one of them (adding
   `weight` to a model with `name` sent four writes), and those written beside the add or with the revision of the

@@ -31,6 +31,7 @@ export const THEME_HEARING: Hearing = {
     'preset.change': { keep: '$.data.theme.preset' },
     'create.press': { name: 'create', from: '$.data.theme.preset' },
     'editAll.press': { name: 'editAll' },
+    'refused.close': { name: 'dismiss' },
     ...Object.fromEntries(['all', ...THEME_MODES].map((column) => [`${column}Value.change`, { name: 'token', from: 'row', merge: column }]))
 };
 const field = (name: string, type: string, value: unknown): Record<string, unknown> => ({ op: 'set', field: name, type, default: value });
@@ -91,7 +92,8 @@ const tool = (title: string, id: string, hidden?: string, extra: Record<string, 
  *   `tokens` (one record per token: `id` its path, `group`, `name`, `all` and each mode's value set by the theme, with
  *   `<column>Shown` and `<column>Label`, `locked` and `modesLocked`: shared, or a token no mode may set), `sharedText` (other apps use the theme), what is
  *   hidden (`noTheme` and `hasTheme`, `notShared`, `noDefault`, `noClone`, `noRemove`, `noOthers`, `noBack`), `status`
- *   (saving, saved) and `refusal` with `noRefusal` (why a change was refused).
+ *   (saving, saved) and `refusal` with `noRefusal` (why a change was refused; the person can close it, `dismiss`, and
+ *   `refusalOpen` opens it again for the next one).
  * - It hears `choose` with a theme's name, `token` with a token's record once a value is changed, `editAll` (edit a
  *   shared theme for every app), `clone`, `default`, `remove`, `add` with a theme's name, `create` with the preset
  *   and `back` (to Statenet).
@@ -134,6 +136,7 @@ export const THEME: PageSpec = pageSpec({
             field('status', 'string', ''),
             field('refusal', 'string', ''),
             field('noRefusal', 'boolean', true),
+            field('refusalOpen', 'boolean', true),
             field('noBack', 'boolean', true)
         ]
     },
@@ -191,7 +194,7 @@ export const THEME: PageSpec = pageSpec({
                             status: { component: 'text', textRole: 'caption', muted: true, placement: { grow: 1 }, align: 'end', '<-_text': `${T}.status` }
                         }
                     },
-                    refused: { component: 'alert', tone: 'danger', '<-_text': `${T}.refusal`, 'own:hidden': `${T}.noRefusal` },
+                    refused: { component: 'alert', tone: 'danger', '<-_text': `${T}.refusal`, dismissible: true, 'own:hidden': `${T}.noRefusal`, 'own:open': `${T}.refusalOpen`, '@id': 'refused' },
                     none: { component: 'text', muted: true, _text: t['views.noTheme'], 'own:hidden': `${T}.hasTheme` },
                     shared: {
                         component: 'alert',
