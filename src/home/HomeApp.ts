@@ -18,8 +18,6 @@ import type { Exclusive } from '../storage/exclusive.js';
 export const HOME_APP = 'your-apps';
 /** The model of an app's card on the home app */
 const CARD_MODEL = 'app-card';
-/** The model of the home app's one record of the page's choices (`$.data.home`) */
-const HOME_MODEL = 'magnetic-home';
 
 /** One card of the home app: an app, an org or an invite */
 export interface HomeCard {
@@ -87,6 +85,63 @@ function definedAt(document: unknown, path: string): unknown {
     return valueAt(document, ['$', 'screens', name, ...(rooted ? ['root'] : []), ...rest].join('.'));
 }
 
+type Operation = Record<string, unknown>;
+const text = (field: string, value = ''): Operation => ({ op: 'set', field, type: 'string', default: value });
+const count = (field: string, value: number): Operation => ({ op: 'set', field, type: 'number', default: value });
+const flag = (field: string, value: boolean): Operation => ({ op: 'set', field, type: 'boolean', default: value });
+
+/**
+ * The page's data by namespace, beside the lists of cards (`apps`, `orgs`, `invites`): each is one record at
+ * `$.data.<namespace>` with a model of its own (`magnetic-home-<namespace>`), named for what its fields are about.
+ * A field's name is unique across the namespaces, and `HOME_FIELDS` says where it is. The flags start as Your apps
+ * shows to someone with nothing waiting
+ */
+const RECORDS: Readonly<Record<string, readonly Operation[]>> = {
+    // The page itself: the tab shown, which is kept from one visit to the next
+    page: [text('tab', 'apps')],
+    // The app being made: the name typed for it
+    newApp: [text('make')],
+    // What waits for the person: invites to orgs, and changes people asked for
+    waiting: [flag('noInvites', true), flag('noRequests', true), text('requestsLine')],
+    // Who the person is, their choices of mode and language, and what they may not do: open Admin, make an org
+    person: [text('name'), text('email'), text('mode', 'system'), text('language', 'en'), flag('notAdmin', true), flag('noMakeOrg', false)],
+    // Their agent use: in words, in cents for the ring, and the ring's tone
+    usage: [text('usageLine'), text('usageToday'), count('usedCents', 0), count('totalCents', 1), text('usageTone', 'accent')]
+};
+
+/** The model of a namespace of the page's data */
+const modelOf = (namespace: string): string => `magnetic-home-${namespace.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+
+/** Where each field of the page is: its name to its data path (`tab` to `$.data.page.tab`), made from the models */
+export const HOME_FIELDS: Readonly<Record<string, string>> = (() => {
+    const paths: Record<string, string> = {};
+    for (const [namespace, operations] of Object.entries(RECORDS)) {
+        for (const operation of operations) {
+            const field = String(operation['field']);
+            if (paths[field] !== undefined) throw new Error(`The field ${field} of Your apps is in two namespaces`);
+            paths[field] = `$.data.${namespace}.${field}`;
+        }
+    }
+    return paths;
+})();
+
+/** The data path of a field of the page */
+function h(field: string): string {
+    const path = HOME_FIELDS[field];
+    if (path === undefined) throw new Error(`Your apps has no field ${field}`);
+    return path;
+}
+
+/** Fields of the page as the records they are in: one value per namespace, by its data path, in the order of `RECORDS` */
+function byNamespace(fields: Readonly<Record<string, unknown>>): Array<[string, Record<string, unknown>]> {
+    const records = new Map<string, Record<string, unknown>>(Object.keys(RECORDS).map((namespace) => [`$.data.${namespace}`, {}]));
+    for (const [field, value] of Object.entries(fields)) {
+        const path = h(field);
+        (records.get(path.slice(0, path.lastIndexOf('.'))) as Record<string, unknown>)[field] = value;
+    }
+    return [...records].filter(([, record]) => Object.keys(record).length > 0);
+}
+
 /**
  * What the page script hears of Your apps (src/http/raised.ts): a card's or a button's id names what it does, a card
  * in a grid with its id from its row; the name typed for a new app is kept as it changes, for Make
@@ -98,8 +153,8 @@ export const HOME_HEARING: Hearing = {
     'inviteJoin.press': { name: 'inviteJoin', from: 'row.id' },
     'inviteDecline.press': { name: 'inviteDecline', from: 'row.id' },
     'orgCard.press': { name: 'openOrg', from: 'row.id' },
-    'make.change': { keep: '$.data.home.make' },
-    'create.press': { name: 'create', from: '$.data.home.make' },
+    'make.change': { keep: h('make') },
+    'create.press': { name: 'create', from: h('make') },
     'review.press': { name: 'requests' },
     'makeOrg.press': { name: 'orgs' },
     'billing.press': { name: 'billing' },
@@ -187,11 +242,8 @@ function inviteGrid(t: Texts): Record<string, unknown> {
     };
 }
 
-/** The page's record: what it shows and hides, the person's choices, and the name typed for a new app */
-const H = '$.data.home';
-
 /**
- * The home screen, in a centred column: Magnetic over four tabs, the one shown kept in `$.data.home.tab`.
+ * The home screen, in a centred column: Magnetic over four tabs, the one shown kept in `$.data.page.tab`.
  * - Apps: a field and a button that make an app (`create`, with the name), and one grid of the person's apps and the
  *   apps shared with them (`open`, `shareAccept`, `shareReject`).
  * - Orgs: the invites waiting (`inviteJoin`, `inviteDecline`), their orgs (`openOrg`) and Make an org (`orgs`).
@@ -207,7 +259,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
         size: 'sm',
         _label: label,
         options,
-        '<-value': `${H}.${target}`,
+        '<-value': h(target),
         '@id': target
     });
     const link = (id: string, title: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({ component: 'button', variant: 'soft', size: 'sm', _title: title, ...more, '@id': id });
@@ -232,18 +284,18 @@ function homeScreen(t: Texts): Record<string, unknown> {
                     title: { component: 'text', textRole: 'title', element: 'h1', _text: 'Magnetic' },
                     tabs: {
                         component: 'tabs',
-                        '<-active': `${H}.tab`,
+                        '<-active': h('tab'),
                         children: {
                             apps: tab(t['home.tabApps'], 'apps', {
-                                invitesWaiting: { component: 'alert', tone: 'info', icon: 'mail', _text: t['home.invitesWaiting'], 'own:hidden': `${H}.noInvites` },
+                                invitesWaiting: { component: 'alert', tone: 'info', icon: 'mail', _text: t['home.invitesWaiting'], 'own:hidden': h('noInvites') },
                                 // Shown only while changes people asked for wait for a decision
                                 requestsWaiting: {
                                     component: 'panel',
                                     padding: 'none',
-                                    'own:hidden': `${H}.noRequests`,
+                                    'own:hidden': h('noRequests'),
                                     layout: { type: 'row', gap: 'sm', align: 'center' },
                                     children: {
-                                        alert: { component: 'alert', tone: 'warning', icon: 'inbox', placement: { grow: 1 }, '<-_text': `${H}.requestsLine` },
+                                        alert: { component: 'alert', tone: 'warning', icon: 'inbox', placement: { grow: 1 }, '<-_text': h('requestsLine') },
                                         review: link('review', t['home.requestsReview'])
                                     }
                                 },
@@ -254,7 +306,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     _description: t['home.makeText'],
                                     layout: { type: 'row', align: 'end', gap: 'sm' },
                                     children: {
-                                        make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], '<-value': `${H}.make`, '@id': 'make' },
+                                        make: { component: 'textField', placement: { grow: 1 }, _label: t['home.name'], _placeholder: t['home.namePlaceholder'], '<-value': h('make'), '@id': 'make' },
                                         create: { component: 'button', _title: t['home.make'], '@id': 'create' }
                                     }
                                 },
@@ -266,7 +318,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                 invitesBox: {
                                     component: 'panel',
                                     bordered: true,
-                                    'own:hidden': `${H}.noInvites`,
+                                    'own:hidden': h('noInvites'),
                                     _title: t['home.invitesTitle'],
                                     _description: t['home.invitesText'],
                                     layout: { type: 'column', gap: 'sm' },
@@ -278,7 +330,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     layout: { type: 'row', gap: 'sm', align: 'center' },
                                     children: {
                                         title: { component: 'text', textRole: 'heading', element: 'h2', placement: { grow: 1 }, _text: t['home.orgsTitle'] },
-                                        make: { component: 'button', size: 'sm', variant: 'soft', 'own:hidden': `${H}.noMakeOrg`, _title: t['home.makeOrg'], '@id': 'makeOrg' }
+                                        make: { component: 'button', size: 'sm', variant: 'soft', 'own:hidden': h('noMakeOrg'), _title: t['home.makeOrg'], '@id': 'makeOrg' }
                                     }
                                 },
                                 orgsHint: { component: 'text', textRole: 'caption', _text: t['home.orgsText'] },
@@ -292,15 +344,15 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                     _description: t['home.usageText'],
                                     layout: { type: 'row', gap: 'lg', align: 'center', wrap: true },
                                     children: {
-                                        ring: { component: 'progress', shape: 'ring', size: 'lg', _label: t['home.billing'], '<-value': `${H}.usedCents`, '<-max': `${H}.totalCents`, 'own:tone': `${H}.usageTone` },
+                                        ring: { component: 'progress', shape: 'ring', size: 'lg', _label: t['home.billing'], '<-value': h('usedCents'), '<-max': h('totalCents'), 'own:tone': h('usageTone') },
                                         words: {
                                             component: 'panel',
                                             padding: 'none',
                                             placement: { grow: 1 },
                                             layout: { type: 'column', gap: 'sm' },
                                             children: {
-                                                line: { component: 'text', textRole: 'heading', '<-_text': `${H}.usageLine` },
-                                                today: { component: 'text', textRole: 'caption', '<-_text': `${H}.usageToday` }
+                                                line: { component: 'text', textRole: 'heading', '<-_text': h('usageLine') },
+                                                today: { component: 'text', textRole: 'caption', '<-_text': h('usageToday') }
                                             }
                                         },
                                         billing: link('billing', t['home.billing'])
@@ -311,8 +363,8 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                 who: {
                                     component: 'panel',
                                     bordered: true,
-                                    '<-_title': `${H}.name`,
-                                    '<-_description': `${H}.email`,
+                                    '<-_title': h('name'),
+                                    '<-_description': h('email'),
                                     layout: { type: 'column', gap: 'md' },
                                     children: {
                                         about: { component: 'text', textRole: 'caption', _text: t['home.profileText'] },
@@ -334,7 +386,7 @@ function homeScreen(t: Texts): Record<string, unknown> {
                                                 data: link('data', t['home.data']),
                                                 requests: link('requests', t['home.requests']),
                                                 device: link('device', t['home.device']),
-                                                admin: link('admin', t['home.admin'], { 'own:hidden': `${H}.notAdmin` }),
+                                                admin: link('admin', t['home.admin'], { 'own:hidden': h('notAdmin') }),
                                                 signout: link('signout', t['home.signOut'], { variant: 'ghost' })
                                             }
                                         }
@@ -374,26 +426,9 @@ const CARD_FIELDS = [
     { op: 'set', field: 'answered', type: 'boolean' }
 ];
 
-/** The fields of the page's record, `$.data.home`: the flags start as Your apps shows to someone with nothing waiting */
-const HOME_FIELDS = [
-    ...['noInvites', 'noRequests', 'notAdmin', 'noMakeOrg'].map((field) => ({ op: 'set', field, type: 'boolean', default: field !== 'noMakeOrg' })),
-    { op: 'set', field: 'requestsLine', type: 'string', default: '' },
-    { op: 'set', field: 'mode', type: 'string', default: 'system' },
-    { op: 'set', field: 'language', type: 'string', default: 'en' },
-    { op: 'set', field: 'make', type: 'string', default: '' },
-    { op: 'set', field: 'tab', type: 'string', default: 'apps' },
-    { op: 'set', field: 'name', type: 'string', default: '' },
-    { op: 'set', field: 'email', type: 'string', default: '' },
-    { op: 'set', field: 'usageLine', type: 'string', default: '' },
-    { op: 'set', field: 'usageToday', type: 'string', default: '' },
-    { op: 'set', field: 'usedCents', type: 'number', default: 0 },
-    { op: 'set', field: 'totalCents', type: 'number', default: 1 },
-    { op: 'set', field: 'usageTone', type: 'string', default: 'accent' }
-];
-
 /** Your apps as a page of Magnetic's: made in English, with the other languages as locales */
 export const HOME: PageSpec = pageSpec({
-    records: [{ path: H, model: HOME_MODEL }],
+    records: Object.keys(RECORDS).map((namespace) => ({ path: `$.data.${namespace}`, model: modelOf(namespace) })),
     name: HOME_APP,
     title: 'Your apps',
     themed: false,
@@ -406,32 +441,34 @@ export const HOME: PageSpec = pageSpec({
         },
         '$.data.orgs': { 'org-one': { id: 'org-one', name: 'An org of theirs', note: 'Builder' } },
         '$.data.invites': { 'invite-one': { id: 'invite-one', name: 'Join an org', note: 'As a builder, from someone' } },
-        [H]: {
-            noInvites: false,
-            noRequests: false,
-            requestsLine: '2 changes people asked for wait for your approval.',
-            notAdmin: false,
-            noMakeOrg: false,
-            mode: 'system',
-            language: 'en',
-            make: '',
-            tab: 'apps',
-            name: 'Someone',
-            email: 'someone@example.com',
-            usageLine: 'You have used $1.20 of $5.00.',
-            usageToday: 'Today: $0.20',
-            usedCents: 120,
-            totalCents: 500,
-            usageTone: 'accent'
-        }
+        ...Object.fromEntries(
+            byNamespace({
+                noInvites: false,
+                noRequests: false,
+                requestsLine: '2 changes people asked for wait for your approval.',
+                notAdmin: false,
+                noMakeOrg: false,
+                mode: 'system',
+                language: 'en',
+                make: '',
+                tab: 'apps',
+                name: 'Someone',
+                email: 'someone@example.com',
+                usageLine: 'You have used $1.20 of $5.00.',
+                usageToday: 'Today: $0.20',
+                usedCents: 120,
+                totalCents: 500,
+                usageTone: 'accent'
+            })
+        )
     },
-    models: { [CARD_MODEL]: CARD_FIELDS, [HOME_MODEL]: HOME_FIELDS },
+    models: { [CARD_MODEL]: CARD_FIELDS, ...Object.fromEntries(Object.entries(RECORDS).map(([namespace, operations]) => [modelOf(namespace), operations])) },
     definition: () => {
         const t = textsOf('en');
         return {
             title: t['home.appsTitle'],
             data: {
-                home: { model: HOME_MODEL, scope: 'person' },
+                ...Object.fromEntries(Object.keys(RECORDS).map((namespace) => [namespace, { model: modelOf(namespace), scope: 'person' }])),
                 apps: { model: CARD_MODEL, scope: 'person' },
                 orgs: { model: CARD_MODEL, scope: 'person' },
                 invites: { model: CARD_MODEL, scope: 'person' }
@@ -492,33 +529,34 @@ export class HomeApps extends PersonPages {
         const { own, document } = await this.opened(services, userId, true);
         // The state is read once and only what differs is written: most loads of the page change nothing
         const state = own.get('$');
-        const tab = valueAt(state, `${H}.tab`);
+        const tab = valueAt(state, h('tab'));
         const usage = data.usage ?? { line: '', today: '', usedCents: 0, totalCents: 1, tone: 'accent' };
-        const fields: Array<[string, unknown]> = [
+        /** The lists of cards: maps whose keys are in the order the cards show */
+        const lists: Array<[string, unknown]> = [
             ['$.data.apps', byId(data.apps)],
             ['$.data.orgs', byId(data.orgs ?? [])],
-            ['$.data.invites', byId(data.invites ?? [])],
-            [
-                H,
-                {
-                    noInvites: (data.invites ?? []).length === 0,
-                    noRequests: (data.requests ?? 0) === 0,
-                    requestsLine: (data.requests ?? 0) === 0 ? '' : fill(textsOf(prefs.language)['home.requestsWaiting'], { count: String(data.requests) }),
-                    notAdmin: data.admin !== true,
-                    noMakeOrg: data.makeOrgs === false,
-                    mode: prefs.mode,
-                    language: prefs.language,
-                    make: '',
-                    tab: typeof tab === 'string' && tab !== '' ? tab : 'apps',
-                    name: data.person?.name ?? '',
-                    email: data.person?.email ?? '',
-                    usageLine: usage.line,
-                    usageToday: usage.today,
-                    usedCents: usage.usedCents,
-                    totalCents: Math.max(1, usage.totalCents),
-                    usageTone: usage.tone
-                }
-            ]
+            ['$.data.invites', byId(data.invites ?? [])]
+        ];
+        const fields: Array<[string, unknown]> = [
+            ...lists,
+            ...byNamespace({
+                noInvites: (data.invites ?? []).length === 0,
+                noRequests: (data.requests ?? 0) === 0,
+                requestsLine: (data.requests ?? 0) === 0 ? '' : fill(textsOf(prefs.language)['home.requestsWaiting'], { count: String(data.requests) }),
+                notAdmin: data.admin !== true,
+                noMakeOrg: data.makeOrgs === false,
+                mode: prefs.mode,
+                language: prefs.language,
+                make: '',
+                tab: typeof tab === 'string' && tab !== '' ? tab : 'apps',
+                name: data.person?.name ?? '',
+                email: data.person?.email ?? '',
+                usageLine: usage.line,
+                usageToday: usage.today,
+                usedCents: usage.usedCents,
+                totalCents: Math.max(1, usage.totalCents),
+                usageTone: usage.tone
+            })
         ];
         // A field that is a node's own state (the Admin link's hidden) goes to that node, wherever the person's copy has it
         const placed = ownWrites(HOME.own, fields.map(([path, value]) => ({ path, value })), (target) => {
@@ -536,7 +574,7 @@ export class HomeApps extends PersonPages {
             if (JSON.stringify(now) === JSON.stringify(value)) continue;
             // A write keeps the keys a map has where they are and adds new ones after them, so a list whose cards must
             // change order (a new share goes first) is emptied first
-            if (path !== H && !sameOrder(now, value)) await set(path, {});
+            if (lists.some(([list]) => list === path) && !sameOrder(now, value)) await set(path, {});
             await set(path, value);
         }
     }
